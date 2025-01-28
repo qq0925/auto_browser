@@ -27,7 +27,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
           onPageFinished: (_) => setState(() => _isLoading = false),
         ),
       )
-      ..loadRequest(Uri.parse('https://www.google.com'));
+      ..loadRequest(Uri.parse('https://www.baidu.com'));
   }
 
   @override
