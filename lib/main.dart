@@ -1,13 +1,36 @@
 import 'package:flutter/material.dart';
-import 'browser_page.dart'; // 确保导入正确
+import 'package:auto_browser/features/browser/presentation/browser_screen.dart';
 
-void main() => runApp(MyApp());
+void main() => runApp(const AutoBrowserApp());
 
-class MyApp extends StatelessWidget {
+class AutoBrowserApp extends StatelessWidget {
+  const AutoBrowserApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      home: BrowserPage(), // 使用BrowserPage作为首页
+      title: 'Auto Browser',
+      debugShowCheckedModeBanner: false,
+      theme: _buildIOSTheme(),
+      home: const BrowserScreen(),
+    );
+  }
+
+  ThemeData _buildIOSTheme() {
+    return ThemeData(
+      useMaterial3: true,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: Colors.blue,
+        brightness: Brightness.light,
+      ),
+      appBarTheme: const AppBarTheme(
+        centerTitle: false,
+        scrolledUnderElevation: 0.5,
+      ),
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: Colors.blue.shade100,
+        foregroundColor: Colors.blue.shade800,
+      ),
     );
   }
 }
