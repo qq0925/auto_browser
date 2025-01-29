@@ -6,7 +6,7 @@
 	<dict>
   		<key>NSAllowsArbitraryLoads</key>
   		<true/>
-<	/dict>
+	</dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
