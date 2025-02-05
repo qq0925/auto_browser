@@ -426,7 +426,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                           });
                         },
                         child: const Icon(
-                          CupertinoIcons.right_chevron,
+                          CupertinoIcons.left_chevron,
                           color: CupertinoColors.white,
                         ),
                       ),
@@ -543,7 +543,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
             if (!_showScriptPanel)
               Positioned(
                 right: 0,
-                top: MediaQuery.of(context).size.height / 2 - 25,
+                bottom: MediaQuery.of(context).size.height / 8,
                 child: GestureDetector(
                   onTap: () {
                     setState(() {
@@ -560,7 +560,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                       ),
                     ),
                     child: const Icon(
-                      CupertinoIcons.left_chevron,
+                      CupertinoIcons.right_chevron,
                       color: CupertinoColors.white,
                       size: 20,
                     ),
