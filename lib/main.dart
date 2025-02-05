@@ -140,20 +140,37 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
-        middle: CupertinoTextField(
-          controller: _urlController,
-          placeholder: '输入网址',
-          onSubmitted: (url) {
-            String finalUrl = url;
-            if (!url.startsWith('http://') && !url.startsWith('https://')) {
-              finalUrl = 'https://$url';
-            }
-            _tabs[_currentIndex].controller.loadRequest(Uri.parse(finalUrl));
-          },
-          decoration: BoxDecoration(
-            color: CupertinoColors.systemGrey6,
-            borderRadius: BorderRadius.circular(8),
-          ),
+        middle: Row(
+          children: [
+            Expanded(
+              child: CupertinoTextField(
+                controller: _urlController,
+                placeholder: '输入网址',
+                onSubmitted: (url) {
+                  String finalUrl = url;
+                  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                    finalUrl = 'https://$url';
+                  }
+                  _tabs[_currentIndex].controller.loadRequest(Uri.parse(finalUrl));
+                },
+                decoration: BoxDecoration(
+                  color: CupertinoColors.systemGrey6,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
+            CupertinoButton(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              onPressed: () {
+                _tabs[_currentIndex].controller.reload();
+              },
+              child: const Icon(
+                CupertinoIcons.refresh,
+                color: CupertinoColors.systemGrey,
+                size: 22,
+              ),
+            ),
+          ],
         ),
       ),
       child: SafeArea(
