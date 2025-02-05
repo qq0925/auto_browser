@@ -109,129 +109,29 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
     }
   }
 
-  void _showMenu() {
-    showCupertinoModalPopup(
-      context: context,
-      builder: (context) => CupertinoActionSheet(
-        actions: [
-          CupertinoActionSheetAction(
-            onPressed: _addNewTab,
-            child: const Text('新建标签页'),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () async {
-              final controller = _tabs[_currentIndex].controller;
-              if (await controller.canGoBack()) {
-                controller.goBack();
-              }
-            },
-            child: const Text('后退'),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () async {
-              final controller = _tabs[_currentIndex].controller;
-              if (await controller.canGoForward()) {
-                controller.goForward();
-              }
-            },
-            child: const Text('前进'),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () {
-              _tabs[_currentIndex].controller.reload();
-            },
-            child: const Text('刷新'),
-          ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('取消'),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
-        middle: Row(
-          children: [
-            Expanded(
-              child: CupertinoTextField(
-                controller: _urlController,
-                placeholder: '输入网址',
-                onSubmitted: (url) {
-                  String finalUrl = url;
-                  if (!url.startsWith('http://') && !url.startsWith('https://')) {
-                    finalUrl = 'https://$url';
-                  }
-                  _tabs[_currentIndex].controller.loadRequest(Uri.parse(finalUrl));
-                },
-                decoration: BoxDecoration(
-                  color: CupertinoColors.systemGrey6,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-            ),
-            CupertinoButton(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              onPressed: _showMenu,
-              child: const Icon(CupertinoIcons.ellipsis),
-            ),
-          ],
+        middle: CupertinoTextField(
+          controller: _urlController,
+          placeholder: '输入网址',
+          onSubmitted: (url) {
+            String finalUrl = url;
+            if (!url.startsWith('http://') && !url.startsWith('https://')) {
+              finalUrl = 'https://$url';
+            }
+            _tabs[_currentIndex].controller.loadRequest(Uri.parse(finalUrl));
+          },
+          decoration: BoxDecoration(
+            color: CupertinoColors.systemGrey6,
+            borderRadius: BorderRadius.circular(8),
+          ),
         ),
       ),
       child: SafeArea(
         child: Column(
           children: [
-            // 标签栏
-            Container(
-              height: 40,
-              color: CupertinoColors.systemGrey6,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: _tabs.length,
-                itemBuilder: (context, index) {
-                  final tab = _tabs[index];
-                  return GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _currentIndex = index;
-                        _updateTabInfo(index);
-                      });
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      margin: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: _currentIndex == index
-                            ? CupertinoColors.systemGrey4
-                            : CupertinoColors.systemGrey6,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          Text(
-                            tab.title,
-                            style: const TextStyle(fontSize: 14),
-                          ),
-                          if (_tabs.length > 1)
-                            CupertinoButton(
-                              padding: const EdgeInsets.only(left: 4),
-                              onPressed: () => _removeTab(index),
-                              child: const Icon(
-                                CupertinoIcons.clear_circled,
-                                size: 18,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
             // 网页内容
             Expanded(
               child: Stack(
@@ -246,6 +146,154 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                     const Center(
                       child: CupertinoActivityIndicator(),
                     ),
+                ],
+              ),
+            ),
+            // 底部导航栏
+            Container(
+              height: 50,
+              decoration: BoxDecoration(
+                color: CupertinoColors.systemGrey6.withOpacity(0.9),
+                border: const Border(
+                  top: BorderSide(
+                    color: CupertinoColors.systemGrey4,
+                    width: 0.5,
+                  ),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  // 后退按钮
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () async {
+                      final controller = _tabs[_currentIndex].controller;
+                      if (await controller.canGoBack()) {
+                        controller.goBack();
+                      }
+                    },
+                    child: const Icon(
+                      CupertinoIcons.chevron_left,
+                      color: CupertinoColors.systemGrey,
+                    ),
+                  ),
+                  // 前进按钮
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () async {
+                      final controller = _tabs[_currentIndex].controller;
+                      if (await controller.canGoForward()) {
+                        controller.goForward();
+                      }
+                    },
+                    child: const Icon(
+                      CupertinoIcons.chevron_right,
+                      color: CupertinoColors.systemGrey,
+                    ),
+                  ),
+                  // 标签切换按钮
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () {
+                      showCupertinoModalPopup(
+                        context: context,
+                        builder: (context) => Container(
+                          height: 200,
+                          color: CupertinoColors.systemBackground,
+                          child: Column(
+                            children: [
+                              Expanded(
+                                child: ListView.builder(
+                                  itemCount: _tabs.length,
+                                  itemBuilder: (context, index) {
+                                    final tab = _tabs[index];
+                                    return CupertinoListTile(
+                                      title: Text(tab.title),
+                                      subtitle: Text(tab.url),
+                                      trailing: _tabs.length > 1
+                                          ? CupertinoButton(
+                                              padding: EdgeInsets.zero,
+                                              onPressed: () => _removeTab(index),
+                                              child: const Icon(
+                                                CupertinoIcons.clear_circled,
+                                              ),
+                                            )
+                                          : null,
+                                      onTap: () {
+                                        setState(() {
+                                          _currentIndex = index;
+                                        });
+                                        Navigator.pop(context);
+                                      },
+                                    );
+                                  },
+                                ),
+                              ),
+                              CupertinoButton(
+                                child: const Text('新建标签页'),
+                                onPressed: () {
+                                  _addNewTab();
+                                  Navigator.pop(context);
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: CupertinoColors.systemGrey4,
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                      child: Text(
+                        '${_tabs.length}',
+                        style: const TextStyle(
+                          color: CupertinoColors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                  // 菜单按钮
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () {
+                      showCupertinoModalPopup(
+                        context: context,
+                        builder: (context) => CupertinoActionSheet(
+                          actions: [
+                            CupertinoActionSheetAction(
+                              onPressed: () {
+                                _tabs[_currentIndex].controller.reload();
+                                Navigator.pop(context);
+                              },
+                              child: const Text('刷新'),
+                            ),
+                            CupertinoActionSheetAction(
+                              onPressed: () {
+                                _addNewTab();
+                                Navigator.pop(context);
+                              },
+                              child: const Text('新建标签页'),
+                            ),
+                          ],
+                          cancelButton: CupertinoActionSheetAction(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('取消'),
+                          ),
+                        ),
+                      );
+                    },
+                    child: const Icon(
+                      CupertinoIcons.ellipsis,
+                      color: CupertinoColors.systemGrey,
+                    ),
+                  ),
                 ],
               ),
             ),
