@@ -421,7 +421,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                 ),
               ],
             ),
-            // 脚本管理器面板
+            // 脚本管理器面板和控制按钮
             AnimatedPositioned(
               duration: const Duration(milliseconds: 300),
               right: _showScriptPanel ? 0 : -MediaQuery.of(context).size.width / 2,
@@ -429,7 +429,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
               top: 0,
               bottom: 0,
               child: Stack(
+                clipBehavior: Clip.none,  // 允许子组件超出边界
                 children: [
+                  // 脚本管理器面板
                   Container(
                     color: CupertinoColors.black.withOpacity(0.9),
                     child: Column(
@@ -542,14 +544,14 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                       ],
                     ),
                   ),
-                  // 收起按钮
+                  // 控制按钮
                   Positioned(
                     left: -25,
                     top: MediaQuery.of(context).size.height / 8,
                     child: GestureDetector(
                       onTap: () {
                         setState(() {
-                          _showScriptPanel = false;
+                          _showScriptPanel = !_showScriptPanel;
                         });
                       },
                       child: Container(
@@ -561,8 +563,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                             left: Radius.circular(8),
                           ),
                         ),
-                        child: const Icon(
-                          CupertinoIcons.left_chevron,
+                        child: Icon(
+                          _showScriptPanel 
+                              ? CupertinoIcons.right_chevron
+                              : CupertinoIcons.left_chevron,
                           color: CupertinoColors.white,
                           size: 20,
                         ),
@@ -572,34 +576,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                 ],
               ),
             ),
-            // 展开按钮
-            if (!_showScriptPanel)
-              Positioned(
-                right: 0,
-                bottom: MediaQuery.of(context).size.height / 8,
-                child: GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _showScriptPanel = true;
-                    });
-                  },
-                  child: Container(
-                    width: 25,
-                    height: 50,
-                    decoration: const BoxDecoration(
-                      color: CupertinoColors.black,
-                      borderRadius: BorderRadius.horizontal(
-                        left: Radius.circular(8),
-                      ),
-                    ),
-                    child: const Icon(
-                      CupertinoIcons.right_chevron,
-                      color: CupertinoColors.white,
-                      size: 20,
-                    ),
-                  ),
-                ),
-              ),
           ],
         ),
       ),
