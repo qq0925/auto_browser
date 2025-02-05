@@ -74,6 +74,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
   int _currentScriptIndex = 0;
   int _executionDelay = 1000; // 默认延迟1000ms
   int _loopCount = 1; // 默认循环1次
+  bool _isRecording = false;  // 录制状态
+  final List<Script> _recordedScripts = [];  // 录制的脚本列表
 
   @override
   void initState() {
@@ -82,22 +84,39 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
   }
 
   void _addNewTab() {
-    final controller = WebViewController()
+    late final WebViewController controller;  // 先声明
+    controller = WebViewController()  // 然后初始化
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setNavigationDelegate(NavigationDelegate(
-        onPageStarted: (url) {
-          setState(() {
-            isLoading = true;
-          });
+      ..addJavaScriptChannel(
+        'ScriptRecorder',
+        onMessageReceived: (JavaScriptMessage message) {
+          _recordClick(message.message);
         },
-        onPageFinished: (url) {
-          setState(() {
-            isLoading = false;
-          });
-          _updateTabInfo(_currentIndex);
-        },
-      ))
-      ..loadRequest(Uri.parse('https://www.google.com'));
+      )
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageStarted: (url) {
+            setState(() {
+              isLoading = true;
+            });
+          },
+          onPageFinished: (String url) async {
+            setState(() {
+              isLoading = false;
+            });
+            _updateTabInfo(_currentIndex);
+            
+            await controller.runJavaScript('''
+              document.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                  ScriptRecorder.postMessage(e.target.textContent);
+                }
+              });
+            ''');
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse('https://www.baidu.com'));
 
     final newTab = BrowserTab(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -133,6 +152,36 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
         _updateTabInfo(_currentIndex);
       });
       Navigator.pop(context);
+    }
+  }
+
+  void _startRecording() {
+    setState(() {
+      _isRecording = true;
+      _showScriptPanel = false;  // 收起脚本管理器
+    });
+  }
+
+  void _stopRecording() {
+    setState(() {
+      _isRecording = false;
+    });
+  }
+
+  void _recordClick(String text) {
+    if (_isRecording) {
+      setState(() {
+        _recordedScripts.add(Script(
+          name: "点击文字",
+          content: text,
+          isEnabled: true,
+        ));
+        _scripts.add(Script(
+          name: "点击文字",
+          content: text,
+          isEnabled: true,
+        ));
+      });
     }
   }
 
@@ -247,7 +296,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                             builder: (context) => Container(
                               height: 300,
                               decoration: BoxDecoration(
-                                color: CupertinoColors.systemBackground.darkColor,
+                                color: const Color.fromARGB(255, 28, 28, 30),  // 使用固定的深色值
                                 borderRadius: const BorderRadius.vertical(
                                   top: Radius.circular(12),
                                 ),
@@ -284,7 +333,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                                         return Container(
                                           decoration: BoxDecoration(
                                             color: _currentIndex == index
-                                                ? CupertinoColors.systemGrey6.darkColor
+                                                ? const Color.fromARGB(255, 44, 44, 46)  // 固定深色值
                                                 : null,
                                             border: Border(
                                               bottom: BorderSide(
@@ -301,7 +350,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                                             ),
                                             subtitle: Text(
                                               tab.url,
-                                              style: TextStyle(
+                                              style: const TextStyle(
                                                 color: CupertinoColors.systemGrey.color,
                                                 fontSize: 12,
                                               ),
@@ -429,7 +478,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
               top: 0,
               bottom: 0,
               child: Stack(
-                clipBehavior: Clip.none,  // 允许子组件超出边界
+                clipBehavior: Clip.none,
                 children: [
                   // 脚本管理器面板
                   Container(
@@ -541,41 +590,104 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                             },
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                  // 控制按钮
-                  Positioned(
-                    left: -25,
-                    top: MediaQuery.of(context).size.height / 8,
-                    child: GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          _showScriptPanel = !_showScriptPanel;
-                        });
-                      },
-                      child: Container(
-                        width: 25,
-                        height: 50,
-                        decoration: const BoxDecoration(
-                          color: CupertinoColors.black,
-                          borderRadius: BorderRadius.horizontal(
-                            left: Radius.circular(8),
+                        // 添加分割线和录制按钮
+                        const Divider(color: CupertinoColors.white),
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: CupertinoButton(
+                            color: CupertinoColors.systemBlue,
+                            onPressed: _startRecording,
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  CupertinoIcons.smallcircle_fill_circle_fill,
+                                  color: CupertinoColors.white,
+                                  size: 16,
+                                ),
+                                SizedBox(width: 8),
+                                Text(
+                                  '录制脚本',
+                                  style: TextStyle(color: CupertinoColors.white),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                        child: Icon(
-                          _showScriptPanel 
-                              ? CupertinoIcons.right_chevron
-                              : CupertinoIcons.left_chevron,
-                          color: CupertinoColors.white,
-                          size: 20,
-                        ),
-                      ),
+                      ],
                     ),
                   ),
                 ],
               ),
             ),
+            // 将控制按钮移到外层 Stack
+            Positioned(
+              right: _showScriptPanel ? MediaQuery.of(context).size.width / 2 - 25 : 0,
+              bottom: MediaQuery.of(context).size.height / 8,  // 改为 bottom 定位
+              child: GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _showScriptPanel = !_showScriptPanel;
+                  });
+                },
+                child: Container(
+                  width: 25,
+                  height: 50,
+                  decoration: const BoxDecoration(
+                    color: CupertinoColors.black,
+                    borderRadius: BorderRadius.horizontal(
+                      left: Radius.circular(8),
+                    ),
+                  ),
+                  child: Icon(
+                    _showScriptPanel 
+                        ? CupertinoIcons.right_chevron
+                        : CupertinoIcons.left_chevron,
+                    color: CupertinoColors.white,
+                    size: 20,
+                  ),
+                ),
+              ),
+            ),
+            // 在外层 Stack 中添加录制提示
+            if (_isRecording)
+              Positioned(
+                left: 16,
+                bottom: 66,  // 在底部导航栏上方
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: CupertinoColors.systemRed.withOpacity(0.9),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        CupertinoIcons.smallcircle_fill_circle_fill,
+                        color: CupertinoColors.white,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        '录制中',
+                        style: TextStyle(
+                          color: CupertinoColors.white,
+                          fontSize: 14,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: _stopRecording,
+                        child: const Icon(
+                          CupertinoIcons.clear_circled_solid,
+                          color: CupertinoColors.white,
+                          size: 20,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
           ],
         ),
       ),
