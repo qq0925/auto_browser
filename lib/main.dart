@@ -350,8 +350,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                                             ),
                                             subtitle: Text(
                                               tab.url,
-                                              style: const TextStyle(
-                                                color: CupertinoColors.systemGrey.color,
+                                              style: TextStyle(
+                                                color: const Color(0xFF8E8E93),  // 使用固定的灰色值
                                                 fontSize: 12,
                                               ),
                                             ),
