@@ -424,27 +424,37 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
             // 脚本管理器面板
             AnimatedPositioned(
               duration: const Duration(milliseconds: 300),
-              right: _showScriptPanel ? 0 : -300,
+              right: _showScriptPanel ? 0 : -MediaQuery.of(context).size.width / 2,
+              width: MediaQuery.of(context).size.width / 2,
               top: 0,
               bottom: 0,
-              width: 300,
               child: Container(
                 color: CupertinoColors.black.withOpacity(0.9),
                 child: Column(
                   children: [
                     // 收起按钮
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: CupertinoButton(
-                        padding: const EdgeInsets.all(8),
-                        onPressed: () {
+                    Positioned(
+                      left: -25,
+                      child: GestureDetector(
+                        onTap: () {
                           setState(() {
                             _showScriptPanel = false;
                           });
                         },
-                        child: const Icon(
-                          CupertinoIcons.left_chevron,
-                          color: CupertinoColors.white,
+                        child: Container(
+                          width: 25,
+                          height: 50,
+                          decoration: const BoxDecoration(
+                            color: CupertinoColors.black,
+                            borderRadius: BorderRadius.horizontal(
+                              left: Radius.circular(8),
+                            ),
+                          ),
+                          child: const Icon(
+                            CupertinoIcons.left_chevron,
+                            color: CupertinoColors.white,
+                            size: 20,
+                          ),
                         ),
                       ),
                     ),
