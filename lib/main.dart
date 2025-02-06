@@ -884,18 +884,20 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       navigationBar: CupertinoNavigationBar(
         middle: Row(
           children: [
-            // 修改地址栏部分
             Expanded(
               child: GestureDetector(
-                onTap: () => _showUrlInput(),  // 保持点击处理
-                child: AbsorbPointer(  // 添加这个组件来确保点击事件不被 TextField 吸收
+                onTap: () => _showUrlInput(),
+                child: AbsorbPointer(
                   child: CupertinoTextField(
                     controller: _urlController,
                     enabled: false,
+                    textAlign: TextAlign.left,  // 靠左对齐
                     placeholder: _tabs.isNotEmpty 
                         ? (_tabs[_currentIndex].url == 'about:blank' 
                             ? '欢迎使用'
-                            : _tabs[_currentIndex].title)
+                            : (_tabs[_currentIndex].title.isEmpty 
+                                ? '无标题页面' 
+                                : _tabs[_currentIndex].title))
                         : '欢迎使用',
                     decoration: BoxDecoration(
                       color: CupertinoColors.systemGrey6,
@@ -903,6 +905,18 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                     ),
                   ),
                 ),
+              ),
+            ),
+            CupertinoButton(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              onPressed: () {
+                if (_tabs.isNotEmpty && _tabs[_currentIndex].url != 'about:blank') {
+                  _tabs[_currentIndex].controller.reload();
+                }
+              },
+              child: const Icon(
+                CupertinoIcons.refresh,
+                color: CupertinoColors.systemGrey,
               ),
             ),
           ],
@@ -1718,13 +1732,16 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
 
   // 修改 URL 输入状态处理
   void _showUrlInput() {
+    final currentUrl = _tabs[_currentIndex].url;
+    final isDefaultPage = currentUrl == 'about:blank';
+    
     showCupertinoModalPopup(
       context: context,
-      barrierColor: CupertinoColors.black,  // 添加遮罩颜色
+      barrierColor: CupertinoColors.black,
       builder: (context) => Container(
-        height: MediaQuery.of(context).size.height,  // 修改为全屏高度
+        height: MediaQuery.of(context).size.height,
         color: CupertinoColors.black,
-        child: SafeArea(  // 添加安全区域
+        child: SafeArea(
           child: Column(
             children: [
               Padding(
@@ -1733,9 +1750,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                   children: [
                     Expanded(
                       child: CupertinoTextField(
-                        controller: TextEditingController(text: ''),  // 始终显示空白
+                        controller: TextEditingController(
+                          text: isDefaultPage ? '' : currentUrl,
+                        ),
                         autofocus: true,
-                        placeholder: '搜索或输入网址',  // 添加提示文字
+                        placeholder: '搜索或输入网址',
                         onSubmitted: (url) {
                           if (url.isEmpty) {
                             Navigator.pop(context);
