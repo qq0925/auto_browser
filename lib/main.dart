@@ -72,15 +72,15 @@ class BrowserHomePage extends StatefulWidget {
 }
 
 class Script {
-  String type;      // 脚本类型: 点击文字、点击链接、输入提交、刷新网页、进入网址、网页后退、网页前进
-  String? content;  // 内容（URL、文字等）
+  String type;      // 脚本类型: 点击文字、输入提交
+  String? content;  // 内容（文字或表单数据）
   bool isEnabled;
   bool exactMatch;
 
   Script({
     required this.type,
     this.content,
-    this.isEnabled = false,
+    this.isEnabled = true,
     this.exactMatch = true,
   });
 
@@ -125,7 +125,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     try {
       if (!mounted) return;
       await Future.delayed(const Duration(milliseconds: 100));
-      _addNewTab();
+      // 只在首次启动时添加新标签页
+      if (_tabs.isEmpty) {
+        _addNewTab();
+      }
     } catch (e) {
       debugPrint('Init browser error: $e');
     }
@@ -187,10 +190,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                   let text = '';
                   let type = '';
                   
-                  if (e.target.tagName === 'A') {
-                    type = '点击链接';
-                    text = e.target.textContent || e.target.innerText;
-                  } else {
+                  if (e.target.closest('a')) {
                     type = '点击文字';
                     text = e.target.textContent || e.target.innerText;
                   }
@@ -198,6 +198,16 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                   if (text.trim()) {
                     ScriptRecorder.postMessage(type + '|' + text.trim());
                   }
+                });
+
+                // 监听表单提交
+                document.addEventListener('submit', function(e) {
+                  const formData = new FormData(e.target);
+                  let data = {};
+                  for (let [key, value] of formData.entries()) {
+                    data[key] = value;
+                  }
+                  ScriptRecorder.postMessage('输入提交|' + JSON.stringify(data));
                 });
               ''');
             },
@@ -509,23 +519,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
               case "点击文字":
                 await _executeClickText(script.content ?? '');
                 break;
-              case "点击链接":
-                await _executeClickLink(script.content ?? '');
-                break;
               case "输入提交":
                 await _executeFormSubmit(script.content ?? '');
-                break;
-              case "刷新网页":
-                await _tabs[_currentIndex].controller.reload();
-                break;
-              case "进入网址":
-                await _tabs[_currentIndex].controller.loadRequest(Uri.parse(script.content ?? ''));
-                break;
-              case "网页后退":
-                await _tabs[_currentIndex].controller.goBack();
-                break;
-              case "网页前进":
-                await _tabs[_currentIndex].controller.goForward();
                 break;
             }
             setState(() => _successCount++);
@@ -563,22 +558,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       })();
     ''');
     if (result.toString() != 'true') throw Exception('Text not found');
-  }
-
-  Future<void> _executeClickLink(String url) async {
-    final result = await _tabs[_currentIndex].controller.runJavaScriptReturningResult('''
-      (function() {
-        const links = document.querySelectorAll('a');
-        for (const link of links) {
-          if (link.href === "$url") {
-            link.click();
-            return true;
-          }
-        }
-        return false;
-      })();
-    ''');
-    if (result.toString() != 'true') throw Exception('Link not found');
   }
 
   Future<void> _executeFormSubmit(String formData) async {
@@ -892,12 +871,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       for (var tab in _tabs) {
         tab.controller.clearCache();
       }
-      if (mounted) {
-        setState(() {
-          _tabs.clear();
-          _currentIndex = 0;
-        });
-      }
     } catch (e) {
       debugPrint('Cleanup error: $e');
     }
@@ -909,10 +882,30 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       navigationBar: CupertinoNavigationBar(
         middle: Row(
           children: [
+            // 网页图标
+            Container(
+              width: 24,
+              height: 24,
+              margin: const EdgeInsets.only(right: 8),
+              child: _tabs.isNotEmpty ? WebViewWidget(
+                controller: WebViewController()
+                  ..loadRequest(Uri.parse('https://www.google.com/s2/favicons?domain=${Uri.parse(_tabs[_currentIndex].url).host}&sz=64'))
+              ) : const Icon(CupertinoIcons.globe, size: 16),
+            ),
+            // 网址栏
             Expanded(
               child: CupertinoTextField(
                 controller: _urlController,
                 placeholder: '输入网址',
+                prefix: Text(
+                  _tabs.isNotEmpty ? _tabs[_currentIndex].title : '',
+                  style: const TextStyle(
+                    color: CupertinoColors.systemGrey,
+                    fontSize: 14,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
                 onSubmitted: (url) {
                   String finalUrl = url;
                   if (!url.startsWith('http://') && !url.startsWith('https://')) {
@@ -924,17 +917,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                   color: CupertinoColors.systemGrey6,
                   borderRadius: BorderRadius.circular(8),
                 ),
-              ),
-            ),
-            CupertinoButton(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              onPressed: () {
-                _tabs[_currentIndex].controller.reload();
-              },
-              child: const Icon(
-                CupertinoIcons.refresh,
-                color: CupertinoColors.systemGrey,
-                size: 22,
               ),
             ),
           ],
