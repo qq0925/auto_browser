@@ -283,6 +283,50 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
             ContextMenu.postMessage('');
           });
         ''')
+        ..addJavaScriptChannel(
+          'ScriptRecorder',
+          onMessageReceived: (JavaScriptMessage message) {
+            if (!_isRecording) return;
+            
+            final parts = message.message.split('|');
+            if (parts.length != 2) return;
+            
+            final type = parts[0];
+            final content = parts[1];
+            
+            setState(() {
+              switch (type) {
+                case '点击文字':
+                  _scripts.add(Script(
+                    type: type,
+                    params: {'点击文字': content},
+                    isEnabled: true,
+                  ));
+                  break;
+                case '输入提交':
+                  try {
+                    final formData = json.decode(content) as Map<String, dynamic>;
+                    final params = <String, String>{
+                      '执行延迟': '800',
+                    };
+                    var index = 1;
+                    formData.forEach((key, value) {
+                      params['输入框$index'] = value.toString();
+                      index++;
+                    });
+                    _scripts.add(Script(
+                      type: '输入框提交',
+                      params: params,
+                      isEnabled: true,
+                    ));
+                  } catch (e) {
+                    debugPrint('Parse form data error: $e');
+                  }
+                  break;
+              }
+            });
+          },
+        )
         ..loadFlutterAsset('assets/welcome.html');  // 修改这里，加载本地HTML文件
 
       setState(() {
@@ -428,18 +472,21 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                           context: context,
                           builder: (context) => Container(
                             height: 200,
-                            color: CupertinoColors.systemBackground,
-                            child: CupertinoPicker(
-                              itemExtent: 32,
-                              onSelectedItemChanged: (index) {
-                                setState(() {
-                                  type = index == 0 ? "点击文字" : "输入框提交";
-                                });
-                              },
-                              children: const [
-                                Text("点击文字"),
-                                Text("输入框提交"),
-                              ],
+                            color: CupertinoColors.systemBackground.darkColor,
+                            child: SafeArea(
+                              child: CupertinoPicker(
+                                backgroundColor: CupertinoColors.black,
+                                itemExtent: 32,
+                                onSelectedItemChanged: (index) {
+                                  setState(() {
+                                    type = index == 0 ? "点击文字" : "输入框提交";
+                                  });
+                                },
+                                children: const [
+                                  Text("点击文字", style: TextStyle(color: CupertinoColors.white)),
+                                  Text("输入框提交", style: TextStyle(color: CupertinoColors.white)),
+                                ],
+                              ),
                             ),
                           ),
                         );
@@ -485,19 +532,35 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                 onChanged: (value) => inputValues[index] = value,
                               ),
                             ),
-                            if (index == inputValues.length - 1)
-                              CupertinoButton(
-                                padding: const EdgeInsets.only(left: 8),
-                                child: const Icon(CupertinoIcons.add_circled),
-                                onPressed: () {
-                                  setState(() {
-                                    inputValues.add('');
-                                  });
-                                },
-                              ),
+                            CupertinoButton(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: const Icon(CupertinoIcons.minus_circle_fill, color: CupertinoColors.destructiveRed),
+                              onPressed: () {
+                                setState(() {
+                                  inputValues.removeAt(index);
+                                });
+                              },
+                            ),
                           ],
                         ),
                       )),
+                      // 添加按钮放在最下面
+                      CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(CupertinoIcons.add_circled, color: CupertinoColors.activeBlue),
+                            SizedBox(width: 8),
+                            Text('添加输入框'),
+                          ],
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            inputValues.add('');
+                          });
+                        },
+                      ),
                     ],
                   ),
               ],
@@ -592,18 +655,21 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                           context: context,
                           builder: (context) => Container(
                             height: 200,
-                            color: CupertinoColors.systemBackground,
-                            child: CupertinoPicker(
-                              itemExtent: 32,
-                              onSelectedItemChanged: (index) {
-                                setState(() {
-                                  type = index == 0 ? "点击文字" : "输入框提交";
-                                });
-                              },
-                              children: const [
-                                Text("点击文字"),
-                                Text("输入框提交"),
-                              ],
+                            color: CupertinoColors.systemBackground.darkColor,
+                            child: SafeArea(
+                              child: CupertinoPicker(
+                                backgroundColor: CupertinoColors.black,
+                                itemExtent: 32,
+                                onSelectedItemChanged: (index) {
+                                  setState(() {
+                                    type = index == 0 ? "点击文字" : "输入框提交";
+                                  });
+                                },
+                                children: const [
+                                  Text("点击文字", style: TextStyle(color: CupertinoColors.white)),
+                                  Text("输入框提交", style: TextStyle(color: CupertinoColors.white)),
+                                ],
+                              ),
                             ),
                           ),
                         );
@@ -651,16 +717,15 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                 onChanged: (value) => inputValues[index] = value,
                               ),
                             ),
-                            if (index == inputValues.length - 1)
-                              CupertinoButton(
-                                padding: const EdgeInsets.only(left: 8),
-                                child: const Icon(CupertinoIcons.add_circled),
-                                onPressed: () {
-                                  setState(() {
-                                    inputValues.add('');
-                                  });
-                                },
-                              ),
+                            CupertinoButton(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: const Icon(CupertinoIcons.minus_circle_fill, color: CupertinoColors.destructiveRed),
+                              onPressed: () {
+                                setState(() {
+                                  inputValues.removeAt(index);
+                                });
+                              },
+                            ),
                           ],
                         ),
                       )),
