@@ -140,8 +140,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
               ''');
             },
           ),
-        )
-        ..loadRequest(Uri.parse('https://www.baidu.com'));
+        );
 
       setState(() {
         _tabs.add(BrowserTab(
@@ -245,6 +244,48 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     }
     
     return lines.join('\n');
+  }
+
+  void _addScript() {
+    showCupertinoDialog(
+      context: context,
+      builder: (context) {
+        String content = '';
+        return CupertinoAlertDialog(
+          title: const Text('添加脚本'),
+          content: Column(
+            children: [
+              const SizedBox(height: 8),
+              CupertinoTextField(
+                placeholder: '输入要点击的文字',
+                onChanged: (value) => content = value,
+              ),
+            ],
+          ),
+          actions: [
+            CupertinoDialogAction(
+              child: const Text('取消'),
+              onPressed: () => Navigator.pop(context),
+            ),
+            CupertinoDialogAction(
+              child: const Text('确定'),
+              onPressed: () {
+                if (content.isNotEmpty) {
+                  setState(() {
+                    _scripts.add(Script(
+                      type: "点击文字",
+                      content: content,
+                      isEnabled: true,
+                    ));
+                  });
+                }
+                Navigator.pop(context);
+              },
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -686,9 +727,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                     const SizedBox(height: 16),
                                     CupertinoButton(
                                       color: CupertinoColors.systemGreen,
-                                      onPressed: () {
-                                        // TODO: 实现添加脚本功能
-                                      },
+                                      onPressed: _addScript,
                                       child: const Row(
                                         mainAxisAlignment: MainAxisAlignment.center,
                                         children: [
@@ -718,9 +757,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                           const Divider(color: CupertinoColors.white),
                                           CupertinoButton(
                                             padding: const EdgeInsets.all(16),
-                                            onPressed: () {
-                                              // TODO: 实现添加脚本功能
-                                            },
+                                            onPressed: _addScript,
                                             child: const Row(
                                               mainAxisAlignment: MainAxisAlignment.center,
                                               children: [
