@@ -884,40 +884,20 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       navigationBar: CupertinoNavigationBar(
         middle: Row(
           children: [
-            // 网页图标
-            Container(
-              width: 24,
-              height: 24,
-              margin: const EdgeInsets.only(right: 8),
-              child: _tabs.isNotEmpty ? WebViewWidget(
-                controller: WebViewController()
-                  ..loadRequest(Uri.parse('https://www.google.com/s2/favicons?domain=${Uri.parse(_tabs[_currentIndex].url).host}&sz=64'))
-              ) : const Icon(CupertinoIcons.globe, size: 16),
-            ),
-            // 网址栏
+            // 移除网页图标
             Expanded(
-              child: CupertinoTextField(
-                controller: _urlController,
-                placeholder: '输入网址',
-                prefix: Text(
-                  _tabs.isNotEmpty ? _tabs[_currentIndex].title : '',
-                  style: const TextStyle(
-                    color: CupertinoColors.systemGrey,
-                    fontSize: 14,
+              child: GestureDetector(
+                onTap: () => _showUrlInput(),  // 添加点击处理
+                child: CupertinoTextField(
+                  controller: _urlController,
+                  enabled: false,  // 默认禁用，通过点击处理来显示输入状态
+                  placeholder: _tabs.isNotEmpty && _tabs[_currentIndex].url == 'about:blank' 
+                      ? '欢迎使用'
+                      : _tabs[_currentIndex].title,  // 显示网页标题而不是网址
+                  decoration: BoxDecoration(
+                    color: CupertinoColors.systemGrey6,
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                onSubmitted: (url) {
-                  String finalUrl = url;
-                  if (!url.startsWith('http://') && !url.startsWith('https://')) {
-                    finalUrl = 'https://$url';
-                  }
-                  _tabs[_currentIndex].controller.loadRequest(Uri.parse(finalUrl));
-                },
-                decoration: BoxDecoration(
-                  color: CupertinoColors.systemGrey6,
-                  borderRadius: BorderRadius.circular(8),
                 ),
               ),
             ),
@@ -1730,5 +1710,84 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         });
       });
     }
+  }
+
+  // 添加 URL 输入状态处理
+  void _showUrlInput() {
+    showCupertinoModalPopup(
+      context: context,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.8,
+        color: CupertinoColors.black,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: CupertinoTextField(
+                      controller: TextEditingController(
+                        text: _tabs[_currentIndex].url == 'about:blank' 
+                            ? '' 
+                            : _tabs[_currentIndex].url,
+                      ),
+                      autofocus: true,  // 自动获取焦点并调出键盘
+                      onSubmitted: (url) {
+                        String finalUrl = url;
+                        if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                          finalUrl = 'https://$url';
+                        }
+                        _tabs[_currentIndex].controller.loadRequest(Uri.parse(finalUrl));
+                        Navigator.pop(context);
+                      },
+                      decoration: BoxDecoration(
+                        color: CupertinoColors.systemGrey6,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                  CupertinoButton(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: const Text('取消'),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(color: CupertinoColors.systemGrey4),
+            Expanded(
+              child: ListView.builder(
+                itemCount: _history.length,
+                itemBuilder: (context, index) {
+                  final item = _history[index];
+                  return Column(
+                    children: [
+                      CupertinoListTile(
+                        title: Text(
+                          item.title,
+                          style: const TextStyle(color: CupertinoColors.white),
+                        ),
+                        subtitle: Text(
+                          item.url,
+                          style: const TextStyle(color: CupertinoColors.systemGrey),
+                        ),
+                        onTap: () {
+                          _tabs[_currentIndex].controller.loadRequest(
+                            Uri.parse(item.url),
+                          );
+                          Navigator.pop(context);
+                        },
+                      ),
+                      const Divider(color: CupertinoColors.systemGrey4),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
