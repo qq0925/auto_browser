@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
+import 'package:share_plus/share_plus.dart';  // 添加分享功能的包
+import 'package:path_provider/path_provider.dart';  // 添加这行导入
 
 void main() {
   runApp(const MyApp());
@@ -169,12 +171,14 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 isLoading = false;
                 _loadingProgress = 1;
                 
-                // 添加到历史记录
-                _history.insert(0, HistoryItem(
-                  title: title,
-                  url: url,
-                  visitedAt: DateTime.now(),
-                ));
+                // 添加空值检查
+                if (mounted && _tabs.isNotEmpty && _currentIndex >= 0 && _currentIndex < _tabs.length) {
+                  _history.insert(0, HistoryItem(
+                    title: title,
+                    url: url,
+                    visitedAt: DateTime.now(),
+                  ));
+                }
               });
               _updateTabInfo(_currentIndex);
               
@@ -328,14 +332,37 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     showCupertinoDialog(
       context: context,
       builder: (context) {
+        String type = "点击文字";
         String content = '';
         return CupertinoAlertDialog(
           title: const Text('添加脚本'),
           content: Column(
             children: [
               const SizedBox(height: 8),
+              // 脚本类型选择
+              Row(
+                children: [
+                  const Text('脚本类型'),
+                  const SizedBox(width: 8),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    child: Row(
+                      children: [
+                        Text(type),
+                        const Text(' 简易'),
+                        const Icon(CupertinoIcons.question_circle, size: 16),
+                      ],
+                    ),
+                    onPressed: () {
+                      // TODO: 显示类型选择
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              // 点击文字输入
               CupertinoTextField(
-                placeholder: '输入要点击的文字',
+                placeholder: '点击文字',
                 onChanged: (value) => content = value,
               ),
             ],
@@ -351,7 +378,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 if (content.isNotEmpty) {
                   setState(() {
                     _scripts.add(Script(
-                      type: "点击文字",
+                      type: type,
                       content: content,
                       isEnabled: true,
                     ));
@@ -372,16 +399,39 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     showCupertinoDialog(
       context: context,
       builder: (context) {
+        String type = script.type;
         String content = script.content ?? '';
         return CupertinoAlertDialog(
           title: const Text('编辑脚本'),
           content: Column(
             children: [
               const SizedBox(height: 8),
+              // 脚本类型显示
+              Row(
+                children: [
+                  const Text('脚本类型'),
+                  const SizedBox(width: 8),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    child: Row(
+                      children: [
+                        Text(type),
+                        const Text(' 简易'),
+                        const Icon(CupertinoIcons.question_circle, size: 16),
+                      ],
+                    ),
+                    onPressed: () {
+                      // TODO: 显示类型选择
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              // 点击文字输入
               CupertinoTextField(
-                placeholder: '输入要点击的文字',
-                onChanged: (value) => content = value,
+                placeholder: '点击文字',
                 controller: TextEditingController(text: content),
+                onChanged: (value) => content = value,
               ),
             ],
           ),
@@ -395,6 +445,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
               onPressed: () {
                 if (content.isNotEmpty) {
                   setState(() {
+                    _scripts[index].type = type;
                     _scripts[index].content = content;
                   });
                 }
@@ -765,9 +816,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                   CupertinoButton(
                     padding: EdgeInsets.zero,
                     onPressed: () {
-                      setState(() {
-                        _history.clear();
-                      });
+                      _clearHistory();
                       Navigator.pop(context);
                     },
                     child: const Text('清除'),
@@ -955,10 +1004,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                           setState(() => _showMenuPanel = !_showMenuPanel);
                         },
                         child: Icon(
-                          CupertinoIcons.line_horizontal_3,
-                          color: _showMenuPanel 
-                              ? CupertinoColors.activeBlue
-                              : CupertinoColors.systemGrey,
+                          _showMenuPanel ? CupertinoIcons.line_horizontal_3 : CupertinoIcons.line_horizontal_3,
+                          color: _showMenuPanel ? CupertinoColors.activeBlue : CupertinoColors.systemGrey,
                         ),
                       ),
                       // 标签页切换按钮
@@ -1241,10 +1288,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                     return GestureDetector(
                                       onTap: () => _editScript(index),
                                       child: Container(
-                                        padding: const EdgeInsets.all(12),
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),  // 减小内边距
                                         decoration: BoxDecoration(
                                           color: CupertinoColors.systemGrey6.withAlpha(30),
-                                          borderRadius: BorderRadius.circular(8),
+                                          borderRadius: BorderRadius.circular(6),  // 减小圆角
                                         ),
                                         child: Stack(
                                           children: [
@@ -1252,7 +1299,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                               children: [
                                                 // 左侧脚本类型
                                                 Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),  // 减小内边距
                                                   decoration: BoxDecoration(
                                                     color: CupertinoColors.systemBlue.withAlpha(50),
                                                     borderRadius: BorderRadius.circular(4),
@@ -1261,24 +1308,24 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                                     script.type,
                                                     style: const TextStyle(
                                                       color: CupertinoColors.white,
-                                                      fontSize: 14,
+                                                      fontSize: 12,  // 减小字体
                                                     ),
                                                   ),
                                                 ),
-                                                const SizedBox(width: 12),
+                                                const SizedBox(width: 8),  // 减小间距
                                                 // 右侧脚本内容
                                                 Expanded(
                                                   child: Text(
                                                     script.content ?? '',
                                                     style: const TextStyle(
                                                       color: CupertinoColors.white,
-                                                      fontSize: 14,
+                                                      fontSize: 12,  // 减小字体
                                                     ),
-                                                    maxLines: 2,
+                                                    maxLines: 1,  // 限制为单行
                                                     overflow: TextOverflow.ellipsis,
                                                   ),
                                                 ),
-                                                const SizedBox(width: 40),  // 为角标预留空间
+                                                const SizedBox(width: 24),  // 减小角标预留空间
                                               ],
                                             ),
                                             // 右上角角标
@@ -1286,19 +1333,19 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                               top: 0,
                                               right: 0,
                                               child: Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),  // 减小内边距
                                                 decoration: BoxDecoration(
                                                   color: CupertinoColors.systemGrey.withAlpha(100),
                                                   borderRadius: const BorderRadius.only(
-                                                    topRight: Radius.circular(8),
-                                                    bottomLeft: Radius.circular(8),
+                                                    topRight: Radius.circular(6),
+                                                    bottomLeft: Radius.circular(6),
                                                   ),
                                                 ),
                                                 child: Text(
                                                   '${index + 1}',
                                                   style: const TextStyle(
                                                     color: CupertinoColors.white,
-                                                    fontSize: 12,
+                                                    fontSize: 10,  // 减小字体
                                                   ),
                                                 ),
                                               ),
@@ -1449,9 +1496,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                     ),
                   ),
                   child: Icon(
-                    _showScriptPanel 
-                        ? CupertinoIcons.right_chevron
-                        : CupertinoIcons.left_chevron,
+                    _showScriptPanel ? CupertinoIcons.right_chevron : CupertinoIcons.left_chevron,
                     color: CupertinoColors.white,
                     size: 20,
                   ),
@@ -1530,33 +1575,46 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   // 修改导出方法
   void _exportScripts() async {
     try {
-      // 获取保存路径
-      String? outputFile = await FilePicker.platform.saveFile(
-        dialogTitle: '保存脚本',
-        fileName: 'script.zds',
-        allowedExtensions: ['zds'],
-        type: FileType.custom,
-      );
-
-      if (outputFile != null) {
-        final content = exportScript();
-        final file = File(outputFile);
+      final content = exportScript();
+      
+      if (Platform.isIOS) {
+        // 使用 Share.share 来分享/保存文件内容
+        final tempDir = await getTemporaryDirectory();
+        final file = File('${tempDir.path}/script.zds');
         await file.writeAsString(content);
         
-        if (mounted) {
-          showCupertinoDialog(
-            context: context,
-            builder: (context) => CupertinoAlertDialog(
-              title: const Text('导出成功'),
-              content: Text('脚本已保存到：$outputFile'),
-              actions: [
-                CupertinoDialogAction(
-                  child: const Text('确定'),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ],
-            ),
-          );
+        await Share.shareXFiles(
+          [XFile(file.path)],
+          subject: '导出脚本',
+        );
+      } else {
+        // Android 上使用 FilePicker
+        String? outputFile = await FilePicker.platform.saveFile(
+          dialogTitle: '保存脚本',
+          fileName: 'script.zds',
+          allowedExtensions: ['zds'],
+          type: FileType.custom,
+        );
+
+        if (outputFile != null) {
+          final file = File(outputFile);
+          await file.writeAsString(content);
+          
+          if (mounted) {
+            showCupertinoDialog(
+              context: context,
+              builder: (context) => CupertinoAlertDialog(
+                title: const Text('导出成功'),
+                content: Text('脚本已保存到：$outputFile'),
+                actions: [
+                  CupertinoDialogAction(
+                    child: const Text('确定'),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            );
+          }
         }
       }
     } catch (e) {
@@ -1664,6 +1722,29 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
           ),
         );
       }
+    }
+  }
+
+  // 修改清除历史记录的方法
+  void _clearHistory() {
+    setState(() {
+      _history.clear();
+    });
+    // 可选：保存当前标签页的信息作为最新历史
+    if (_tabs.isNotEmpty && _currentIndex >= 0 && _currentIndex < _tabs.length) {
+      _tabs[_currentIndex].controller.getTitle().then((title) {
+        _tabs[_currentIndex].controller.currentUrl().then((url) {
+          if (mounted && title != null && url != null) {
+            setState(() {
+              _history.add(HistoryItem(
+                title: title,
+                url: url,
+                visitedAt: DateTime.now(),
+              ));
+            });
+          }
+        });
+      });
     }
   }
 }
