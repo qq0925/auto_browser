@@ -106,6 +106,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   final List<Bookmark> _bookmarks = [];
   final List<HistoryItem> _history = [];
   double _loadingProgress = 0;  // 加载进度
+  bool _isPaused = false;  // 暂停状态
+  int _successCount = 0;   // 成功次数
+  int _failureCount = 0;   // 失败次数
 
   @override
   void initState() {
@@ -425,31 +428,56 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     
     setState(() {
       _isExecuting = true;
-      _remainingLoopCount = _originalLoopCount;  // 重置剩余次数
+      _isPaused = false;
+      _remainingLoopCount = _originalLoopCount;
+      _successCount = 0;
+      _failureCount = 0;
     });
 
     try {
       do {
         for (var script in _scripts) {
+          while (_isPaused) {
+            await Future.delayed(const Duration(milliseconds: 100));
+            if (!_isExecuting) return;  // 检查是否停止执行
+          }
+          
+          if (!_isExecuting) return;  // 检查是否停止执行
           if (!script.isEnabled) continue;
           
           if (script.type == "点击文字") {
             await Future.delayed(Duration(milliseconds: _executionDelay));
-            await _tabs[_currentIndex].controller.runJavaScript('''
-              (function() {
-                const elements = document.querySelectorAll('a');
-                for (const element of elements) {
-                  if (element.textContent.trim() === "${script.content}") {
-                    element.click();
-                    return;
+            
+            try {
+              final result = await _tabs[_currentIndex].controller.runJavaScriptReturningResult('''
+                (function() {
+                  const elements = document.querySelectorAll('a');
+                  for (const element of elements) {
+                    if (element.textContent.trim() === "${script.content}") {
+                      element.click();
+                      return true;
+                    }
                   }
+                  return false;
+                })();
+              ''');
+              
+              setState(() {
+                if (result.toString() == 'true') {
+                  _successCount++;
+                } else {
+                  _failureCount++;
                 }
-              })();
-            ''');
+              });
+            } catch (e) {
+              setState(() {
+                _failureCount++;
+              });
+            }
           }
         }
         
-        if (_originalLoopCount > 0) {  // 使用原始次数判断是否无限循环
+        if (_originalLoopCount > 0) {
           _remainingLoopCount--;
         }
       } while (_originalLoopCount == 0 || _remainingLoopCount > 0);
@@ -457,6 +485,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     } finally {
       setState(() {
         _isExecuting = false;
+        _isPaused = false;
       });
     }
   }
@@ -786,202 +815,240 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 // 底部导航栏
                 Container(
                   height: 50,
-                  decoration: BoxDecoration(
-                    color: CupertinoColors.systemGrey6.withAlpha(230),
-                    border: const Border(
-                      top: BorderSide(
-                        color: Color(0x4D8E8E93),  // 使用固定的 ARGB 值
-                        width: 0.5,
-                      ),
-                    ),
-                  ),
+                  color: const Color(0xFF1C1C1E),  // 灰黑色背景
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      // 后退按钮
-                      CupertinoButton(
-                        padding: EdgeInsets.zero,
-                        onPressed: () async {
-                          final controller = _tabs[_currentIndex].controller;
-                          if (await controller.canGoBack()) {
-                            controller.goBack();
-                          }
-                        },
-                        child: const Icon(
-                          CupertinoIcons.chevron_left,
-                          color: CupertinoColors.systemGrey,
-                        ),
-                      ),
-                      // 前进按钮
-                      CupertinoButton(
-                        padding: EdgeInsets.zero,
-                        onPressed: () async {
-                          final controller = _tabs[_currentIndex].controller;
-                          if (await controller.canGoForward()) {
-                            controller.goForward();
-                          }
-                        },
-                        child: const Icon(
-                          CupertinoIcons.chevron_right,
-                          color: CupertinoColors.systemGrey,
-                        ),
-                      ),
-                      // 标签切换按钮
-                      CupertinoButton(
-                        padding: EdgeInsets.zero,
-                        onPressed: () {
-                          showCupertinoModalPopup(
-                            context: context,
-                            builder: (context) => Container(
-                              height: 300,
-                              decoration: BoxDecoration(
-                                color: const Color.fromARGB(255, 28, 28, 30),  // 使用固定的深色值
-                                borderRadius: const BorderRadius.vertical(
-                                  top: Radius.circular(12),
-                                ),
+                      // 左侧导航按钮
+                      Expanded(
+                        flex: 3,  // 占用3/4空间
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            CupertinoButton(
+                              padding: EdgeInsets.zero,
+                              onPressed: () {
+                                if (_currentIndex > 0) {
+                                  _tabs[_currentIndex].controller.goBack();
+                                }
+                              },
+                              child: const Icon(
+                                CupertinoIcons.back,
+                                color: CupertinoColors.systemGrey,
                               ),
-                              child: Column(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(vertical: 8),
-                                    decoration: BoxDecoration(
-                                      border: Border(
-                                        bottom: BorderSide(
-                                          color: CupertinoColors.systemGrey.withAlpha(77),
-                                        ),
-                                      ),
-                                    ),
-                                    child: const Row(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        Text(
-                                          '标签页',
-                                          style: TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Expanded(
+                            ),
+                            CupertinoButton(
+                              padding: EdgeInsets.zero,
+                              onPressed: () {
+                                if (_currentIndex < _tabs.length - 1) {
+                                  _tabs[_currentIndex].controller.goForward();
+                                }
+                              },
+                              child: const Icon(
+                                CupertinoIcons.forward,
+                                color: CupertinoColors.systemGrey,
+                              ),
+                            ),
+                            // 菜单按钮
+                            CupertinoButton(
+                              padding: EdgeInsets.zero,
+                              onPressed: () {
+                                setState(() {
+                                  _showMenuPanel = !_showMenuPanel;
+                                });
+                              },
+                              child: Icon(
+                                CupertinoIcons.line_horizontal_3,
+                                color: _showMenuPanel 
+                                    ? CupertinoColors.activeBlue
+                                    : CupertinoColors.systemGrey,
+                              ),
+                            ),
+                            // 切换窗口按钮
+                            CupertinoButton(
+                              padding: EdgeInsets.zero,
+                              onPressed: () {
+                                showCupertinoModalPopup(
+                                  context: context,
+                                  builder: (context) => Container(
+                                    height: 200,
+                                    color: const Color(0xFF1C1C1E),
                                     child: ListView.builder(
-                                      itemCount: _tabs.length,
+                                      itemCount: _tabs.length + 1,
                                       itemBuilder: (context, index) {
-                                        final tab = _tabs[index];
-                                        return Container(
-                                          decoration: BoxDecoration(
-                                            color: _currentIndex == index
-                                                ? const Color.fromARGB(255, 44, 44, 46)  // 固定深色值
-                                                : null,
-                                            border: Border(
-                                              bottom: BorderSide(
-                                                color: CupertinoColors.systemGrey.withAlpha(77),
-                                              ),
+                                        if (index == _tabs.length) {
+                                          return CupertinoButton(
+                                            child: const Row(
+                                              mainAxisAlignment: MainAxisAlignment.center,
+                                              children: [
+                                                Icon(CupertinoIcons.add, color: CupertinoColors.systemBlue),
+                                                SizedBox(width: 8),
+                                                Text('新建标签页'),
+                                              ],
                                             ),
-                                          ),
-                                          child: CupertinoListTile(
-                                            title: Text(
-                                              tab.title,
-                                              style: const TextStyle(
-                                                color: CupertinoColors.white,
-                                              ),
-                                            ),
-                                            subtitle: Text(
-                                              tab.url,
-                                              style: TextStyle(
-                                                color: const Color(0xFF8E8E93),  // 使用固定的灰色值
-                                                fontSize: 12,
-                                              ),
-                                            ),
-                                            trailing: _tabs.length > 1
-                                                ? CupertinoButton(
-                                                    padding: EdgeInsets.zero,
-                                                    onPressed: () => _removeTab(index),
-                                                    child: const Icon(
-                                                      CupertinoIcons.clear_circled_solid,
-                                                      color: CupertinoColors.systemGrey,
-                                                    ),
-                                                  )
-                                                : null,
-                                            onTap: () {
-                                              setState(() {
-                                                _currentIndex = index;
-                                              });
+                                            onPressed: () {
+                                              _addNewTab();
                                               Navigator.pop(context);
                                             },
+                                          );
+                                        }
+                                        final tab = _tabs[index];
+                                        return CupertinoButton(
+                                          onPressed: () {
+                                            setState(() => _currentIndex = index);
+                                            Navigator.pop(context);
+                                          },
+                                          child: Row(
+                                            children: [
+                                              Icon(
+                                                CupertinoIcons.globe,
+                                                color: _currentIndex == index
+                                                    ? CupertinoColors.activeBlue
+                                                    : CupertinoColors.systemGrey,
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Expanded(
+                                                child: Text(
+                                                  tab.title,
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: TextStyle(
+                                                    color: _currentIndex == index
+                                                        ? CupertinoColors.activeBlue
+                                                        : CupertinoColors.white,
+                                                  ),
+                                                ),
+                                              ),
+                                              if (_tabs.length > 1)  // 只有多个标签页时显示删除按钮
+                                                CupertinoButton(
+                                                  padding: EdgeInsets.zero,
+                                                  onPressed: () => _removeTab(index),
+                                                  child: const Icon(
+                                                    CupertinoIcons.clear_circled_solid,
+                                                    color: CupertinoColors.systemGrey,
+                                                    size: 18,
+                                                  ),
+                                                ),
+                                            ],
                                           ),
                                         );
                                       },
                                     ),
                                   ),
-                                  Container(
-                                    width: double.infinity,
-                                    decoration: BoxDecoration(
-                                      border: Border(
-                                        top: BorderSide(
-                                          color: CupertinoColors.systemGrey.withAlpha(77),
+                                );
+                              },
+                              child: const Icon(
+                                CupertinoIcons.square_stack,
+                                color: CupertinoColors.systemGrey,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // 右侧脚本操作按钮
+                      Expanded(
+                        flex: 1,  // 占用1/4空间
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            if (_isExecuting)
+                              // 执行状态下显示暂停/继续和停止按钮
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                children: [
+                                  // 暂停/继续按钮
+                                  CupertinoButton(
+                                    padding: EdgeInsets.zero,
+                                    onPressed: () {
+                                      setState(() {
+                                        _isPaused = !_isPaused;
+                                      });
+                                    },
+                                    child: Icon(
+                                      _isPaused 
+                                          ? CupertinoIcons.play_fill
+                                          : CupertinoIcons.pause_fill,
+                                      color: CupertinoColors.systemBlue,
+                                      size: 20,
+                                    ),
+                                  ),
+                                  // 停止按钮
+                                  CupertinoButton(
+                                    padding: EdgeInsets.zero,
+                                    onPressed: () {
+                                      setState(() {
+                                        _isExecuting = false;
+                                        _isPaused = false;
+                                      });
+                                    },
+                                    child: const Icon(
+                                      CupertinoIcons.stop_fill,
+                                      color: CupertinoColors.systemRed,
+                                      size: 20,
+                                    ),
+                                  ),
+                                  // 执行统计
+                                  Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        '成功: $_successCount',
+                                        style: const TextStyle(
+                                          color: CupertinoColors.systemGreen,
+                                          fontSize: 10,
                                         ),
                                       ),
-                                    ),
-                                    child: CupertinoButton(
-                                      child: const Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          Icon(
-                                            CupertinoIcons.add,
-                                            color: CupertinoColors.activeBlue,
-                                          ),
-                                          SizedBox(width: 8),
-                                          Text(
-                                            '新建标签页',
-                                            style: TextStyle(
-                                              color: CupertinoColors.activeBlue,
-                                            ),
-                                          ),
-                                        ],
+                                      Text(
+                                        '失败: $_failureCount',
+                                        style: const TextStyle(
+                                          color: CupertinoColors.systemRed,
+                                          fontSize: 10,
+                                        ),
                                       ),
-                                      onPressed: () {
-                                        _addNewTab();
-                                        Navigator.pop(context);
-                                      },
+                                    ],
+                                  ),
+                                ],
+                              )
+                            else
+                              // 非执行状态下显示正常的按钮
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                children: [
+                                  CupertinoButton(
+                                    padding: EdgeInsets.zero,
+                                    onPressed: _executeScripts,
+                                    child: const Icon(
+                                      CupertinoIcons.play_fill,
+                                      color: CupertinoColors.systemBlue,
+                                      size: 20,
+                                    ),
+                                  ),
+                                  CupertinoButton(
+                                    padding: EdgeInsets.zero,
+                                    onPressed: () {
+                                      // TODO: 实现读取功能
+                                    },
+                                    child: const Icon(
+                                      CupertinoIcons.doc_text_fill,
+                                      color: CupertinoColors.white,
+                                      size: 20,
+                                    ),
+                                  ),
+                                  CupertinoButton(
+                                    padding: EdgeInsets.zero,
+                                    onPressed: () {
+                                      setState(() {
+                                        _scripts.clear();
+                                      });
+                                    },
+                                    child: const Icon(
+                                      CupertinoIcons.clear_fill,
+                                      color: CupertinoColors.systemRed,
+                                      size: 20,
                                     ),
                                   ),
                                 ],
                               ),
-                            ),
-                          );
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: CupertinoColors.systemGrey4,
-                            borderRadius: BorderRadius.circular(15),
-                          ),
-                          child: Text(
-                            '${_tabs.length}',
-                            style: const TextStyle(
-                              color: CupertinoColors.white,
-                            ),
-                          ),
-                        ),
-                      ),
-                      // 菜单按钮
-                      CupertinoButton(
-                        padding: EdgeInsets.zero,
-                        onPressed: () {
-                          setState(() {
-                            _showMenuPanel = !_showMenuPanel;
-                          });
-                        },
-                        child: Icon(
-                          CupertinoIcons.line_horizontal_3,
-                          color: _showMenuPanel 
-                              ? CupertinoColors.activeBlue
-                              : CupertinoColors.systemGrey,
+                          ],
                         ),
                       ),
                     ],
@@ -1333,83 +1400,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                   ),
                 ),
               ),
-            // 添加底部操作按钮
-            Positioned(
-              right: 0,
-              bottom: 0,
-              child: Container(
-                width: MediaQuery.of(context).size.width / 2,
-                height: 50,
-                decoration: BoxDecoration(
-                  color: CupertinoColors.black.withAlpha(230),
-                  border: const Border(
-                    top: BorderSide(color: Color(0x4D8E8E93)),
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    // 执行按钮
-                    CupertinoButton(
-                      padding: EdgeInsets.zero,
-                      onPressed: _isExecuting ? null : _executeScripts,
-                      child: Text(
-                        '执行',
-                        style: TextStyle(
-                          color: _isExecuting 
-                              ? CupertinoColors.systemGrey 
-                              : CupertinoColors.systemBlue,
-                        ),
-                      ),
-                    ),
-                    // 分隔线
-                    Container(
-                      width: 1,
-                      height: 20,
-                      color: const Color(0x4D8E8E93),
-                    ),
-                    // 读取按钮
-                    CupertinoButton(
-                      padding: EdgeInsets.zero,
-                      onPressed: _isExecuting ? null : () {
-                        // TODO: 实现读取功能
-                      },
-                      child: Text(
-                        '读取',
-                        style: TextStyle(
-                          color: _isExecuting 
-                              ? CupertinoColors.systemGrey 
-                              : CupertinoColors.white,
-                        ),
-                      ),
-                    ),
-                    // 分隔线
-                    Container(
-                      width: 1,
-                      height: 20,
-                      color: const Color(0x4D8E8E93),
-                    ),
-                    // 清除按钮
-                    CupertinoButton(
-                      padding: EdgeInsets.zero,
-                      onPressed: _isExecuting ? null : () {
-                        setState(() {
-                          _scripts.clear();
-                        });
-                      },
-                      child: Text(
-                        '清除',
-                        style: TextStyle(
-                          color: _isExecuting 
-                              ? CupertinoColors.systemGrey 
-                              : CupertinoColors.systemRed,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
             // 添加菜单管理器
             if (_showMenuPanel) _buildMenuPanel(),
             // 在 WebViewWidget 下方添加进度条
