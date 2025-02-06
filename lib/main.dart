@@ -36,7 +36,7 @@ class BrowserTab {
   BrowserTab({
     required this.id,
     required this.controller,
-    this.title = '欢迎使用',  // 默认标题改为"欢迎使用"
+    this.title = 'auok浏览器',  // 修改默认标题
     this.url = 'about:blank',
     this.isLoading = false,
   });
@@ -895,7 +895,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                     controller: _urlController,
                     enabled: false,
                     textAlign: TextAlign.left,
-                    placeholder: _getDisplayTitle(),  // 使用新方法获取显示文本
+                    placeholder: _getDisplayTitle(),
                     decoration: BoxDecoration(
                       color: CupertinoColors.systemGrey6,
                       borderRadius: BorderRadius.circular(8),
@@ -904,6 +904,24 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 ),
               ),
             ),
+            // 添加分隔线
+            Container(
+              width: 1,
+              height: 24,
+              margin: const EdgeInsets.symmetric(horizontal: 8),
+              color: CupertinoColors.systemGrey4,
+            ),
+            // 添加书签按钮
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              onPressed: () => _toggleBookmark(),
+              child: Icon(
+                _isBookmarked() ? CupertinoIcons.star_fill : CupertinoIcons.star,
+                color: _isBookmarked() ? CupertinoColors.systemBlue : CupertinoColors.systemGrey,
+                size: 22,
+              ),
+            ),
+            // 刷新按钮
             CupertinoButton(
               padding: const EdgeInsets.symmetric(horizontal: 8),
               onPressed: () {
@@ -1751,10 +1769,12 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                       child: CupertinoTextField(
                         controller: TextEditingController(
                           text: isDefaultPage ? '' : tab.url,
-                        )..selection = TextSelection(  // 添加全选
-                          baseOffset: 0,
-                          extentOffset: isDefaultPage ? 0 : tab.url.length,
-                        ),
+                        )..selection = isDefaultPage ? 
+                            const TextSelection.collapsed(offset: 0) :
+                            TextSelection(
+                              baseOffset: 0,
+                              extentOffset: tab.url.length,
+                            ),
                         autofocus: true,
                         placeholder: '搜索或输入网址',
                         onSubmitted: (url) {
@@ -1832,5 +1852,35 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     }
     
     return tab.title.isEmpty ? '无标题页面' : tab.title;
+  }
+
+  // 添加书签相关方法
+  bool _isBookmarked() {
+    if (!_tabs.isNotEmpty || _currentIndex < 0 || _currentIndex >= _tabs.length) {
+      return false;
+    }
+    final tab = _tabs[_currentIndex];
+    if (tab.url == 'about:blank') return false;
+    
+    return _bookmarks.any((bookmark) => bookmark.url == tab.url);
+  }
+
+  void _toggleBookmark() async {
+    if (!_tabs.isNotEmpty || _currentIndex < 0 || _currentIndex >= _tabs.length) return;
+    
+    final tab = _tabs[_currentIndex];
+    if (tab.url == 'about:blank') return;
+
+    setState(() {
+      if (_isBookmarked()) {
+        _bookmarks.removeWhere((bookmark) => bookmark.url == tab.url);
+      } else {
+        _bookmarks.add(Bookmark(
+          title: tab.title,
+          url: tab.url,
+          createdAt: DateTime.now(),
+        ));
+      }
+    });
   }
 }
