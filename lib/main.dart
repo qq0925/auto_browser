@@ -16,7 +16,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const CupertinoApp(
-      title: 'Auto Browser',
+      title: 'Auok浏览器',
       theme: CupertinoThemeData(
         primaryColor: CupertinoColors.systemBlue,
         brightness: Brightness.dark,
@@ -35,7 +35,7 @@ class BrowserTab {
   BrowserTab({
     required this.id,
     required this.controller,
-    this.title = 'New Tab',
+    this.title = '欢迎页面',  // 修改默认标题
     this.url = 'about:blank',
   });
 }
@@ -1716,80 +1716,84 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     }
   }
 
-  // 添加 URL 输入状态处理
+  // 修改 URL 输入状态处理
   void _showUrlInput() {
     showCupertinoModalPopup(
       context: context,
+      barrierColor: CupertinoColors.black,  // 添加遮罩颜色
       builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.8,
+        height: MediaQuery.of(context).size.height,  // 修改为全屏高度
         color: CupertinoColors.black,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: CupertinoTextField(
-                      controller: TextEditingController(
-                        text: _tabs[_currentIndex].url == 'about:blank' 
-                            ? '' 
-                            : _tabs[_currentIndex].url,
-                      ),
-                      autofocus: true,  // 自动获取焦点并调出键盘
-                      onSubmitted: (url) {
-                        String finalUrl = url;
-                        if (!url.startsWith('http://') && !url.startsWith('https://')) {
-                          finalUrl = 'https://$url';
-                        }
-                        _tabs[_currentIndex].controller.loadRequest(Uri.parse(finalUrl));
-                        Navigator.pop(context);
-                      },
-                      decoration: BoxDecoration(
-                        color: CupertinoColors.systemGrey6,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                  ),
-                  CupertinoButton(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: const Text('取消'),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(color: CupertinoColors.systemGrey4),
-            Expanded(
-              child: ListView.builder(
-                itemCount: _history.length,
-                itemBuilder: (context, index) {
-                  final item = _history[index];
-                  return Column(
-                    children: [
-                      CupertinoListTile(
-                        title: Text(
-                          item.title,
-                          style: const TextStyle(color: CupertinoColors.white),
-                        ),
-                        subtitle: Text(
-                          item.url,
-                          style: const TextStyle(color: CupertinoColors.systemGrey),
-                        ),
-                        onTap: () {
-                          _tabs[_currentIndex].controller.loadRequest(
-                            Uri.parse(item.url),
-                          );
+        child: SafeArea(  // 添加安全区域
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: CupertinoTextField(
+                        controller: TextEditingController(text: ''),  // 始终显示空白
+                        autofocus: true,
+                        placeholder: '搜索或输入网址',  // 添加提示文字
+                        onSubmitted: (url) {
+                          if (url.isEmpty) {
+                            Navigator.pop(context);
+                            return;
+                          }
+                          String finalUrl = url;
+                          if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                            finalUrl = 'https://$url';
+                          }
+                          _tabs[_currentIndex].controller.loadRequest(Uri.parse(finalUrl));
                           Navigator.pop(context);
                         },
+                        decoration: BoxDecoration(
+                          color: CupertinoColors.systemGrey6,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
-                      const Divider(color: CupertinoColors.systemGrey4),
-                    ],
-                  );
-                },
+                    ),
+                    CupertinoButton(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: const Text('取消'),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+              const Divider(color: CupertinoColors.systemGrey4),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: _history.length,
+                  itemBuilder: (context, index) {
+                    final item = _history[index];
+                    return Column(
+                      children: [
+                        CupertinoListTile(
+                          title: Text(
+                            item.title,
+                            style: const TextStyle(color: CupertinoColors.white),
+                          ),
+                          subtitle: Text(
+                            item.url,
+                            style: const TextStyle(color: CupertinoColors.systemGrey),
+                          ),
+                          onTap: () {
+                            _tabs[_currentIndex].controller.loadRequest(
+                              Uri.parse(item.url),
+                            );
+                            Navigator.pop(context);
+                          },
+                        ),
+                        const Divider(color: CupertinoColors.systemGrey4),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
