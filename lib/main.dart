@@ -76,6 +76,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   int _executionDelay = 1000; // 默认延迟1000ms
   int _loopCount = 1; // 默认循环1次
   bool _isRecording = false;  // 录制状态
+  bool _isExecuting = false;  // 执行状态
 
   @override
   void initState() {
@@ -98,8 +99,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     if (!mounted) return;
     
     try {
-      late final WebViewController controller;  // 先声明
-      controller = WebViewController()  // 再初始化
+      late final WebViewController controller;
+      controller = WebViewController()
         ..setJavaScriptMode(JavaScriptMode.unrestricted)
         ..addJavaScriptChannel(
           'ScriptRecorder',
@@ -138,8 +139,31 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 });
               ''');
             },
+            onNavigationRequest: (NavigationRequest request) {
+              // 处理导航请求
+              String url = request.url;
+              if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                url = 'https://$url';
+              }
+              // 确保URL有效
+              try {
+                Uri.parse(url);
+                return NavigationDecision.navigate;
+              } catch (e) {
+                return NavigationDecision.prevent;
+              }
+            },
+            onWebResourceError: (WebResourceError error) {
+              debugPrint('Web resource error: ${error.description}');
+              if (mounted) {
+                setState(() {
+                  isLoading = false;
+                });
+              }
+            },
           ),
-        );
+        )
+        ..loadRequest(Uri.parse('https://www.google.com')); // 使用更稳定的默认页面
 
       setState(() {
         _tabs.add(BrowserTab(
@@ -339,6 +363,40 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         ),
       ),
     );
+  }
+
+  Future<void> _executeScripts() async {
+    if (_scripts.isEmpty) return;
+    
+    setState(() {
+      _isExecuting = true;
+    });
+
+    try {
+      for (var script in _scripts) {
+        if (!script.isEnabled) continue;
+        
+        if (script.type == "点击文字") {
+          await _tabs[_currentIndex].controller.runJavaScript('''
+            (function() {
+              const elements = document.querySelectorAll('a');
+              for (const element of elements) {
+                if (element.textContent.trim() === "${script.content}") {
+                  element.click();
+                  return;
+                }
+              }
+            })();
+          ''');
+          
+          await Future.delayed(Duration(milliseconds: _executionDelay));
+        }
+      }
+    } finally {
+      setState(() {
+        _isExecuting = false;
+      });
+    }
   }
 
   @override
@@ -661,9 +719,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
               duration: const Duration(milliseconds: 300),
               curve: Curves.easeInOut,
               right: _showScriptPanel ? 0 : -MediaQuery.of(context).size.width / 2,
-              width: MediaQuery.of(context).size.width / 2,  // 设置为屏幕宽度的一半
+              width: MediaQuery.of(context).size.width / 2,
               top: 0,
-              bottom: 0,
+              bottom: 50,  // 与底部栏对齐
               child: Stack(
                 clipBehavior: Clip.none,
                 children: [
@@ -974,6 +1032,83 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                   ),
                 ),
               ),
+            // 添加底部操作按钮
+            Positioned(
+              right: 0,
+              bottom: 0,
+              child: Container(
+                width: MediaQuery.of(context).size.width / 2,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: CupertinoColors.black.withAlpha(230),
+                  border: const Border(
+                    top: BorderSide(color: Color(0x4D8E8E93)),
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    // 执行按钮
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      onPressed: _isExecuting ? null : _executeScripts,
+                      child: Text(
+                        '执行',
+                        style: TextStyle(
+                          color: _isExecuting 
+                              ? CupertinoColors.systemGrey 
+                              : CupertinoColors.systemBlue,
+                        ),
+                      ),
+                    ),
+                    // 分隔线
+                    Container(
+                      width: 1,
+                      height: 20,
+                      color: const Color(0x4D8E8E93),
+                    ),
+                    // 读取按钮
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      onPressed: _isExecuting ? null : () {
+                        // TODO: 实现读取功能
+                      },
+                      child: Text(
+                        '读取',
+                        style: TextStyle(
+                          color: _isExecuting 
+                              ? CupertinoColors.systemGrey 
+                              : CupertinoColors.white,
+                        ),
+                      ),
+                    ),
+                    // 分隔线
+                    Container(
+                      width: 1,
+                      height: 20,
+                      color: const Color(0x4D8E8E93),
+                    ),
+                    // 清除按钮
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      onPressed: _isExecuting ? null : () {
+                        setState(() {
+                          _scripts.clear();
+                        });
+                      },
+                      child: Text(
+                        '清除',
+                        style: TextStyle(
+                          color: _isExecuting 
+                              ? CupertinoColors.systemGrey 
+                              : CupertinoColors.systemRed,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
       ),
