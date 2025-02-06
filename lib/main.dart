@@ -884,19 +884,23 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       navigationBar: CupertinoNavigationBar(
         middle: Row(
           children: [
-            // 移除网页图标
+            // 修改地址栏部分
             Expanded(
               child: GestureDetector(
-                onTap: () => _showUrlInput(),  // 添加点击处理
-                child: CupertinoTextField(
-                  controller: _urlController,
-                  enabled: false,  // 默认禁用，通过点击处理来显示输入状态
-                  placeholder: _tabs.isNotEmpty && _tabs[_currentIndex].url == 'about:blank' 
-                      ? '欢迎使用'
-                      : _tabs[_currentIndex].title,  // 显示网页标题而不是网址
-                  decoration: BoxDecoration(
-                    color: CupertinoColors.systemGrey6,
-                    borderRadius: BorderRadius.circular(8),
+                onTap: () => _showUrlInput(),  // 保持点击处理
+                child: AbsorbPointer(  // 添加这个组件来确保点击事件不被 TextField 吸收
+                  child: CupertinoTextField(
+                    controller: _urlController,
+                    enabled: false,
+                    placeholder: _tabs.isNotEmpty 
+                        ? (_tabs[_currentIndex].url == 'about:blank' 
+                            ? '欢迎使用'
+                            : _tabs[_currentIndex].title)
+                        : '欢迎使用',
+                    decoration: BoxDecoration(
+                      color: CupertinoColors.systemGrey6,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                   ),
                 ),
               ),
