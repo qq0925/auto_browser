@@ -73,7 +73,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   bool isLoading = false;
   bool _showScriptPanel = false;
   final List<Script> _scripts = [];
-  int _currentScriptIndex = 0;
   int _executionDelay = 1000; // 默认延迟1000ms
   int _loopCount = 1; // 默认循环1次
   bool _isRecording = false;  // 录制状态
@@ -209,7 +208,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       
       setState(() {
         _scripts.add(script);
-        _currentScriptIndex = _scripts.length - 1;
         // 强制脚本列表刷新
         if (_showScriptPanel) {
           _showScriptPanel = false;
@@ -285,6 +283,61 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
           ],
         );
       },
+    );
+  }
+
+  // 添加编辑脚本方法
+  void _editScript(int index) {
+    final script = _scripts[index];
+    showCupertinoDialog(
+      context: context,
+      builder: (context) {
+        String content = script.content ?? '';
+        return CupertinoAlertDialog(
+          title: const Text('编辑脚本'),
+          content: Column(
+            children: [
+              const SizedBox(height: 8),
+              CupertinoTextField(
+                placeholder: '输入要点击的文字',
+                onChanged: (value) => content = value,
+                controller: TextEditingController(text: content),
+              ),
+            ],
+          ),
+          actions: [
+            CupertinoDialogAction(
+              child: const Text('取消'),
+              onPressed: () => Navigator.pop(context),
+            ),
+            CupertinoDialogAction(
+              child: const Text('确定'),
+              onPressed: () {
+                if (content.isNotEmpty) {
+                  setState(() {
+                    _scripts[index].content = content;
+                  });
+                }
+                Navigator.pop(context);
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // 修改脚本进度显示
+  Widget _buildScriptProgress() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Text(
+        '脚本列表: ${_scripts.length}',  // 只显示总数
+        style: const TextStyle(
+          color: CupertinoColors.white,
+          fontSize: 16,
+        ),
+      ),
     );
   }
 
@@ -686,17 +739,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                         ),
                         const Divider(color: CupertinoColors.white),
                         // 脚本进度
-                        Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 8),
-                          child: Text(
-                            '脚本列表: $_currentScriptIndex/${_scripts.length}',
-                            style: const TextStyle(
-                              color: CupertinoColors.white,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ),
+                        _buildScriptProgress(),
                         const Divider(color: CupertinoColors.white),
                         // 脚本列表区域
                         Expanded(
@@ -781,77 +824,74 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                     }
                                     // 显示脚本项
                                     final script = _scripts[index];
-                                    return Column(
-                                      children: [
-                                        if (index > 0)
-                                          const Divider(color: CupertinoColors.white),
-                                        Container(
-                                          padding: const EdgeInsets.all(12),
-                                          decoration: BoxDecoration(
-                                            color: CupertinoColors.systemGrey6.withAlpha(30),
-                                            borderRadius: BorderRadius.circular(8),
-                                          ),
-                                          child: Stack(
-                                            children: [
-                                              Row(
-                                                children: [
-                                                  // 左侧脚本类型
-                                                  Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                                    decoration: BoxDecoration(
-                                                      color: CupertinoColors.systemBlue.withAlpha(50),
-                                                      borderRadius: BorderRadius.circular(4),
-                                                    ),
-                                                    child: Text(
-                                                      script.type,
-                                                      style: const TextStyle(
-                                                        color: CupertinoColors.white,
-                                                        fontSize: 14,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  const SizedBox(width: 12),
-                                                  // 右侧脚本内容
-                                                  Expanded(
-                                                    child: Text(
-                                                      script.content ?? '',
-                                                      style: const TextStyle(
-                                                        color: CupertinoColors.white,
-                                                        fontSize: 14,
-                                                      ),
-                                                      maxLines: 2,
-                                                      overflow: TextOverflow.ellipsis,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(width: 40),  // 为角标预留空间
-                                                ],
-                                              ),
-                                              // 右上角角标
-                                              Positioned(
-                                                top: 0,
-                                                right: 0,
-                                                child: Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    return GestureDetector(
+                                      onTap: () => _editScript(index),
+                                      child: Container(
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          color: CupertinoColors.systemGrey6.withAlpha(30),
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: Stack(
+                                          children: [
+                                            Row(
+                                              children: [
+                                                // 左侧脚本类型
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                                   decoration: BoxDecoration(
-                                                    color: CupertinoColors.systemGrey.withAlpha(100),
-                                                    borderRadius: const BorderRadius.only(
-                                                      topRight: Radius.circular(8),
-                                                      bottomLeft: Radius.circular(8),
-                                                    ),
+                                                    color: CupertinoColors.systemBlue.withAlpha(50),
+                                                    borderRadius: BorderRadius.circular(4),
                                                   ),
                                                   child: Text(
-                                                    '${index + 1}',
+                                                    script.type,
                                                     style: const TextStyle(
                                                       color: CupertinoColors.white,
-                                                      fontSize: 12,
+                                                      fontSize: 14,
                                                     ),
                                                   ),
                                                 ),
+                                                const SizedBox(width: 12),
+                                                // 右侧脚本内容
+                                                Expanded(
+                                                  child: Text(
+                                                    script.content ?? '',
+                                                    style: const TextStyle(
+                                                      color: CupertinoColors.white,
+                                                      fontSize: 14,
+                                                    ),
+                                                    maxLines: 2,
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 40),  // 为角标预留空间
+                                              ],
+                                            ),
+                                            // 右上角角标
+                                            Positioned(
+                                              top: 0,
+                                              right: 0,
+                                              child: Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: CupertinoColors.systemGrey.withAlpha(100),
+                                                  borderRadius: const BorderRadius.only(
+                                                    topRight: Radius.circular(8),
+                                                    bottomLeft: Radius.circular(8),
+                                                  ),
+                                                ),
+                                                child: Text(
+                                                  '${index + 1}',
+                                                  style: const TextStyle(
+                                                    color: CupertinoColors.white,
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
                                               ),
-                                            ],
-                                          ),
+                                            ),
+                                          ],
                                         ),
-                                      ],
+                                      ),
                                     );
                                   },
                                 ),
