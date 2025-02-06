@@ -1,6 +1,8 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 
 void main() {
   runApp(const MyApp());
@@ -153,8 +155,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 isLoading = true;
                 _loadingProgress = 0;
               });
-              // 记录进入网址操作
-              _recordAction("进入网址", url);
             },
             onProgress: (progress) {
               if (!mounted) return;
@@ -179,14 +179,13 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
               _updateTabInfo(_currentIndex);
               
               await controller.runJavaScript('''
-                // 监听点击事件
                 document.addEventListener('click', function(e) {
                   let text = '';
                   let type = '';
                   
                   if (e.target.tagName === 'A') {
                     type = '点击链接';
-                    text = e.target.href;
+                    text = e.target.textContent || e.target.innerText;
                   } else {
                     type = '点击文字';
                     text = e.target.textContent || e.target.innerText;
@@ -195,16 +194,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                   if (text.trim()) {
                     ScriptRecorder.postMessage(type + '|' + text.trim());
                   }
-                });
-
-                // 监听表单提交
-                document.addEventListener('submit', function(e) {
-                  const formData = new FormData(e.target);
-                  let data = {};
-                  for (let [key, value] of formData.entries()) {
-                    data[key] = value;
-                  }
-                  ScriptRecorder.postMessage('输入提交|' + JSON.stringify(data));
                 });
               ''');
             },
@@ -651,95 +640,99 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   void _showBookmarks() {
     showCupertinoModalPopup(
       context: context,
-      builder: (context) => Container(
-        height: 400,
-        decoration: BoxDecoration(
-          color: CupertinoColors.black.withAlpha(230),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-        ),
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    '书签',
-                    style: TextStyle(
-                      color: CupertinoColors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    onPressed: () async {
-                      final url = await _tabs[_currentIndex].controller.currentUrl() ?? '';
-                      final title = await _tabs[_currentIndex].controller.getTitle() ?? 'New Bookmark';
-                      setState(() {
-                        _bookmarks.add(Bookmark(
-                          title: title,
-                          url: url,
-                          createdAt: DateTime.now(),
-                        ));
-                      });
-                    },
-                    child: const Icon(
-                      CupertinoIcons.add_circled_solid,
-                      color: CupertinoColors.systemBlue,
-                      size: 24,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: ListView.builder(
-                itemCount: _bookmarks.length,
-                itemBuilder: (context, index) {
-                  final bookmark = _bookmarks[index];
-                  return Container(
-                    decoration: BoxDecoration(
-                      border: Border(
-                        bottom: BorderSide(
-                          color: CupertinoColors.systemGrey.withOpacity(0.2),
-                        ),
+      builder: (context) => StatefulBuilder(  // 使用 StatefulBuilder
+        builder: (context, setState) => Container(
+          height: 400,
+          decoration: BoxDecoration(
+            color: CupertinoColors.black.withAlpha(230),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+          ),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      '书签',
+                      style: TextStyle(
+                        color: CupertinoColors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
-                    child: CupertinoListTile(
-                      title: Text(
-                        bookmark.title,
-                        style: const TextStyle(color: CupertinoColors.white),
-                      ),
-                      subtitle: Text(
-                        bookmark.url,
-                        style: const TextStyle(color: CupertinoColors.systemGrey),
-                      ),
-                      trailing: CupertinoButton(
-                        padding: EdgeInsets.zero,
-                        onPressed: () {
-                          setState(() {
-                            _bookmarks.removeAt(index);
-                          });
-                        },
-                        child: const Icon(
-                          CupertinoIcons.delete,
-                          color: CupertinoColors.systemRed,
-                        ),
-                      ),
-                      onTap: () {
-                        _tabs[_currentIndex].controller.loadRequest(
-                          Uri.parse(bookmark.url),
-                        );
-                        Navigator.pop(context);
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      onPressed: () async {
+                        final url = await _tabs[_currentIndex].controller.currentUrl() ?? '';
+                        final title = await _tabs[_currentIndex].controller.getTitle() ?? 'New Bookmark';
+                        setState(() {  // 使用 StatefulBuilder 的 setState
+                          _bookmarks.add(Bookmark(
+                            title: title,
+                            url: url,
+                            createdAt: DateTime.now(),
+                          ));
+                        });
+                        // 同时更新外层状态
+                        this.setState(() {});
                       },
+                      child: const Icon(
+                        CupertinoIcons.add_circled_solid,
+                        color: CupertinoColors.systemBlue,
+                        size: 24,
+                      ),
                     ),
-                  );
-                },
+                  ],
+                ),
               ),
-            ),
-          ],
+              Expanded(
+                child: ListView.builder(
+                  itemCount: _bookmarks.length,
+                  itemBuilder: (context, index) {
+                    final bookmark = _bookmarks[index];
+                    return Container(
+                      decoration: BoxDecoration(
+                        border: Border(
+                          bottom: BorderSide(
+                            color: CupertinoColors.systemGrey.withOpacity(0.2),
+                          ),
+                        ),
+                      ),
+                      child: CupertinoListTile(
+                        title: Text(
+                          bookmark.title,
+                          style: const TextStyle(color: CupertinoColors.white),
+                        ),
+                        subtitle: Text(
+                          bookmark.url,
+                          style: const TextStyle(color: CupertinoColors.systemGrey),
+                        ),
+                        trailing: CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          onPressed: () {
+                            setState(() {
+                              _bookmarks.removeAt(index);
+                            });
+                          },
+                          child: const Icon(
+                            CupertinoIcons.delete,
+                            color: CupertinoColors.systemRed,
+                          ),
+                        ),
+                        onTap: () {
+                          _tabs[_currentIndex].controller.loadRequest(
+                            Uri.parse(bookmark.url),
+                          );
+                          Navigator.pop(context);
+                        },
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -925,10 +918,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                   height: 50,
                   color: const Color(0xFF1C1C1E),
                   child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,  // 均匀分布
                     children: [
                       // 后退按钮
                       CupertinoButton(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        padding: EdgeInsets.zero,
                         onPressed: () {
                           if (_currentIndex > 0) {
                             _tabs[_currentIndex].controller.goBack();
@@ -942,7 +936,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                       ),
                       // 前进按钮
                       CupertinoButton(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        padding: EdgeInsets.zero,
                         onPressed: () {
                           if (_currentIndex < _tabs.length - 1) {
                             _tabs[_currentIndex].controller.goForward();
@@ -954,10 +948,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                           color: CupertinoColors.systemGrey,
                         ),
                       ),
-                      const Spacer(),
                       // 菜单按钮
                       CupertinoButton(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        padding: EdgeInsets.zero,
                         onPressed: () {
                           setState(() => _showMenuPanel = !_showMenuPanel);
                         },
@@ -970,7 +963,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                       ),
                       // 标签页切换按钮
                       CupertinoButton(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        padding: EdgeInsets.zero,
                         onPressed: () {
                           showCupertinoModalPopup(
                             context: context,
@@ -1394,9 +1387,16 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                     ),
                                     CupertinoButton(
                                       padding: EdgeInsets.zero,
-                                      onPressed: () {
-                                        // TODO: 实现读取功能
-                                      },
+                                      onPressed: _exportScripts,
+                                      child: const Icon(
+                                        CupertinoIcons.arrow_down_doc_fill,
+                                        color: CupertinoColors.white,
+                                        size: 20,
+                                      ),
+                                    ),
+                                    CupertinoButton(
+                                      padding: EdgeInsets.zero,
+                                      onPressed: _importScripts,
                                       child: const Icon(
                                         CupertinoIcons.doc_text_fill,
                                         color: CupertinoColors.white,
@@ -1525,5 +1525,145 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     WidgetsBinding.instance.removeObserver(this);
     _urlController.dispose();
     super.dispose();
+  }
+
+  // 修改导出方法
+  void _exportScripts() async {
+    try {
+      // 获取保存路径
+      String? outputFile = await FilePicker.platform.saveFile(
+        dialogTitle: '保存脚本',
+        fileName: 'script.zds',
+        allowedExtensions: ['zds'],
+        type: FileType.custom,
+      );
+
+      if (outputFile != null) {
+        final content = exportScript();
+        final file = File(outputFile);
+        await file.writeAsString(content);
+        
+        if (mounted) {
+          showCupertinoDialog(
+            context: context,
+            builder: (context) => CupertinoAlertDialog(
+              title: const Text('导出成功'),
+              content: Text('脚本已保存到：$outputFile'),
+              actions: [
+                CupertinoDialogAction(
+                  child: const Text('确定'),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        showCupertinoDialog(
+          context: context,
+          builder: (context) => CupertinoAlertDialog(
+            title: const Text('导出失败'),
+            content: Text('错误信息：$e'),
+            actions: [
+              CupertinoDialogAction(
+                child: const Text('确定'),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+        );
+      }
+    }
+  }
+
+  // 添加读取方法
+  void _importScripts() async {
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['zds'],
+      );
+
+      if (result != null) {
+        final file = File(result.files.single.path!);
+        final content = await file.readAsString();
+        final lines = content.split('\n');
+        
+        if (lines.isEmpty) throw Exception('文件为空');
+        
+        // 解析全局配置
+        final globalConfig = lines.first;
+        // 使用你的 JSON 解析逻辑
+        // 示例：从 JSON 中提取延迟和循环次数
+        if (globalConfig.contains('"执行延迟"')) {
+          final match = RegExp(r'"执行延迟":(\d+)').firstMatch(globalConfig);
+          if (match != null) {
+            _executionDelay = int.parse(match.group(1)!);
+          }
+        }
+        if (globalConfig.contains('"循环次数"')) {
+          final match = RegExp(r'"循环次数":(\d+)').firstMatch(globalConfig);
+          if (match != null) {
+            _originalLoopCount = int.parse(match.group(1)!);
+            _remainingLoopCount = _originalLoopCount;
+          }
+        }
+
+        // 解析脚本
+        setState(() {
+          _scripts.clear();
+          for (var i = 1; i < lines.length; i++) {
+            final line = lines[i];
+            if (line.isEmpty) continue;
+            
+            // 从 JSON 中提取脚本信息
+            final typeMatch = RegExp(r'"脚本类型":"([^"]+)"').firstMatch(line);
+            final contentMatch = RegExp(r'"内容":"([^"]+)"').firstMatch(line);
+            
+            if (typeMatch != null) {
+              _scripts.add(Script(
+                type: typeMatch.group(1)!,
+                content: contentMatch?.group(1),
+                isEnabled: true,
+              ));
+            }
+          }
+        });
+
+        if (mounted) {
+          showCupertinoDialog(
+            context: context,
+            builder: (context) => CupertinoAlertDialog(
+              title: const Text('导入成功'),
+              content: Text('已导入 ${_scripts.length} 个脚本'),
+              actions: [
+                CupertinoDialogAction(
+                  child: const Text('确定'),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        showCupertinoDialog(
+          context: context,
+          builder: (context) => CupertinoAlertDialog(
+            title: const Text('导入失败'),
+            content: Text('错误信息：$e'),
+            actions: [
+              CupertinoDialogAction(
+                child: const Text('确定'),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+        );
+      }
+    }
   }
 }
