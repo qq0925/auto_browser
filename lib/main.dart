@@ -36,6 +36,30 @@ class BrowserTab {
   });
 }
 
+class Bookmark {
+  final String title;
+  final String url;
+  final DateTime createdAt;
+
+  Bookmark({
+    required this.title,
+    required this.url,
+    required this.createdAt,
+  });
+}
+
+class HistoryItem {
+  final String title;
+  final String url;
+  final DateTime visitedAt;
+
+  HistoryItem({
+    required this.title,
+    required this.url,
+    required this.visitedAt,
+  });
+}
+
 class BrowserHomePage extends StatefulWidget {
   const BrowserHomePage({super.key});
 
@@ -74,9 +98,14 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   bool _showScriptPanel = false;
   final List<Script> _scripts = [];
   int _executionDelay = 1000; // 默认延迟1000ms
-  int _loopCount = 1; // 默认循环1次
+  int _originalLoopCount = 1;  // 原始循环次数
+  int _remainingLoopCount = 1; // 剩余循环次数
   bool _isRecording = false;  // 录制状态
   bool _isExecuting = false;  // 执行状态
+  bool _showMenuPanel = false; // 菜单管理器状态
+  final List<Bookmark> _bookmarks = [];
+  final List<HistoryItem> _history = [];
+  double _loadingProgress = 0;  // 加载进度
 
   @override
   void initState() {
@@ -116,12 +145,28 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
               if (!mounted) return;
               setState(() {
                 isLoading = true;
+                _loadingProgress = 0;
+              });
+            },
+            onProgress: (progress) {
+              if (!mounted) return;
+              setState(() {
+                _loadingProgress = progress / 100;
               });
             },
             onPageFinished: (String url) async {
               if (!mounted) return;
+              final title = await controller.getTitle() ?? 'New Tab';
               setState(() {
                 isLoading = false;
+                _loadingProgress = 1;
+                
+                // 添加到历史记录
+                _history.insert(0, HistoryItem(
+                  title: title,
+                  url: url,
+                  visitedAt: DateTime.now(),
+                ));
               });
               _updateTabInfo(_currentIndex);
               
@@ -256,12 +301,12 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       type: "全局变量",
       isEnabled: true,
     );
-    lines.add(globalScript.toJson(_executionDelay, _loopCount));
+    lines.add(globalScript.toJson(_executionDelay, _originalLoopCount));
     
     // 添加所有已启用的脚本
     for (var script in _scripts) {
       if (script.isEnabled) {
-        lines.add(script.toJson(_executionDelay, _loopCount));
+        lines.add(script.toJson(_executionDelay, _originalLoopCount));
       }
     }
     
@@ -365,11 +410,22 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     );
   }
 
+  // 修改循环次数设置
+  void _setLoopCount(String value) {
+    final count = int.tryParse(value) ?? 1;
+    setState(() {
+      _originalLoopCount = count;
+      _remainingLoopCount = count;
+    });
+  }
+
+  // 修改执行脚本的逻辑
   Future<void> _executeScripts() async {
     if (_scripts.isEmpty) return;
     
     setState(() {
       _isExecuting = true;
+      _remainingLoopCount = _originalLoopCount;  // 重置剩余次数
     });
 
     try {
@@ -378,9 +434,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
           if (!script.isEnabled) continue;
           
           if (script.type == "点击文字") {
-            // 等待执行延迟
             await Future.delayed(Duration(milliseconds: _executionDelay));
-            
             await _tabs[_currentIndex].controller.runJavaScript('''
               (function() {
                 const elements = document.querySelectorAll('a');
@@ -395,13 +449,248 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
           }
         }
         
-        if (_loopCount > 0) _loopCount--;
-      } while (_loopCount == 0 || _loopCount > 0);  // 0表示无限循环
+        if (_originalLoopCount > 0) {  // 使用原始次数判断是否无限循环
+          _remainingLoopCount--;
+        }
+      } while (_originalLoopCount == 0 || _remainingLoopCount > 0);
       
     } finally {
       setState(() {
         _isExecuting = false;
       });
+    }
+  }
+
+  // 添加菜单管理器
+  Widget _buildMenuPanel() {
+    return AnimatedPositioned(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      right: 0,
+      bottom: _showMenuPanel ? 50 : -200,  // 向上展开
+      width: 200,
+      height: 200,
+      child: Container(
+        decoration: BoxDecoration(
+          color: CupertinoColors.black.withAlpha(230),
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(8),
+          ),
+        ),
+        child: Column(
+          children: [
+            _buildMenuItem(
+              icon: CupertinoIcons.bookmark,
+              title: '书签',
+              onTap: () {
+                setState(() => _showMenuPanel = false);
+                _showBookmarks();
+              },
+            ),
+            _buildMenuItem(
+              icon: CupertinoIcons.clock,
+              title: '历史',
+              onTap: () {
+                setState(() => _showMenuPanel = false);
+                _showHistory();
+              },
+            ),
+            _buildMenuItem(
+              icon: CupertinoIcons.refresh,
+              title: '刷新页面',
+              onTap: () {
+                _tabs[_currentIndex].controller.reload();
+                setState(() => _showMenuPanel = false);
+              },
+            ),
+            _buildMenuItem(
+              icon: CupertinoIcons.settings,
+              title: '设置',
+              onTap: () {
+                // TODO: 实现设置功能
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMenuItem({
+    required IconData icon,
+    required String title,
+    required VoidCallback onTap,
+  }) {
+    return CupertinoButton(
+      padding: EdgeInsets.zero,
+      onPressed: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Icon(icon, color: CupertinoColors.white, size: 20),
+            const SizedBox(width: 12),
+            Text(
+              title,
+              style: const TextStyle(
+                color: CupertinoColors.white,
+                fontSize: 16,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showBookmarks() {
+    showCupertinoModalPopup(
+      context: context,
+      builder: (context) => Container(
+        height: 400,
+        decoration: BoxDecoration(
+          color: CupertinoColors.black.withAlpha(230),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+        ),
+        child: Column(
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text(
+                '书签',
+                style: TextStyle(
+                  color: CupertinoColors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            Expanded(
+              child: ListView.builder(
+                itemCount: _bookmarks.length,
+                itemBuilder: (context, index) {
+                  final bookmark = _bookmarks[index];
+                  return CupertinoListTile(
+                    title: Text(
+                      bookmark.title,
+                      style: const TextStyle(color: CupertinoColors.white),
+                    ),
+                    subtitle: Text(
+                      bookmark.url,
+                      style: const TextStyle(color: CupertinoColors.systemGrey),
+                    ),
+                    trailing: CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      onPressed: () {
+                        setState(() {
+                          _bookmarks.removeAt(index);
+                        });
+                        Navigator.pop(context);
+                      },
+                      child: const Icon(
+                        CupertinoIcons.delete,
+                        color: CupertinoColors.systemRed,
+                      ),
+                    ),
+                    onTap: () {
+                      _tabs[_currentIndex].controller.loadRequest(
+                        Uri.parse(bookmark.url),
+                      );
+                      Navigator.pop(context);
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showHistory() {
+    showCupertinoModalPopup(
+      context: context,
+      builder: (context) => Container(
+        height: 400,
+        decoration: BoxDecoration(
+          color: CupertinoColors.black.withAlpha(230),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+        ),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    '历史记录',
+                    style: TextStyle(
+                      color: CupertinoColors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () {
+                      setState(() {
+                        _history.clear();
+                      });
+                      Navigator.pop(context);
+                    },
+                    child: const Text('清除'),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView.builder(
+                itemCount: _history.length,
+                itemBuilder: (context, index) {
+                  final item = _history[index];
+                  return CupertinoListTile(
+                    title: Text(
+                      item.title,
+                      style: const TextStyle(color: CupertinoColors.white),
+                    ),
+                    subtitle: Text(
+                      item.url,
+                      style: const TextStyle(color: CupertinoColors.systemGrey),
+                    ),
+                    trailing: Text(
+                      _formatTime(item.visitedAt),
+                      style: const TextStyle(color: CupertinoColors.systemGrey),
+                    ),
+                    onTap: () {
+                      _tabs[_currentIndex].controller.loadRequest(
+                        Uri.parse(item.url),
+                      );
+                      Navigator.pop(context);
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatTime(DateTime time) {
+    final now = DateTime.now();
+    final difference = now.difference(time);
+    
+    if (difference.inMinutes < 1) {
+      return '刚刚';
+    } else if (difference.inHours < 1) {
+      return '${difference.inMinutes}分钟前';
+    } else if (difference.inDays < 1) {
+      return '${difference.inHours}小时前';
+    } else {
+      return '${difference.inDays}天前';
     }
   }
 
@@ -684,35 +973,15 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                       CupertinoButton(
                         padding: EdgeInsets.zero,
                         onPressed: () {
-                          showCupertinoModalPopup(
-                            context: context,
-                            builder: (context) => CupertinoActionSheet(
-                              actions: [
-                                CupertinoActionSheetAction(
-                                  onPressed: () {
-                                    _tabs[_currentIndex].controller.reload();
-                                    Navigator.pop(context);
-                                  },
-                                  child: const Text('刷新'),
-                                ),
-                                CupertinoActionSheetAction(
-                                  onPressed: () {
-                                    _addNewTab();
-                                    Navigator.pop(context);
-                                  },
-                                  child: const Text('新建标签页'),
-                                ),
-                              ],
-                              cancelButton: CupertinoActionSheetAction(
-                                onPressed: () => Navigator.pop(context),
-                                child: const Text('取消'),
-                              ),
-                            ),
-                          );
+                          setState(() {
+                            _showMenuPanel = !_showMenuPanel;
+                          });
                         },
-                        child: const Icon(
-                          CupertinoIcons.ellipsis,
-                          color: CupertinoColors.systemGrey,
+                        child: Icon(
+                          CupertinoIcons.line_horizontal_3,
+                          color: _showMenuPanel 
+                              ? CupertinoColors.activeBlue
+                              : CupertinoColors.systemGrey,
                         ),
                       ),
                     ],
@@ -810,11 +1079,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                         color: CupertinoColors.systemGrey6,
                                         borderRadius: BorderRadius.circular(4),
                                       ),
-                                      onChanged: (value) {
-                                        _loopCount = int.tryParse(value) ?? 1;
-                                      },
+                                      onChanged: _setLoopCount,
                                       controller: TextEditingController(
-                                          text: _loopCount.toString()),
+                                          text: _originalLoopCount.toString()),
                                     ),
                                   ),
                                   const Text(
@@ -1143,6 +1410,22 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 ),
               ),
             ),
+            // 添加菜单管理器
+            if (_showMenuPanel) _buildMenuPanel(),
+            // 在 WebViewWidget 下方添加进度条
+            if (isLoading)
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: LinearProgressIndicator(
+                  value: _loadingProgress,
+                  backgroundColor: CupertinoColors.systemGrey6,
+                  valueColor: const AlwaysStoppedAnimation<Color>(
+                    CupertinoColors.activeBlue,
+                  ),
+                ),
+              ),
           ],
         ),
       ),
