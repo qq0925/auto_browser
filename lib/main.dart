@@ -99,9 +99,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     if (!mounted) return;
     
     try {
-      final controller = WebViewController();
-      
-      controller
+      late final WebViewController controller;  // 先声明
+      controller = WebViewController()  // 再初始化
         ..setJavaScriptMode(JavaScriptMode.unrestricted)
         ..addJavaScriptChannel(
           'ScriptRecorder',
@@ -126,38 +125,24 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
               });
               _updateTabInfo(_currentIndex);
               
-              try {
-                await controller.runJavaScript('''
-                  document.addEventListener('click', function(e) {
-                    let text = '';
-                    if (e.target.tagName === 'A') {
-                      text = e.target.textContent || e.target.innerText;
-                    } else {
-                      text = e.target.textContent || e.target.innerText;
-                    }
-                    if (text.trim()) {
-                      ScriptRecorder.postMessage(text.trim());
-                    }
-                  });
-                ''');
-              } catch (e) {
-                debugPrint('JavaScript injection error: $e');
-              }
-            },
-            onWebResourceError: (WebResourceError error) {
-              debugPrint('Web resource error: ${error.description}');
+              await controller.runJavaScript('''
+                document.addEventListener('click', function(e) {
+                  let text = '';
+                  if (e.target.tagName === 'A') {
+                    text = e.target.textContent || e.target.innerText;
+                  } else {
+                    text = e.target.textContent || e.target.innerText;
+                  }
+                  if (text.trim()) {
+                    ScriptRecorder.postMessage(text.trim());
+                  }
+                });
+              ''');
             },
           ),
-        );
+        )
+        ..loadRequest(Uri.parse('https://www.baidu.com'));
 
-      try {
-        controller.loadRequest(Uri.parse('https://www.baidu.com'));
-      } catch (e) {
-        debugPrint('Load URL error: $e');
-      }
-
-      if (!mounted) return;
-      
       setState(() {
         _tabs.add(BrowserTab(
           id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -215,16 +200,28 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   }
 
   void _recordClick(String text) {
-    if (_isRecording) {
+    if (_isRecording && mounted) {
+      final script = Script(
+        type: "点击文字",
+        content: text,
+        isEnabled: true,
+        exactMatch: true,
+      );
+      
       setState(() {
-        final script = Script(
-          type: "点击文字",
-          content: text,
-          isEnabled: true,
-          exactMatch: true,
-        );
         _scripts.add(script);
         _currentScriptIndex = _scripts.length - 1;
+        // 强制脚本列表刷新
+        if (_showScriptPanel) {
+          _showScriptPanel = false;
+          Future.delayed(const Duration(milliseconds: 50), () {
+            if (mounted) {
+              setState(() {
+                _showScriptPanel = true;
+              });
+            }
+          });
+        }
       });
     }
   }
@@ -267,14 +264,14 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   void _cleanupWebViews() {
     try {
       for (var tab in _tabs) {
-        tab.controller
-          ..clearCache()
-          ..clearLocalStorage();
+        tab.controller.clearCache();
       }
-      setState(() {
-        _tabs.clear();
-        _currentIndex = 0;
-      });
+      if (mounted) {
+        setState(() {
+          _tabs.clear();
+          _currentIndex = 0;
+        });
+      }
     } catch (e) {
       debugPrint('Cleanup error: $e');
     }
@@ -660,84 +657,168 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                           ),
                         ),
                         const Divider(color: CupertinoColors.white),
-                        // 脚本列表
+                        // 脚本列表区域
                         Expanded(
-                          child: ListView.separated(
-                            itemCount: _scripts.length,
-                            separatorBuilder: (context, index) =>
-                                const Divider(color: CupertinoColors.white),
-                            itemBuilder: (context, index) {
-                              final script = _scripts[index];
-                              return ListTile(
-                                title: Text(
-                                  "${script.type}: ${index + 1}: ${script.content ?? ''}",
-                                  style: const TextStyle(color: CupertinoColors.white),
-                                ),
-                                trailing: CupertinoSwitch(
-                                  value: script.isEnabled,
-                                  onChanged: (value) {
-                                    setState(() {
-                                      script.isEnabled = value;
-                                    });
+                          child: _scripts.isEmpty
+                              // 空列表时显示两个按钮
+                              ? Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    CupertinoButton(
+                                      color: CupertinoColors.systemBlue,
+                                      onPressed: _startRecording,
+                                      child: const Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Icon(
+                                            CupertinoIcons.smallcircle_fill_circle_fill,
+                                            color: CupertinoColors.white,
+                                            size: 16,
+                                          ),
+                                          SizedBox(width: 8),
+                                          Text(
+                                            '录制脚本',
+                                            style: TextStyle(color: CupertinoColors.white),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    CupertinoButton(
+                                      color: CupertinoColors.systemGreen,
+                                      onPressed: () {
+                                        // TODO: 实现添加脚本功能
+                                      },
+                                      child: const Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Icon(
+                                            CupertinoIcons.plus_circle_fill,
+                                            color: CupertinoColors.white,
+                                            size: 16,
+                                          ),
+                                          SizedBox(width: 8),
+                                          Text(
+                                            '添加脚本',
+                                            style: TextStyle(color: CupertinoColors.white),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              // 有脚本时显示列表和添加按钮
+                              : ListView.builder(
+                                  itemCount: _scripts.length + 1, // +1 为添加按钮
+                                  itemBuilder: (context, index) {
+                                    if (index == _scripts.length) {
+                                      // 最后一项显示添加按钮
+                                      return Column(
+                                        children: [
+                                          const Divider(color: CupertinoColors.white),
+                                          CupertinoButton(
+                                            padding: const EdgeInsets.all(16),
+                                            onPressed: () {
+                                              // TODO: 实现添加脚本功能
+                                            },
+                                            child: const Row(
+                                              mainAxisAlignment: MainAxisAlignment.center,
+                                              children: [
+                                                Icon(
+                                                  CupertinoIcons.plus_circle_fill,
+                                                  color: CupertinoColors.systemGreen,
+                                                  size: 16,
+                                                ),
+                                                SizedBox(width: 8),
+                                                Text(
+                                                  '添加脚本',
+                                                  style: TextStyle(
+                                                    color: CupertinoColors.systemGreen,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      );
+                                    }
+                                    // 显示脚本项
+                                    final script = _scripts[index];
+                                    return Column(
+                                      children: [
+                                        if (index > 0)
+                                          const Divider(color: CupertinoColors.white),
+                                        Container(
+                                          padding: const EdgeInsets.all(12),
+                                          decoration: BoxDecoration(
+                                            color: CupertinoColors.systemGrey6.withAlpha(30),
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                          child: Stack(
+                                            children: [
+                                              Row(
+                                                children: [
+                                                  // 左侧脚本类型
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                    decoration: BoxDecoration(
+                                                      color: CupertinoColors.systemBlue.withAlpha(50),
+                                                      borderRadius: BorderRadius.circular(4),
+                                                    ),
+                                                    child: Text(
+                                                      script.type,
+                                                      style: const TextStyle(
+                                                        color: CupertinoColors.white,
+                                                        fontSize: 14,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 12),
+                                                  // 右侧脚本内容
+                                                  Expanded(
+                                                    child: Text(
+                                                      script.content ?? '',
+                                                      style: const TextStyle(
+                                                        color: CupertinoColors.white,
+                                                        fontSize: 14,
+                                                      ),
+                                                      maxLines: 2,
+                                                      overflow: TextOverflow.ellipsis,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 40),  // 为角标预留空间
+                                                ],
+                                              ),
+                                              // 右上角角标
+                                              Positioned(
+                                                top: 0,
+                                                right: 0,
+                                                child: Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                    color: CupertinoColors.systemGrey.withAlpha(100),
+                                                    borderRadius: const BorderRadius.only(
+                                                      topRight: Radius.circular(8),
+                                                      bottomLeft: Radius.circular(8),
+                                                    ),
+                                                  ),
+                                                  child: Text(
+                                                    '${index + 1}',
+                                                    style: const TextStyle(
+                                                      color: CupertinoColors.white,
+                                                      fontSize: 12,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    );
                                   },
                                 ),
-                              );
-                            },
-                          ),
                         ),
-                        // 添加分割线和录制按钮
-                        const Divider(color: CupertinoColors.white),
-                        Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: CupertinoButton(
-                            color: CupertinoColors.systemBlue,
-                            onPressed: _startRecording,
-                            child: const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  CupertinoIcons.smallcircle_fill_circle_fill,
-                                  color: CupertinoColors.white,
-                                  size: 16,
-                                ),
-                                SizedBox(width: 8),
-                                Text(
-                                  '录制脚本',
-                                  style: TextStyle(color: CupertinoColors.white),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        // 在录制按钮上方添加导出按钮
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: CupertinoButton(
-                            color: CupertinoColors.systemGreen,
-                            onPressed: () {
-                              // 获取脚本内容
-                              final scriptContent = exportScript();
-                              // 保存为zds文件
-                              debugPrint(scriptContent); // 临时打印到控制台
-                            },
-                            child: const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  CupertinoIcons.arrow_down_doc,
-                                  color: CupertinoColors.white,
-                                  size: 16,
-                                ),
-                                SizedBox(width: 8),
-                                Text(
-                                  '导出脚本',
-                                  style: TextStyle(color: CupertinoColors.white),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
                       ],
                     ),
                   ),
