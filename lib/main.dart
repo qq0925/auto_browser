@@ -29,14 +29,16 @@ class MyApp extends StatelessWidget {
 class BrowserTab {
   final String id;
   final WebViewController controller;
-  String title;
-  String url;
+  String title;    // 网页标题
+  String url;      // 网页URL
+  bool isLoading;  // 加载状态
 
   BrowserTab({
     required this.id,
     required this.controller,
-    this.title = '欢迎页面',  // 修改默认标题
+    this.title = '欢迎使用',  // 默认标题改为"欢迎使用"
     this.url = 'about:blank',
+    this.isLoading = false,
   });
 }
 
@@ -243,6 +245,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
           controller: controller,
           title: '欢迎',  // 设置默认标题
           url: 'about:blank',
+          isLoading: false,
         ));
         _currentIndex = _tabs.length - 1;
       });
@@ -891,14 +894,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                   child: CupertinoTextField(
                     controller: _urlController,
                     enabled: false,
-                    textAlign: TextAlign.left,  // 靠左对齐
-                    placeholder: _tabs.isNotEmpty 
-                        ? (_tabs[_currentIndex].url == 'about:blank' 
-                            ? '欢迎使用'
-                            : (_tabs[_currentIndex].title.isEmpty 
-                                ? '无标题页面' 
-                                : _tabs[_currentIndex].title))
-                        : '欢迎使用',
+                    textAlign: TextAlign.left,
+                    placeholder: _getDisplayTitle(),  // 使用新方法获取显示文本
                     decoration: BoxDecoration(
                       color: CupertinoColors.systemGrey6,
                       borderRadius: BorderRadius.circular(8),
@@ -1732,8 +1729,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
 
   // 修改 URL 输入状态处理
   void _showUrlInput() {
-    final currentUrl = _tabs[_currentIndex].url;
-    final isDefaultPage = currentUrl == 'about:blank';
+    if (!_tabs.isNotEmpty || _currentIndex < 0 || _currentIndex >= _tabs.length) return;
+    
+    final tab = _tabs[_currentIndex];
+    final isDefaultPage = tab.url == 'about:blank';
     
     showCupertinoModalPopup(
       context: context,
@@ -1751,7 +1750,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                     Expanded(
                       child: CupertinoTextField(
                         controller: TextEditingController(
-                          text: isDefaultPage ? '' : currentUrl,
+                          text: isDefaultPage ? '' : tab.url,
+                        )..selection = TextSelection(  // 添加全选
+                          baseOffset: 0,
+                          extentOffset: isDefaultPage ? 0 : tab.url.length,
                         ),
                         autofocus: true,
                         placeholder: '搜索或输入网址',
@@ -1764,7 +1766,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                           if (!url.startsWith('http://') && !url.startsWith('https://')) {
                             finalUrl = 'https://$url';
                           }
-                          _tabs[_currentIndex].controller.loadRequest(Uri.parse(finalUrl));
+                          tab.controller.loadRequest(Uri.parse(finalUrl));
                           Navigator.pop(context);
                         },
                         decoration: BoxDecoration(
@@ -1816,5 +1818,19 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         ),
       ),
     );
+  }
+
+  // 添加获取显示文本的方法
+  String _getDisplayTitle() {
+    if (!_tabs.isNotEmpty || _currentIndex < 0 || _currentIndex >= _tabs.length) {
+      return '欢迎使用';
+    }
+    
+    final tab = _tabs[_currentIndex];
+    if (tab.url == 'about:blank') {
+      return '欢迎使用';
+    }
+    
+    return tab.title.isEmpty ? '无标题页面' : tab.title;
   }
 }
