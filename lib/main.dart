@@ -235,12 +235,14 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
             },
           ),
         )
-        ..loadRequest(Uri.parse('https://www.google.com')); // 使用更稳定的默认页面
+        ..loadFlutterAsset('assets/welcome.html');  // 修改这里，加载本地HTML文件
 
       setState(() {
         _tabs.add(BrowserTab(
           id: DateTime.now().millisecondsSinceEpoch.toString(),
           controller: controller,
+          title: '欢迎',  // 设置默认标题
+          url: 'about:blank',
         ));
         _currentIndex = _tabs.length - 1;
       });
