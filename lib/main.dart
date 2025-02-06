@@ -82,94 +82,91 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // 延迟初始化 WebView
-    Future.delayed(Duration.zero, () {
-      if (mounted) {
-        _addNewTab();
-      }
-    });
+    _initBrowser();
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    switch (state) {
-      case AppLifecycleState.paused:
-        // 应用进入后台时清理资源
-        for (var tab in _tabs) {
-          tab.controller.clearCache();
-          tab.controller.clearLocalStorage();
-        }
-        break;
-      case AppLifecycleState.resumed:
-        // 应用恢复时重新加载当前页面
-        if (_tabs.isNotEmpty && mounted) {
-          _tabs[_currentIndex].controller.reload();
-        }
-        break;
-      default:
-        break;
+  Future<void> _initBrowser() async {
+    try {
+      if (!mounted) return;
+      await Future.delayed(const Duration(milliseconds: 100));
+      _addNewTab();
+    } catch (e) {
+      debugPrint('Init browser error: $e');
     }
   }
 
   void _addNewTab() {
+    if (!mounted) return;
+    
     try {
-      late final WebViewController controller;
-      controller = WebViewController()
+      final controller = WebViewController();
+      
+      controller
         ..setJavaScriptMode(JavaScriptMode.unrestricted)
         ..addJavaScriptChannel(
           'ScriptRecorder',
           onMessageReceived: (JavaScriptMessage message) {
-            _recordClick(message.message);
+            if (mounted) {
+              _recordClick(message.message);
+            }
           },
         )
         ..setNavigationDelegate(
           NavigationDelegate(
             onPageStarted: (url) {
-              if (mounted) {
-                setState(() {
-                  isLoading = true;
-                });
-              }
+              if (!mounted) return;
+              setState(() {
+                isLoading = true;
+              });
             },
             onPageFinished: (String url) async {
-              if (mounted) {
-                setState(() {
-                  isLoading = false;
-                });
-                _updateTabInfo(_currentIndex);
-              }
+              if (!mounted) return;
+              setState(() {
+                isLoading = false;
+              });
+              _updateTabInfo(_currentIndex);
               
-              await controller.runJavaScript('''
-                document.addEventListener('click', function(e) {
-                  let text = '';
-                  if (e.target.tagName === 'A') {
-                    text = e.target.textContent || e.target.innerText;
-                  } else {
-                    text = e.target.textContent || e.target.innerText;
-                  }
-                  if (text.trim()) {
-                    ScriptRecorder.postMessage(text.trim());
-                  }
-                });
-              ''');
+              try {
+                await controller.runJavaScript('''
+                  document.addEventListener('click', function(e) {
+                    let text = '';
+                    if (e.target.tagName === 'A') {
+                      text = e.target.textContent || e.target.innerText;
+                    } else {
+                      text = e.target.textContent || e.target.innerText;
+                    }
+                    if (text.trim()) {
+                      ScriptRecorder.postMessage(text.trim());
+                    }
+                  });
+                ''');
+              } catch (e) {
+                debugPrint('JavaScript injection error: $e');
+              }
+            },
+            onWebResourceError: (WebResourceError error) {
+              debugPrint('Web resource error: ${error.description}');
             },
           ),
-        )
-        ..loadRequest(Uri.parse('https://www.baidu.com'));
+        );
 
-      final newTab = BrowserTab(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        controller: controller,
-      );
-
-      if (mounted) {
-        setState(() {
-          _tabs.add(newTab);
-          _currentIndex = _tabs.length - 1;
-        });
+      try {
+        controller.loadRequest(Uri.parse('https://www.baidu.com'));
+      } catch (e) {
+        debugPrint('Load URL error: $e');
       }
+
+      if (!mounted) return;
+      
+      setState(() {
+        _tabs.add(BrowserTab(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          controller: controller,
+        ));
+        _currentIndex = _tabs.length - 1;
+      });
     } catch (e) {
-      print('Error creating new tab: $e');
+      debugPrint('Add tab error: $e');
     }
   }
 
@@ -254,6 +251,36 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.paused:
+        _cleanupWebViews();
+        break;
+      case AppLifecycleState.resumed:
+        _initBrowser();
+        break;
+      default:
+        break;
+    }
+  }
+
+  void _cleanupWebViews() {
+    try {
+      for (var tab in _tabs) {
+        tab.controller
+          ..clearCache()
+          ..clearLocalStorage();
+      }
+      setState(() {
+        _tabs.clear();
+        _currentIndex = 0;
+      });
+    } catch (e) {
+      debugPrint('Cleanup error: $e');
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
@@ -316,10 +343,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 Container(
                   height: 50,
                   decoration: BoxDecoration(
-                    color: CupertinoColors.systemGrey6.withOpacity(0.9),
+                    color: CupertinoColors.systemGrey6.withAlpha(230),
                     border: const Border(
                       top: BorderSide(
-                        color: CupertinoColors.systemGrey4,
+                        color: Color(0x4D8E8E93),  // 使用固定的 ARGB 值
                         width: 0.5,
                       ),
                     ),
@@ -376,7 +403,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                     decoration: BoxDecoration(
                                       border: Border(
                                         bottom: BorderSide(
-                                          color: CupertinoColors.systemGrey.withOpacity(0.3),
+                                          color: CupertinoColors.systemGrey.withAlpha(77),
                                         ),
                                       ),
                                     ),
@@ -405,7 +432,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                                 : null,
                                             border: Border(
                                               bottom: BorderSide(
-                                                color: CupertinoColors.systemGrey.withOpacity(0.3),
+                                                color: CupertinoColors.systemGrey.withAlpha(77),
                                               ),
                                             ),
                                           ),
@@ -449,7 +476,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                     decoration: BoxDecoration(
                                       border: Border(
                                         top: BorderSide(
-                                          color: CupertinoColors.systemGrey.withOpacity(0.3),
+                                          color: CupertinoColors.systemGrey.withAlpha(77),
                                         ),
                                       ),
                                     ),
@@ -538,177 +565,184 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 ),
               ],
             ),
-            // 脚本管理器面板和控制按钮
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                // 脚本管理器面板
-                Container(
-                  color: CupertinoColors.black.withOpacity(0.9),
-                  child: Column(
-                    children: [
-                      const SizedBox(height: 16),
-                      // 全局设置
-                      Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              '全局设置',
-                              style: TextStyle(
-                                color: CupertinoColors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                const Text(
-                                  '执行延迟(ms):',
-                                  style: TextStyle(color: CupertinoColors.white),
-                                ),
-                                Expanded(
-                                  child: CupertinoTextField(
-                                    keyboardType: TextInputType.number,
-                                    style: const TextStyle(color: CupertinoColors.white),
-                                    decoration: BoxDecoration(
-                                      color: CupertinoColors.systemGrey6,
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    onChanged: (value) {
-                                      _executionDelay = int.tryParse(value) ?? 1000;
-                                    },
-                                    controller: TextEditingController(
-                                        text: _executionDelay.toString()),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                const Text(
-                                  '循环次数:',
-                                  style: TextStyle(color: CupertinoColors.white),
-                                ),
-                                Expanded(
-                                  child: CupertinoTextField(
-                                    keyboardType: TextInputType.number,
-                                    style: const TextStyle(color: CupertinoColors.white),
-                                    decoration: BoxDecoration(
-                                      color: CupertinoColors.systemGrey6,
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    onChanged: (value) {
-                                      _loopCount = int.tryParse(value) ?? 1;
-                                    },
-                                    controller: TextEditingController(
-                                        text: _loopCount.toString()),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Divider(color: CupertinoColors.white),
-                      // 脚本进度
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 8),
-                        child: Text(
-                          '脚本列表: $_currentScriptIndex/${_scripts.length}',
-                          style: const TextStyle(
-                            color: CupertinoColors.white,
-                            fontSize: 16,
-                          ),
-                        ),
-                      ),
-                      const Divider(color: CupertinoColors.white),
-                      // 脚本列表
-                      Expanded(
-                        child: ListView.separated(
-                          itemCount: _scripts.length,
-                          separatorBuilder: (context, index) =>
-                              const Divider(color: CupertinoColors.white),
-                          itemBuilder: (context, index) {
-                            final script = _scripts[index];
-                            return ListTile(
-                              title: Text(
-                                "${script.type}: ${index + 1}: ${script.content ?? ''}",
-                                style: const TextStyle(color: CupertinoColors.white),
-                              ),
-                              trailing: CupertinoSwitch(
-                                value: script.isEnabled,
-                                onChanged: (value) {
-                                  setState(() {
-                                    script.isEnabled = value;
-                                  });
-                                },
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                      // 添加分割线和录制按钮
-                      const Divider(color: CupertinoColors.white),
-                      Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: CupertinoButton(
-                          color: CupertinoColors.systemBlue,
-                          onPressed: _startRecording,
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
+            // 脚本管理器面板
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
+              right: _showScriptPanel ? 0 : -MediaQuery.of(context).size.width / 2,
+              width: MediaQuery.of(context).size.width / 2,  // 设置为屏幕宽度的一半
+              top: 0,
+              bottom: 0,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
+                    color: CupertinoColors.black.withAlpha(230),
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 16),
+                        // 全局设置
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Icon(
-                                CupertinoIcons.smallcircle_fill_circle_fill,
-                                color: CupertinoColors.white,
-                                size: 16,
+                              const Text(
+                                '全局设置',
+                                style: TextStyle(
+                                  color: CupertinoColors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
-                              SizedBox(width: 8),
-                              Text(
-                                '录制脚本',
-                                style: TextStyle(color: CupertinoColors.white),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  const Text(
+                                    '执行延迟(ms):',
+                                    style: TextStyle(color: CupertinoColors.white),
+                                  ),
+                                  Expanded(
+                                    child: CupertinoTextField(
+                                      keyboardType: TextInputType.number,
+                                      style: const TextStyle(color: CupertinoColors.white),
+                                      decoration: BoxDecoration(
+                                        color: CupertinoColors.systemGrey6,
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      onChanged: (value) {
+                                        _executionDelay = int.tryParse(value) ?? 1000;
+                                      },
+                                      controller: TextEditingController(
+                                          text: _executionDelay.toString()),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  const Text(
+                                    '循环次数:',
+                                    style: TextStyle(color: CupertinoColors.white),
+                                  ),
+                                  Expanded(
+                                    child: CupertinoTextField(
+                                      keyboardType: TextInputType.number,
+                                      style: const TextStyle(color: CupertinoColors.white),
+                                      decoration: BoxDecoration(
+                                        color: CupertinoColors.systemGrey6,
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      onChanged: (value) {
+                                        _loopCount = int.tryParse(value) ?? 1;
+                                      },
+                                      controller: TextEditingController(
+                                          text: _loopCount.toString()),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
                         ),
-                      ),
-                      // 在录制按钮上方添加导出按钮
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: CupertinoButton(
-                          color: CupertinoColors.systemGreen,
-                          onPressed: () {
-                            // 获取脚本内容
-                            final scriptContent = exportScript();
-                            // TODO: 保存为 .zds 文件
-                            print(scriptContent); // 临时打印到控制台
-                          },
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                CupertinoIcons.arrow_down_doc,
-                                color: CupertinoColors.white,
-                                size: 16,
-                              ),
-                              SizedBox(width: 8),
-                              Text(
-                                '导出脚本',
-                                style: TextStyle(color: CupertinoColors.white),
-                              ),
-                            ],
+                        const Divider(color: CupertinoColors.white),
+                        // 脚本进度
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
+                          child: Text(
+                            '脚本列表: $_currentScriptIndex/${_scripts.length}',
+                            style: const TextStyle(
+                              color: CupertinoColors.white,
+                              fontSize: 16,
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                    ],
+                        const Divider(color: CupertinoColors.white),
+                        // 脚本列表
+                        Expanded(
+                          child: ListView.separated(
+                            itemCount: _scripts.length,
+                            separatorBuilder: (context, index) =>
+                                const Divider(color: CupertinoColors.white),
+                            itemBuilder: (context, index) {
+                              final script = _scripts[index];
+                              return ListTile(
+                                title: Text(
+                                  "${script.type}: ${index + 1}: ${script.content ?? ''}",
+                                  style: const TextStyle(color: CupertinoColors.white),
+                                ),
+                                trailing: CupertinoSwitch(
+                                  value: script.isEnabled,
+                                  onChanged: (value) {
+                                    setState(() {
+                                      script.isEnabled = value;
+                                    });
+                                  },
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        // 添加分割线和录制按钮
+                        const Divider(color: CupertinoColors.white),
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: CupertinoButton(
+                            color: CupertinoColors.systemBlue,
+                            onPressed: _startRecording,
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  CupertinoIcons.smallcircle_fill_circle_fill,
+                                  color: CupertinoColors.white,
+                                  size: 16,
+                                ),
+                                SizedBox(width: 8),
+                                Text(
+                                  '录制脚本',
+                                  style: TextStyle(color: CupertinoColors.white),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        // 在录制按钮上方添加导出按钮
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: CupertinoButton(
+                            color: CupertinoColors.systemGreen,
+                            onPressed: () {
+                              // 获取脚本内容
+                              final scriptContent = exportScript();
+                              // 保存为zds文件
+                              debugPrint(scriptContent); // 临时打印到控制台
+                            },
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  CupertinoIcons.arrow_down_doc,
+                                  color: CupertinoColors.white,
+                                  size: 16,
+                                ),
+                                SizedBox(width: 8),
+                                Text(
+                                  '导出脚本',
+                                  style: TextStyle(color: CupertinoColors.white),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
             // 控制按钮放在外层 Stack 中，与脚本管理器面板平级
             AnimatedPositioned(
@@ -751,7 +785,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
-                    color: CupertinoColors.systemRed.withOpacity(0.9),
+                    color: CupertinoColors.systemRed.withAlpha(230),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Row(
@@ -790,13 +824,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
 
   @override
   void dispose() {
+    _cleanupWebViews();
     WidgetsBinding.instance.removeObserver(this);
-    // 清理资源
-    for (var tab in _tabs) {
-      tab.controller.clearCache();
-      tab.controller.clearLocalStorage();
-    }
-    _tabs.clear();
     _urlController.dispose();
     super.dispose();
   }
