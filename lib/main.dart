@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:share_plus/share_plus.dart';  // 添加分享功能的包
 import 'package:path_provider/path_provider.dart';  // 添加这行导入
+import 'dart:convert';
 
 void main() {
   runApp(const MyApp());
@@ -74,25 +75,30 @@ class BrowserHomePage extends StatefulWidget {
 }
 
 class Script {
-  String type;      // 脚本类型: 点击文字、输入提交
-  String? content;  // 内容（文字或表单数据）
+  String type;
+  Map<String, dynamic> params;
   bool isEnabled;
-  bool exactMatch;
 
   Script({
     required this.type,
-    this.content,
+    this.params = const {},
     this.isEnabled = true,
-    this.exactMatch = true,
   });
 
-  // 修改 toJson 方法
-  String toJson(int executionDelay, int loopCount) {
-    if (type == "全局变量") {
-      return '{"脚本类型":"全局变量","执行延迟":$executionDelay,"时间单位":"毫秒","循环次数":$loopCount}';
-    } else {
-      return '{"脚本类型":"$type","内容":"$content","完全匹配":"${exactMatch ? "是" : "否"}"}';
-    }
+  // 从 JSON 字符串创建脚本
+  factory Script.fromJson(String jsonStr) {
+    final data = json.decode(jsonStr);
+    return Script(
+      type: data['脚本类型'],
+      params: Map<String, dynamic>.from(data)..remove('脚本类型'),
+      isEnabled: true,
+    );
+  }
+
+  // 转换为 JSON 字符串
+  String toJson() {
+    final data = {'脚本类型': type, ...params};
+    return json.encode(data);
   }
 }
 
@@ -113,8 +119,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   final List<HistoryItem> _history = [];
   double _loadingProgress = 0;  // 加载进度
   bool _isPaused = false;  // 暂停状态
-  int _successCount = 0;   // 成功次数
-  int _failureCount = 0;   // 失败次数
+  final int _successCount = 0;   // 成功次数
+  final int _failureCount = 0;   // 失败次数
 
   @override
   void initState() {
@@ -343,7 +349,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       setState(() {
         _scripts.add(Script(
           type: type,
-          content: content,
+          params: {
+            '点击文字': content,
+          },
           isEnabled: true,
         ));
         
@@ -369,14 +377,18 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     // 添加全局信息
     final globalScript = Script(
       type: "全局变量",
+      params: {
+        '执行延迟': _executionDelay,
+        '循环次数': _originalLoopCount,
+      },
       isEnabled: true,
     );
-    lines.add(globalScript.toJson(_executionDelay, _originalLoopCount));
+    lines.add(globalScript.toJson());
     
     // 添加所有已启用的脚本
     for (var script in _scripts) {
       if (script.isEnabled) {
-        lines.add(script.toJson(_executionDelay, _originalLoopCount));
+        lines.add(script.toJson());
       }
     }
     
@@ -434,7 +446,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                   setState(() {
                     _scripts.add(Script(
                       type: type,
-                      content: content,
+                      params: {
+                        '点击文字': content,
+                      },
                       isEnabled: true,
                     ));
                   });
@@ -455,7 +469,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       context: context,
       builder: (context) {
         String type = script.type;
-        String content = script.content ?? '';
+        String content = script.params['点击文字'] ?? '';
         return CupertinoAlertDialog(
           title: const Text('编辑脚本'),
           content: Column(
@@ -501,7 +515,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 if (content.isNotEmpty) {
                   setState(() {
                     _scripts[index].type = type;
-                    _scripts[index].content = content;
+                    _scripts[index].params['点击文字'] = content;
                   });
                 }
                 Navigator.pop(context);
@@ -540,92 +554,20 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   Future<void> _executeScripts() async {
     if (_scripts.isEmpty) return;
     
-    setState(() {
-      _isExecuting = true;
-      _isPaused = false;
-      _remainingLoopCount = _originalLoopCount;
-      _successCount = 0;
-      _failureCount = 0;
-    });
-
-    try {
-      do {
-        for (var script in _scripts) {
-          while (_isPaused) {
-            await Future.delayed(const Duration(milliseconds: 100));
-            if (!_isExecuting) return;  // 检查是否停止执行
-          }
-          
-          if (!_isExecuting) return;  // 检查是否停止执行
-          if (!script.isEnabled) continue;
-          
-          try {
-            switch (script.type) {
-              case "点击文字":
-                await _executeClickText(script.content ?? '');
-                break;
-              case "输入提交":
-                await _executeFormSubmit(script.content ?? '');
-                break;
-            }
-            setState(() => _successCount++);
-          } catch (e) {
-            setState(() => _failureCount++);
-          }
-          await Future.delayed(Duration(milliseconds: _executionDelay));
-        }
-        
-        if (_originalLoopCount > 0) {
-          _remainingLoopCount--;
-        }
-      } while (_originalLoopCount == 0 || _remainingLoopCount > 0);
-      
-    } finally {
-      setState(() {
-        _isExecuting = false;
-        _isPaused = false;
-      });
-    }
-  }
-
-  // 添加具体的执行方法
-  Future<void> _executeClickText(String text) async {
-    final result = await _tabs[_currentIndex].controller.runJavaScriptReturningResult('''
-      (function() {
-        const elements = document.querySelectorAll('*');
-        for (const element of elements) {
-          if (element.textContent.trim() === "$text") {
-            element.click();
-            return true;
-          }
-        }
-        return false;
-      })();
-    ''');
-    if (result.toString() != 'true') throw Exception('Text not found');
-  }
-
-  Future<void> _executeFormSubmit(String formData) async {
-    final result = await _tabs[_currentIndex].controller.runJavaScriptReturningResult('''
-      (function() {
+    _remainingLoopCount = _originalLoopCount; // Initialize remaining loop count
+    
+    while (_remainingLoopCount > 0) {
+      for (var i = 0; i < _scripts.length; i++) {
+        if (!_scripts[i].isEnabled) continue;
         try {
-          const data = JSON.parse('$formData');
-          for (let [key, value] of Object.entries(data)) {
-            const input = document.querySelector(`[name="\${key}"]`);
-            if (input) input.value = value;
-          }
-          const form = document.querySelector('form');
-          if (form) {
-            form.submit();
-            return true;
-          }
-          return false;
+          await executeScript(_scripts[i]);
+          await Future.delayed(Duration(milliseconds: _executionDelay));
         } catch (e) {
-          return false;
+          debugPrint('Execute script error: $e');
         }
-      })();
-    ''');
-    if (result.toString() != 'true') throw Exception('Form submit failed');
+      }
+      _remainingLoopCount--; // Decrement remaining loop count
+    }
   }
 
   // 修改菜单管理器样式
@@ -1353,7 +1295,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                                 // 右侧脚本内容
                                                 Expanded(
                                                   child: Text(
-                                                    script.content ?? '',
+                                                    script.params['点击文字'] ?? '',
                                                     style: const TextStyle(
                                                       color: CupertinoColors.white,
                                                       fontSize: 12,  // 减小字体
@@ -1714,16 +1656,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
             if (line.isEmpty) continue;
             
             // 从 JSON 中提取脚本信息
-            final typeMatch = RegExp(r'"脚本类型":"([^"]+)"').firstMatch(line);
-            final contentMatch = RegExp(r'"内容":"([^"]+)"').firstMatch(line);
+            final script = Script.fromJson(line);
             
-            if (typeMatch != null) {
-              _scripts.add(Script(
-                type: typeMatch.group(1)!,
-                content: contentMatch?.group(1),
-                isEnabled: true,
-              ));
-            }
+            _scripts.add(script);
           }
         });
 
@@ -1922,5 +1857,143 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         ));
       }
     });
+  }
+
+  // 添加脚本执行方法
+  Future<bool> executeScript(Script script) async {
+    try {
+      switch (script.type) {
+        case "点击文字":
+          return await _executeClickText(script);
+        case "输入框提交":
+          return await _executeFormSubmit(script);
+        case "刷新网页":
+          await _tabs[_currentIndex].controller.reload();
+          return true;
+        case "延时脚本":
+          await Future.delayed(Duration(milliseconds: script.params['执行延迟'] ?? 800));
+          return true;
+        case "逻辑脚本-出现文字":
+          return await _executeLogicScript(script);
+        case "执行本地脚本集":
+          return await _executeLocalScript(script);
+        case "脚本替换":
+          return await _executeScriptReplace(script);
+        default:
+          return false;
+      }
+    } catch (e) {
+      debugPrint('Script execution error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> _executeClickText(Script script) async {
+    if (!mounted || _tabs.isEmpty || _currentIndex < 0) return false;
+    final result = await _tabs[_currentIndex].controller.runJavaScriptReturningResult('''
+      (function() {
+        const text = "${script.params['点击文字'] ?? ''}";
+        const elements = document.querySelectorAll('*');
+        for (const el of elements) {
+          if (el.textContent.includes(text)) {
+            el.click();
+            return true;
+          }
+        }
+        return false;
+      })();
+    ''');
+    return result.toString() == 'true';
+  }
+
+  Future<bool> _executeFormSubmit(Script script) async {
+    if (!mounted || _tabs.isEmpty || _currentIndex < 0) return false;
+    final formInputs = Map<String, String>.from(script.params)
+      ..removeWhere((key, value) => !key.startsWith('输入框'));
+    
+    final result = await _tabs[_currentIndex].controller.runJavaScriptReturningResult('''
+      (function() {
+        const inputs = document.querySelectorAll('input');
+        ${formInputs.entries.map((e) => 
+          'if(inputs[${int.parse(e.key.substring(3)) - 1}]) inputs[${int.parse(e.key.substring(3)) - 1}].value = "${e.value}";'
+        ).join('\n')}
+        const form = document.querySelector('form');
+        if (form) {
+          form.submit();
+          return true;
+        }
+        return false;
+      })();
+    ''');
+    return result.toString() == 'true';
+  }
+
+  Future<bool> _executeLogicScript(Script script) async {
+    if (!mounted || _tabs.isEmpty || _currentIndex < 0) return false;
+    final targetText = script.params['出现文字'];
+    final result = await _tabs[_currentIndex].controller.runJavaScriptReturningResult(
+      'document.body.textContent.includes("$targetText")'
+    );
+    
+    if (result.toString() == 'true') {
+      final thenScript = Script.fromJson(json.encode(script.params['出现文字,则执行:']));
+      return await executeScript(thenScript);
+    } else {
+      final elseScript = Script.fromJson(json.encode(script.params['未出现文字,则执行:']));
+      return await executeScript(elseScript);
+    }
+  }
+
+  Future<bool> _executeLocalScript(Script script) async {
+    try {
+      final scriptPath = script.params['本地脚本'] as String;
+      final file = File(scriptPath);
+      if (!await file.exists()) return false;
+
+      // 保存当前状态
+      final currentScripts = List<Script>.from(_scripts);
+      final currentIndex = _currentIndex;
+
+      // 加载并执行新脚本
+      final content = await file.readAsString();
+      final lines = content.split('\n').where((line) => line.trim().isNotEmpty).toList();
+      
+      _scripts.clear();
+      for (var line in lines) {
+        _scripts.add(Script.fromJson(line));
+      }
+      await _executeScripts();
+
+      // 恢复原始状态
+      _scripts
+        ..clear()
+        ..addAll(currentScripts);
+      _currentIndex = currentIndex;
+      return true;
+    } catch (e) {
+      debugPrint('Execute local script error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> _executeScriptReplace(Script script) async {
+    try {
+      final scriptPath = script.params['替换为:'] as String;
+      final file = File(scriptPath);
+      if (!await file.exists()) return false;
+
+      final content = await file.readAsString();
+      final lines = content.split('\n').where((line) => line.trim().isNotEmpty).toList();
+      
+      // 替换当前脚本
+      _scripts.removeAt(_currentIndex);
+      for (var line in lines) {
+        _scripts.insert(_currentIndex, Script.fromJson(line));
+      }
+      return true;
+    } catch (e) {
+      debugPrint('Script replace error: $e');
+      return false;
+    }
   }
 }
