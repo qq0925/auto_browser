@@ -44,15 +44,26 @@ class BrowserHomePage extends StatefulWidget {
 }
 
 class Script {
-  String name;
+  String type;      // 脚本类型
+  String? content;  // 点击文字内容
   bool isEnabled;
-  String content;
+  bool exactMatch;  // 完全匹配点击
 
   Script({
-    required this.name,
+    required this.type,
+    this.content,
     this.isEnabled = false,
-    required this.content,
+    this.exactMatch = true,
   });
+
+  // 转换为 JSON 字符串
+  String toJson(int executionDelay, int loopCount) {
+    if (type == "全局变量") {
+      return '{"脚本类型":"全局变量","执行延迟":$executionDelay,"时间单位":"毫秒","循环次数":$loopCount}';
+    } else {
+      return '{"脚本类型":"点击文字","点击文字":"$content","完全匹配点击":"${exactMatch ? "是" : "否"}"}';
+    }
+  }
 }
 
 class _BrowserHomePageState extends State<BrowserHomePage> {
@@ -61,21 +72,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
   final TextEditingController _urlController = TextEditingController();
   bool isLoading = false;
   bool _showScriptPanel = false;
-  final List<Script> _scripts = [
-    Script(name: "脚本1", content: "console.log('script 1')"),
-    Script(name: "脚本2", content: "console.log('script 2')"),
-    Script(name: "脚本3", content: "console.log('script 3')"),
-    Script(name: "脚本4", content: "console.log('script 4')"),
-    Script(name: "脚本5", content: "console.log('script 5')"),
-    Script(name: "脚本6", content: "console.log('script 6')"),
-    Script(name: "脚本7", content: "console.log('script 7')"),
-    Script(name: "脚本8", content: "console.log('script 8')"),
-  ];
+  final List<Script> _scripts = [];
   int _currentScriptIndex = 0;
   int _executionDelay = 1000; // 默认延迟1000ms
   int _loopCount = 1; // 默认循环1次
   bool _isRecording = false;  // 录制状态
-  final List<Script> _recordedScripts = [];  // 录制的脚本列表
 
   @override
   void initState() {
@@ -84,49 +85,65 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
   }
 
   void _addNewTab() {
-    late final WebViewController controller;  // 先声明
-    controller = WebViewController()  // 然后初始化
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..addJavaScriptChannel(
-        'ScriptRecorder',
-        onMessageReceived: (JavaScriptMessage message) {
-          _recordClick(message.message);
-        },
-      )
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageStarted: (url) {
-            setState(() {
-              isLoading = true;
-            });
+    try {
+      late final WebViewController controller;
+      controller = WebViewController()
+        ..setJavaScriptMode(JavaScriptMode.unrestricted)
+        ..addJavaScriptChannel(
+          'ScriptRecorder',
+          onMessageReceived: (JavaScriptMessage message) {
+            _recordClick(message.message);
           },
-          onPageFinished: (String url) async {
-            setState(() {
-              isLoading = false;
-            });
-            _updateTabInfo(_currentIndex);
-            
-            await controller.runJavaScript('''
-              document.addEventListener('click', function(e) {
-                if (e.target.tagName === 'A') {
-                  ScriptRecorder.postMessage(e.target.textContent);
-                }
-              });
-            ''');
-          },
-        ),
-      )
-      ..loadRequest(Uri.parse('https://www.baidu.com'));
+        )
+        ..setNavigationDelegate(
+          NavigationDelegate(
+            onPageStarted: (url) {
+              if (mounted) {
+                setState(() {
+                  isLoading = true;
+                });
+              }
+            },
+            onPageFinished: (String url) async {
+              if (mounted) {
+                setState(() {
+                  isLoading = false;
+                });
+                _updateTabInfo(_currentIndex);
+              }
+              
+              await controller.runJavaScript('''
+                document.addEventListener('click', function(e) {
+                  let text = '';
+                  if (e.target.tagName === 'A') {
+                    text = e.target.textContent || e.target.innerText;
+                  } else {
+                    text = e.target.textContent || e.target.innerText;
+                  }
+                  if (text.trim()) {
+                    ScriptRecorder.postMessage(text.trim());
+                  }
+                });
+              ''');
+            },
+          ),
+        )
+        ..loadRequest(Uri.parse('https://www.baidu.com'));
 
-    final newTab = BrowserTab(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      controller: controller,
-    );
+      final newTab = BrowserTab(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        controller: controller,
+      );
 
-    setState(() {
-      _tabs.add(newTab);
-      _currentIndex = _tabs.length - 1;
-    });
+      if (mounted) {
+        setState(() {
+          _tabs.add(newTab);
+          _currentIndex = _tabs.length - 1;
+        });
+      }
+    } catch (e) {
+      print('Error creating new tab: $e');
+    }
   }
 
   void _updateTabInfo(int index) async {
@@ -145,6 +162,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
   void _removeTab(int index) {
     if (_tabs.length > 1) {
       setState(() {
+        // 清理要移除的标签页资源
+        final tab = _tabs[index];
+        tab.controller.clearCache();
+        tab.controller.clearLocalStorage();
+        
         _tabs.removeAt(index);
         if (_currentIndex >= index) {
           _currentIndex = _currentIndex > 0 ? _currentIndex - 1 : 0;
@@ -171,18 +193,37 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
   void _recordClick(String text) {
     if (_isRecording) {
       setState(() {
-        _recordedScripts.add(Script(
-          name: "点击文字",
+        final script = Script(
+          type: "点击文字",
           content: text,
           isEnabled: true,
-        ));
-        _scripts.add(Script(
-          name: "点击文字",
-          content: text,
-          isEnabled: true,
-        ));
+          exactMatch: true,
+        );
+        _scripts.add(script);
+        _currentScriptIndex = _scripts.length - 1;
       });
     }
+  }
+
+  // 添加导出脚本方法
+  String exportScript() {
+    final List<String> lines = [];
+    
+    // 添加全局信息
+    final globalScript = Script(
+      type: "全局变量",
+      isEnabled: true,
+    );
+    lines.add(globalScript.toJson(_executionDelay, _loopCount));
+    
+    // 添加所有已启用的脚本
+    for (var script in _scripts) {
+      if (script.isEnabled) {
+        lines.add(script.toJson(_executionDelay, _loopCount));
+      }
+    }
+    
+    return lines.join('\n');
   }
 
   @override
@@ -473,6 +514,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
             // 脚本管理器面板和控制按钮
             AnimatedPositioned(
               duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
               right: _showScriptPanel ? 0 : -MediaQuery.of(context).size.width / 2,
               width: MediaQuery.of(context).size.width / 2,
               top: 0,
@@ -575,7 +617,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                               final script = _scripts[index];
                               return ListTile(
                                 title: Text(
-                                  script.name,
+                                  script.type,
                                   style: const TextStyle(color: CupertinoColors.white),
                                 ),
                                 trailing: CupertinoSwitch(
@@ -614,16 +656,47 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                             ),
                           ),
                         ),
+                        // 在录制按钮上方添加导出按钮
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: CupertinoButton(
+                            color: CupertinoColors.systemGreen,
+                            onPressed: () {
+                              // 获取脚本内容
+                              final scriptContent = exportScript();
+                              // TODO: 保存为 .zds 文件
+                              print(scriptContent); // 临时打印到控制台
+                            },
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  CupertinoIcons.arrow_down_doc,
+                                  color: CupertinoColors.white,
+                                  size: 16,
+                                ),
+                                SizedBox(width: 8),
+                                Text(
+                                  '导出脚本',
+                                  style: TextStyle(color: CupertinoColors.white),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
                       ],
                     ),
                   ),
                 ],
               ),
             ),
-            // 将控制按钮移到外层 Stack
-            Positioned(
+            // 将控制按钮从 Positioned 改为 AnimatedPositioned
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 300),  // 与面板相同的动画时长
+              curve: Curves.easeInOut,  // 添加动画曲线使其更流畅
               right: _showScriptPanel ? MediaQuery.of(context).size.width / 2 - 25 : 0,
-              bottom: MediaQuery.of(context).size.height / 8,  // 改为 bottom 定位
+              bottom: MediaQuery.of(context).size.height / 8,
               child: GestureDetector(
                 onTap: () {
                   setState(() {
@@ -696,6 +769,12 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
 
   @override
   void dispose() {
+    // 添加 WebView 控制器的清理
+    for (var tab in _tabs) {
+      tab.controller.clearCache();
+      tab.controller.clearLocalStorage();
+    }
+    _tabs.clear();
     _urlController.dispose();
     super.dispose();
   }
