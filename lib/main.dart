@@ -373,25 +373,31 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     });
 
     try {
-      for (var script in _scripts) {
-        if (!script.isEnabled) continue;
-        
-        if (script.type == "点击文字") {
-          await _tabs[_currentIndex].controller.runJavaScript('''
-            (function() {
-              const elements = document.querySelectorAll('a');
-              for (const element of elements) {
-                if (element.textContent.trim() === "${script.content}") {
-                  element.click();
-                  return;
-                }
-              }
-            })();
-          ''');
+      do {
+        for (var script in _scripts) {
+          if (!script.isEnabled) continue;
           
-          await Future.delayed(Duration(milliseconds: _executionDelay));
+          if (script.type == "点击文字") {
+            // 等待执行延迟
+            await Future.delayed(Duration(milliseconds: _executionDelay));
+            
+            await _tabs[_currentIndex].controller.runJavaScript('''
+              (function() {
+                const elements = document.querySelectorAll('a');
+                for (const element of elements) {
+                  if (element.textContent.trim() === "${script.content}") {
+                    element.click();
+                    return;
+                  }
+                }
+              })();
+            ''');
+          }
         }
-      }
+        
+        if (_loopCount > 0) _loopCount--;
+      } while (_loopCount == 0 || _loopCount > 0);  // 0表示无限循环
+      
     } finally {
       setState(() {
         _isExecuting = false;
@@ -732,32 +738,39 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                         const SizedBox(height: 16),
                         // 全局设置
                         Padding(
-                          padding: const EdgeInsets.all(16),
+                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 8),  // 缩小padding
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                            crossAxisAlignment: CrossAxisAlignment.center,  // 居中对齐
                             children: [
                               const Text(
                                 '全局设置',
                                 style: TextStyle(
                                   color: CupertinoColors.white,
-                                  fontSize: 16,
+                                  fontSize: 14,  // 调小字体
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
-                              const SizedBox(height: 8),
+                              const SizedBox(height: 4),  // 减小间距
                               Row(
                                 children: [
                                   const Text(
-                                    '执行延迟(ms):',
-                                    style: TextStyle(color: CupertinoColors.white),
+                                    '执行延迟:',
+                                    style: TextStyle(
+                                      color: CupertinoColors.white,
+                                      fontSize: 12,  // 调小字体
+                                    ),
                                   ),
+                                  const SizedBox(width: 4),
                                   Expanded(
                                     child: CupertinoTextField(
                                       keyboardType: TextInputType.number,
-                                      style: const TextStyle(color: CupertinoColors.white),
+                                      style: const TextStyle(
+                                        color: CupertinoColors.white,
+                                        fontSize: 12,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: CupertinoColors.systemGrey6,
-                                        borderRadius: BorderRadius.circular(8),
+                                        borderRadius: BorderRadius.circular(4),  // 调小圆角
                                       ),
                                       onChanged: (value) {
                                         _executionDelay = int.tryParse(value) ?? 1000;
@@ -766,28 +779,49 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                           text: _executionDelay.toString()),
                                     ),
                                   ),
+                                  const Text(
+                                    'ms',
+                                    style: TextStyle(
+                                      color: CupertinoColors.white,
+                                      fontSize: 12,
+                                    ),
+                                  ),
                                 ],
                               ),
-                              const SizedBox(height: 8),
+                              const SizedBox(height: 4),
                               Row(
                                 children: [
                                   const Text(
                                     '循环次数:',
-                                    style: TextStyle(color: CupertinoColors.white),
+                                    style: TextStyle(
+                                      color: CupertinoColors.white,
+                                      fontSize: 12,
+                                    ),
                                   ),
+                                  const SizedBox(width: 4),
                                   Expanded(
                                     child: CupertinoTextField(
                                       keyboardType: TextInputType.number,
-                                      style: const TextStyle(color: CupertinoColors.white),
+                                      style: const TextStyle(
+                                        color: CupertinoColors.white,
+                                        fontSize: 12,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: CupertinoColors.systemGrey6,
-                                        borderRadius: BorderRadius.circular(8),
+                                        borderRadius: BorderRadius.circular(4),
                                       ),
                                       onChanged: (value) {
                                         _loopCount = int.tryParse(value) ?? 1;
                                       },
                                       controller: TextEditingController(
                                           text: _loopCount.toString()),
+                                    ),
+                                  ),
+                                  const Text(
+                                    '次',
+                                    style: TextStyle(
+                                      color: CupertinoColors.white,
+                                      fontSize: 12,
                                     ),
                                   ),
                                 ],
