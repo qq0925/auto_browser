@@ -143,17 +143,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       late final WebViewController controller;
       controller = WebViewController()
         ..setJavaScriptMode(JavaScriptMode.unrestricted)
-        ..addJavaScriptChannel(
-          'ScriptRecorder',
-          onMessageReceived: (JavaScriptMessage message) {
-            if (mounted) {
-              final data = message.message.split('|');
-              final type = data[0];
-              final content = data[1];
-              _recordAction(type, content);
-            }
-          },
-        )
+        ..setBackgroundColor(const Color(0x00000000))
         ..setNavigationDelegate(
           NavigationDelegate(
             onPageStarted: (url) {
@@ -237,6 +227,56 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
             },
           ),
         )
+        ..addJavaScriptChannel(
+          'ContextMenu',
+          onMessageReceived: (JavaScriptMessage message) {
+            showCupertinoModalPopup(
+              context: context,
+              builder: (context) => CupertinoActionSheet(
+                actions: [
+                  CupertinoActionSheetAction(
+                    onPressed: () {
+                      controller.runJavaScript('document.execCommand("copy")');
+                      Navigator.pop(context);
+                    },
+                    child: const Text('复制'),
+                  ),
+                  CupertinoActionSheetAction(
+                    onPressed: () {
+                      // 实现查找功能
+                      Navigator.pop(context);
+                    },
+                    child: const Text('查找'),
+                  ),
+                  CupertinoActionSheetAction(
+                    onPressed: () {
+                      // 实现翻译功能
+                      Navigator.pop(context);
+                    },
+                    child: const Text('翻译'),
+                  ),
+                  CupertinoActionSheetAction(
+                    onPressed: () {
+                      // 实现分享功能
+                      Navigator.pop(context);
+                    },
+                    child: const Text('分享'),
+                  ),
+                ],
+                cancelButton: CupertinoActionSheetAction(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('取消'),
+                ),
+              ),
+            );
+          },
+        )
+        ..runJavaScript('''
+          document.addEventListener('contextmenu', function(e) {
+            e.preventDefault();
+            ContextMenu.postMessage('');
+          });
+        ''')
         ..loadFlutterAsset('assets/welcome.html');  // 修改这里，加载本地HTML文件
 
       setState(() {
