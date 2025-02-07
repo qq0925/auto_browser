@@ -1451,10 +1451,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                     ),
                                     CupertinoButton(
                                       padding: EdgeInsets.zero,
-                                      onPressed: () {
-                                        _clearScripts();
-                                        Navigator.pop(context);  // If it's in a dialog
-                                      },
+                                      onPressed: _clearScripts,
                                       child: const Icon(
                                         CupertinoIcons.clear_fill,
                                         color: CupertinoColors.systemRed,
@@ -2024,38 +2021,17 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
 
   void _clearScripts() {
     if (!mounted) return;
-    
-    showCupertinoDialog(
-      context: context,
-      builder: (context) => CupertinoAlertDialog(
-        title: const Text('确认清除'),
-        content: const Text('确定要清除所有脚本吗？'),
-        actions: [
-          CupertinoDialogAction(
-            child: const Text('取消'),
-            onPressed: () => Navigator.pop(context),
-          ),
-          CupertinoDialogAction(
-            isDestructiveAction: true,
-            onPressed: () {
-              setState(() {
-                _scripts.clear();
-                _executionDelay = 1000;
-                _originalLoopCount = 1;
-                _remainingLoopCount = 1;
-                _isRecording = false;
-                _isExecuting = false;
-                _successCount = 0;
-                _failureCount = 0;
-                _currentScriptIndex = 0;
-              });
-              Navigator.pop(context);
-            },
-            child: const Text('确定'),
-          ),
-        ],
-      ),
-    );
+    setState(() {
+      _scripts.clear();
+      _executionDelay = 1000;
+      _originalLoopCount = 1;
+      _remainingLoopCount = 1;
+      _isRecording = false;
+      _isExecuting = false;
+      _successCount = 0;
+      _failureCount = 0;
+      _currentScriptIndex = 0;
+    });
   }
 
   Widget _buildGlobalSettings() {
