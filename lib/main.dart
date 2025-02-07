@@ -203,9 +203,12 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 document.addEventListener('submit', function(e) {
                   const formData = new FormData(e.target);
                   let data = {};
-                  for (let [key, value] of formData.entries()) {
-                    data[key] = value;
-                  }
+                  const inputs = Array.from(e.target.querySelectorAll('input:not([type="hidden"]):not([type="submit"]), textarea'));
+                  inputs.forEach((input, index) => {
+                    if (input.value) {
+                      data['输入框' + (index + 1)] = input.value;
+                    }
+                  });
                   ScriptRecorder.postMessage('输入提交|' + JSON.stringify(data));
                 });
               ''');
@@ -501,6 +504,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 if (type == "点击文字")
                   CupertinoTextField(
                     placeholder: '点击文字',
+                    controller: TextEditingController(text: clickText),
                     onChanged: (value) => clickText = value,
                   )
                 else
@@ -530,38 +534,33 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                             Expanded(
                               child: CupertinoTextField(
                                 placeholder: '输入框${index + 1}',
+                                controller: TextEditingController(text: inputValues[index]),
                                 onChanged: (value) => inputValues[index] = value,
                               ),
                             ),
-                            CupertinoButton(
-                              padding: const EdgeInsets.only(left: 8),
-                              child: const Icon(CupertinoIcons.minus_circle_fill, color: CupertinoColors.destructiveRed),
-                              onPressed: () {
-                                setState(() {
-                                  inputValues.removeAt(index);
-                                });
-                              },
-                            ),
+                            if (index == inputValues.length - 1)
+                              CupertinoButton(
+                                padding: const EdgeInsets.only(left: 8),
+                                child: const Icon(CupertinoIcons.add_circled),
+                                onPressed: () {
+                                  setState(() {
+                                    inputValues.add('');
+                                  });
+                                },
+                              ),
+                            if (inputValues.length > 1)
+                              CupertinoButton(
+                                padding: const EdgeInsets.only(left: 8),
+                                child: const Icon(CupertinoIcons.minus_circle_fill, color: CupertinoColors.destructiveRed),
+                                onPressed: () {
+                                  setState(() {
+                                    inputValues.removeAt(index);
+                                  });
+                                },
+                              ),
                           ],
                         ),
                       )),
-                      // 添加按钮放在最下面
-                      CupertinoButton(
-                        padding: EdgeInsets.zero,
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(CupertinoIcons.add_circled, color: CupertinoColors.activeBlue),
-                            SizedBox(width: 8),
-                            Text('添加输入框'),
-                          ],
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            inputValues.add('');
-                          });
-                        },
-                      ),
                     ],
                   ),
               ],
@@ -635,20 +634,129 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   }
 
   Widget _buildScriptEditContent(Script script, StateSetter setState) {
-    // Implementation of _buildScriptEditContent method
-    // This method should return a Widget that represents the content of the edit dialog
-    // For example, you can use a form to edit the script parameters
+    String type = script.type;
+    String clickText = script.params['点击文字'] ?? '';
+    List<String> inputValues = [];
+    int executionDelay = script.params['执行延迟'] ?? 800;
+
+    // 初始化输入框值
+    if (type == "输入框提交") {
+      int i = 1;
+      while (script.params.containsKey('输入框$i')) {
+        inputValues.add(script.params['输入框$i'] ?? '');
+        i++;
+      }
+    }
+    if (inputValues.isEmpty) inputValues.add('');
+
     return Column(
       children: [
-        // Add your form elements here
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            const Text('脚本类型'),
+            const SizedBox(width: 8),
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              child: Row(
+                children: [
+                  Text(type),
+                  const Icon(CupertinoIcons.chevron_down, size: 16),
+                ],
+              ),
+              onPressed: () {
+                showCupertinoModalPopup(
+                  context: context,
+                  builder: (context) => Container(
+                    height: 200,
+                    color: CupertinoColors.systemBackground.darkColor,
+                    child: SafeArea(
+                      child: CupertinoPicker(
+                        backgroundColor: CupertinoColors.black,
+                        itemExtent: 32,
+                        onSelectedItemChanged: (index) {
+                          setState(() {
+                            type = index == 0 ? "点击文字" : "输入框提交";
+                          });
+                        },
+                        children: const [
+                          Text("点击文字", style: TextStyle(color: CupertinoColors.white)),
+                          Text("输入框提交", style: TextStyle(color: CupertinoColors.white)),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (type == "点击文字")
+          CupertinoTextField(
+            placeholder: '点击文字',
+            controller: TextEditingController(text: clickText),
+            onChanged: (value) => clickText = value,
+          )
+        else
+          Column(
+            children: [
+              Row(
+                children: [
+                  const Text('执行延迟'),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: CupertinoTextField(
+                      placeholder: '毫秒',
+                      keyboardType: TextInputType.number,
+                      controller: TextEditingController(text: executionDelay.toString()),
+                      onChanged: (value) => executionDelay = int.tryParse(value) ?? 800,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              ...List.generate(inputValues.length, (index) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: CupertinoTextField(
+                        placeholder: '输入框${index + 1}',
+                        controller: TextEditingController(text: inputValues[index]),
+                        onChanged: (value) => inputValues[index] = value,
+                      ),
+                    ),
+                    if (index == inputValues.length - 1)
+                      CupertinoButton(
+                        padding: const EdgeInsets.only(left: 8),
+                        child: const Icon(CupertinoIcons.add_circled),
+                        onPressed: () {
+                          setState(() {
+                            inputValues.add('');
+                          });
+                        },
+                      ),
+                    if (inputValues.length > 1)
+                      CupertinoButton(
+                        padding: const EdgeInsets.only(left: 8),
+                        child: const Icon(CupertinoIcons.minus_circle_fill, color: CupertinoColors.destructiveRed),
+                        onPressed: () {
+                          setState(() {
+                            inputValues.removeAt(index);
+                          });
+                        },
+                      ),
+                  ],
+                ),
+              )),
+            ],
+          ),
       ],
     );
   }
 
   List<Widget> _buildScriptEditActions(BuildContext context, Script script, int index) {
-    // Implementation of _buildScriptEditActions method
-    // This method should return a list of actions for the edit dialog
-    // For example, you can use a list of CupertinoDialogAction widgets
     return [
       CupertinoDialogAction(
         child: const Text('取消'),
@@ -657,14 +765,24 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       CupertinoDialogAction(
         child: const Text('确定'),
         onPressed: () {
-          // Handle the form submission
-          // You can access the edited script parameters using script.params
-          // Then, you can update the _scripts list and setState accordingly
-          setState(() {
-            // Update the script parameters
-            // For example:
-            // script.params['newKey'] = newValue;
-          });
+          if (script.type == "点击文字" && script.params['点击文字']?.isNotEmpty == true) {
+            setState(() {
+              _scripts[index] = Script(
+                type: script.type,
+                params: script.params,
+                isEnabled: script.isEnabled,
+              );
+            });
+          } else if (script.type == "输入框提交") {
+            final params = Map<String, dynamic>.from(script.params);
+            setState(() {
+              _scripts[index] = Script(
+                type: script.type,
+                params: params,
+                isEnabled: script.isEnabled,
+              );
+            });
+          }
           Navigator.pop(context);
         },
       ),
@@ -699,11 +817,13 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
 
   // 修改循环次数设置
   void _setLoopCount(String value) {
-    final count = int.tryParse(value) ?? 1;
-    setState(() {
-      _originalLoopCount = count;
-      _remainingLoopCount = count;
-    });
+    final count = int.tryParse(value);
+    if (count != null && count >= 0) {
+      setState(() {
+        _originalLoopCount = count;
+        _remainingLoopCount = count;
+      });
+    }
   }
 
   // 修改执行脚本的逻辑
@@ -1612,7 +1732,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                     CupertinoButton(
                                       padding: EdgeInsets.zero,
                                       onPressed: () {
-                                        setState(() => _scripts.clear());
+                                        _clearScripts();
+                                        Navigator.pop(context);  // If it's in a dialog
                                       },
                                       child: const Icon(
                                         CupertinoIcons.clear_fill,
@@ -1799,9 +1920,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   void _importScripts() async {
     try {
       final result = await FilePicker.platform.pickFiles(
-        type: FileType.any,  // 改为任意类型
+        type: FileType.any,
         allowMultiple: false,
         withData: true,
+        allowedExtensions: ['zds'],
+        lockParentWindow: true,
       );
 
       if (result != null && result.files.isNotEmpty) {
@@ -1813,12 +1936,12 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         String content;
         if (Platform.isIOS) {
           if (file.bytes != null) {
-            content = String.fromCharCodes(file.bytes!);
+            content = utf8.decode(file.bytes!);
           } else {
             throw Exception('无法读取文件内容');
           }
         } else {
-          content = await File(file.path!).readAsString();
+          content = await File(file.path!).readAsString(encoding: utf8);
         }
 
         final lines = content.split('\n').where((line) => line.trim().isNotEmpty).toList();
@@ -1845,14 +1968,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         // 解析脚本
         setState(() {
           _scripts.clear();
-          for (var i = 1; i < lines.length; i++) {
-            final line = lines[i];
-            if (line.isEmpty) continue;
-            
-            // 从 JSON 中提取脚本信息
-            final script = Script.fromJson(line);
-            
-            _scripts.add(script);
+          for (var line in lines) {
+            _scripts.add(Script.fromJson(line));
           }
         });
 
@@ -2222,5 +2339,14 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       debugPrint('Script replace error: $e');
       return false;
     }
+  }
+
+  void _clearScripts() {
+    setState(() {
+      _scripts.clear();
+      _executionDelay = 1000; // 重置为默认值
+      _originalLoopCount = 1; // 重置为默认值
+      _remainingLoopCount = 1;
+    });
   }
 }
