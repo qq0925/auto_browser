@@ -240,6 +240,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 }
               });
               _updateTabInfo(_currentIndex);
+              _saveBookmarksAndHistory();
               
               await controller.runJavaScript('''
                 document.addEventListener('click', function(e) {
@@ -856,6 +857,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                         });
                         // 同时更新外层状态
                         this.setState(() {});
+                        _saveBookmarksAndHistory();
                       },
                       child: const Icon(
                         CupertinoIcons.add_circled_solid,
@@ -894,6 +896,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                             setState(() {
                               _bookmarks.removeAt(index);
                             });
+                            _saveBookmarksAndHistory();
                           },
                           child: const Icon(
                             CupertinoIcons.delete,
@@ -1705,22 +1708,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     setState(() {
       _history.clear();
     });
-    // 可选：保存当前标签页的信息作为最新历史
-    if (_tabs.isNotEmpty && _currentIndex >= 0 && _currentIndex < _tabs.length) {
-      _tabs[_currentIndex].controller.getTitle().then((title) {
-        _tabs[_currentIndex].controller.currentUrl().then((url) {
-          if (mounted && title != null && url != null) {
-            setState(() {
-              _history.add(HistoryItem(
-                title: title,
-                url: url,
-                visitedAt: DateTime.now(),
-              ));
-            });
-          }
-        });
-      });
-    }
+    _saveBookmarksAndHistory();
   }
 
   // 修改 URL 输入状态处理
@@ -1868,6 +1856,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         ));
       }
     });
+    _saveBookmarksAndHistory();
   }
 
   // 添加脚本执行方法
@@ -2282,12 +2271,14 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
 
   Widget _buildScriptItem(Script script, int index) {
     return GestureDetector(
-      onTap: () => _showScriptOptions(index),  // 短按编辑
+      onTap: () => _editScript(index),  // 短按编辑
       onLongPress: () => _showScriptOptions(index),  // 长按显示选项
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         decoration: BoxDecoration(
-          color: CupertinoColors.systemGrey6.withAlpha(30),
+          color: script.isEnabled 
+            ? CupertinoColors.systemGrey6.withAlpha(30)
+            : CupertinoColors.systemRed.withAlpha(30),
           borderRadius: BorderRadius.circular(6),
         ),
         child: Stack(
@@ -2321,11 +2312,14 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                   ),
                 ),
                 // 重复次数
-                Text(
-                  '${script.params['重复次数'] ?? 1}次',
-                  style: const TextStyle(
-                    color: CupertinoColors.systemGrey,
-                    fontSize: 12,
+                Padding(
+                  padding: const EdgeInsets.only(right: 24),  // 为角标留出空间
+                  child: Text(
+                    '${script.params['重复次数'] ?? 1}次',
+                    style: const TextStyle(
+                      color: CupertinoColors.systemGrey,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
               ],
@@ -2354,6 +2348,61 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _editScript(int index) {
+    final script = _scripts[index];
+    showCupertinoDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('编辑脚本'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            if (script.type == "点击文字")
+              CupertinoTextField(
+                controller: TextEditingController(text: script.params['点击文字']),
+                placeholder: '点击文字',
+                onChanged: (value) => script.params['点击文字'] = value,
+              )
+            else
+              Column(
+                children: [
+                  ...List.generate(
+                    (script.params.length / 2).ceil(),
+                    (i) {
+                      final key = '输入框${i + 1}';
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: CupertinoTextField(
+                          controller: TextEditingController(text: script.params[key]),
+                          placeholder: key,
+                          onChanged: (value) => script.params[key] = value,
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+          ],
+        ),
+        actions: [
+          CupertinoDialogAction(
+            child: const Text('取消'),
+            onPressed: () => Navigator.pop(context),
+          ),
+          CupertinoDialogAction(
+            child: const Text('确定'),
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() {});
+            },
+          ),
+        ],
       ),
     );
   }
