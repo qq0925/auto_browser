@@ -1848,12 +1848,18 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         allowedExtensions: ['zds'],
         allowMultiple: false,
         withData: true,
+        dialogTitle: '选择脚本文件',
+        allowCompression: false,
+        lockParentWindow: true,
       );
 
       if (result != null && result.files.isNotEmpty) {
         final file = result.files.first;
-        String content;
+        if (!file.path!.toLowerCase().endsWith('.zds')) {
+          throw Exception('请选择.zds格式的脚本文件');
+        }
         
+        String content;
         if (Platform.isIOS) {
           if (file.bytes != null) {
             content = utf8.decode(file.bytes!);
@@ -1873,6 +1879,22 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
             _scripts.add(Script.fromJson(line));
           }
         });
+
+        if (mounted) {
+          showCupertinoDialog(
+            context: context,
+            builder: (context) => CupertinoAlertDialog(
+              title: const Text('导入成功'),
+              content: Text('已导入 ${_scripts.length} 个脚本'),
+              actions: [
+                CupertinoDialogAction(
+                  child: const Text('确定'),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -2228,12 +2250,33 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
 
   void _clearScripts() {
     if (!mounted) return;
-    setState(() {
-      _scripts.clear();
-      _executionDelay = 1000;
-      _originalLoopCount = 1;
-      _remainingLoopCount = 1;
-    });
+    
+    showCupertinoDialog(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('确认清除'),
+        content: const Text('确定要清除所有脚本吗？'),
+        actions: [
+          CupertinoDialogAction(
+            child: const Text('取消'),
+            onPressed: () => Navigator.pop(context),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () {
+              setState(() {
+                _scripts.clear();
+                _executionDelay = 1000;
+                _originalLoopCount = 1;
+                _remainingLoopCount = 1;
+              });
+              Navigator.pop(context);
+            },
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildGlobalSettings() {
@@ -2241,12 +2284,26 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       children: [
         Row(
           children: [
-            const Text('执行延迟'),
-            const SizedBox(width: 8),
+            const Text(
+              '执行延迟:',
+              style: TextStyle(
+                color: CupertinoColors.white,
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(width: 4),
             Expanded(
               child: CupertinoTextField(
                 controller: TextEditingController(text: _executionDelay.toString()),
                 keyboardType: TextInputType.number,
+                style: const TextStyle(
+                  color: CupertinoColors.white,
+                  fontSize: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: CupertinoColors.systemGrey6,
+                  borderRadius: BorderRadius.circular(4),
+                ),
                 onChanged: (value) {
                   final delay = int.tryParse(value);
                   if (delay != null && delay > 0) {
@@ -2255,20 +2312,41 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 },
               ),
             ),
+            const Text(
+              'ms',
+              style: TextStyle(
+                color: CupertinoColors.white,
+                fontSize: 12,
+              ),
+            ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 4),
         Row(
           children: [
-            const Text('循环次数'),
-            const SizedBox(width: 8),
+            const Text(
+              '循环次数:',
+              style: TextStyle(
+                color: CupertinoColors.white,
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(width: 4),
             Expanded(
               child: CupertinoTextField(
                 controller: TextEditingController(text: _originalLoopCount.toString()),
                 keyboardType: TextInputType.number,
+                style: const TextStyle(
+                  color: CupertinoColors.white,
+                  fontSize: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: CupertinoColors.systemGrey6,
+                  borderRadius: BorderRadius.circular(4),
+                ),
                 onChanged: (value) {
                   final count = int.tryParse(value);
-                  if (count != null) {  // 允许0值
+                  if (count != null) {
                     setState(() {
                       _originalLoopCount = count;
                       _remainingLoopCount = count;
@@ -2277,7 +2355,13 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 },
               ),
             ),
-            const Text('次'),
+            const Text(
+              '次',
+              style: TextStyle(
+                color: CupertinoColors.white,
+                fontSize: 12,
+              ),
+            ),
           ],
         ),
       ],
