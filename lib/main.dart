@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:share_plus/share_plus.dart';  // 添加分享功能的包
 import 'package:path_provider/path_provider.dart';  // 添加这行导入
 import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   runApp(const MyApp());
@@ -127,7 +128,63 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadBookmarksAndHistory();
     _initBrowser();
+  }
+
+  Future<void> _loadBookmarksAndHistory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final bookmarksJson = prefs.getStringList('bookmarks') ?? [];
+      final historyJson = prefs.getStringList('history') ?? [];
+
+      setState(() {
+        _bookmarks.clear();
+        _bookmarks.addAll(bookmarksJson.map((json) {
+          final data = jsonDecode(json);
+          return Bookmark(
+            title: data['title'],
+            url: data['url'],
+            createdAt: DateTime.parse(data['createdAt']),
+          );
+        }));
+
+        _history.clear();
+        _history.addAll(historyJson.map((json) {
+          final data = jsonDecode(json);
+          return HistoryItem(
+            title: data['title'],
+            url: data['url'],
+            visitedAt: DateTime.parse(data['visitedAt']),
+          );
+        }));
+      });
+    } catch (e) {
+      debugPrint('Load bookmarks and history error: $e');
+    }
+  }
+
+  Future<void> _saveBookmarksAndHistory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList('bookmarks', _bookmarks.map((bookmark) => 
+        jsonEncode({
+          'title': bookmark.title,
+          'url': bookmark.url,
+          'createdAt': bookmark.createdAt.toIso8601String(),
+        })
+      ).toList());
+
+      await prefs.setStringList('history', _history.map((item) =>
+        jsonEncode({
+          'title': item.title,
+          'url': item.url,
+          'visitedAt': item.visitedAt.toIso8601String(),
+        })
+      ).toList());
+    } catch (e) {
+      debugPrint('Save bookmarks and history error: $e');
+    }
   }
 
   Future<void> _initBrowser() async {
@@ -309,22 +366,14 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                   break;
                 case '输入提交':
                   try {
-                    final formData = json.decode(content) as Map<String, dynamic>;
-                    final params = <String, String>{
-                      '执行延迟': '800',
-                    };
-                    var index = 1;
-                    formData.forEach((key, value) {
-                      params['输入框$index'] = value.toString();
-                      index++;
-                    });
+                    final data = json.decode(content) as Map<String, dynamic>;
                     _scripts.add(Script(
-                      type: '输入框提交',
-                      params: params,
+                      type: type,
+                      params: data,
                       isEnabled: true,
                     ));
                   } catch (e) {
-                    debugPrint('Parse form data error: $e');
+                    debugPrint('Parse input data error: $e');
                   }
                   break;
               }
@@ -393,29 +442,28 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   }
 
   void _recordAction(String type, String content) {
-    if (_isRecording && mounted) {
-      setState(() {
+    if (!_isRecording || !mounted) return;
+
+    setState(() {
+      if (type == '输入提交') {
+        try {
+          final data = json.decode(content) as Map<String, dynamic>;
+          _scripts.add(Script(
+            type: type,
+            params: data,
+            isEnabled: true,
+          ));
+        } catch (e) {
+          debugPrint('Parse input data error: $e');
+        }
+      } else {
         _scripts.add(Script(
           type: type,
-          params: {
-            '点击文字': content,
-          },
+          params: {'点击文字': content},
           isEnabled: true,
         ));
-        
-        // 强制脚本列表刷新
-        if (_showScriptPanel) {
-          _showScriptPanel = false;
-          Future.delayed(const Duration(milliseconds: 50), () {
-            if (mounted) {
-              setState(() {
-                _showScriptPanel = true;
-              });
-            }
-          });
-        }
-      });
-    }
+      }
+    });
   }
 
   // 添加导出脚本方法
@@ -956,16 +1004,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    switch (state) {
-      case AppLifecycleState.paused:
-        _cleanupWebViews();
-        break;
-      case AppLifecycleState.resumed:
-        _initBrowser();
-        break;
-      default:
-        break;
+    if (state == AppLifecycleState.paused) {
+      _saveBookmarksAndHistory();
     }
+    super.didChangeAppLifecycleState(state);
   }
 
   void _cleanupWebViews() {
@@ -1307,38 +1349,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                     }
                                     // 显示脚本项
                                     final script = _scripts[index];
-                                    return GestureDetector(
-                                      onTap: () => _editScript(index),  // 短按编辑
-                                      onLongPress: () => _showScriptOptions(index),  // 长按显示选项
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                                        child: Row(
-                                          children: [
-                                            Expanded(
-                                              child: Text(
-                                                // 显示脚本内容
-                                                script.type == "点击文字" 
-                                                  ? script.params['点击文字'] ?? ''
-                                                  : '输入表单',
-                                                style: TextStyle(
-                                                  color: script.isEnabled ? null : CupertinoColors.systemGrey,
-                                                ),
-                                              ),
-                                            ),
-                                            // 显示脚本循环次数
-                                            Text(
-                                              '${script.params['重复次数'] ?? 1}次',
-                                              style: const TextStyle(
-                                                color: CupertinoColors.systemGrey,
-                                                fontSize: 12,
-                                              ),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            // 其他UI元素...
-                                          ],
-                                        ),
-                                      ),
-                                    );
+                                    return _buildScriptItem(script, index);
                                   },
                                 ),
                         ),
@@ -2040,10 +2051,14 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
             onPressed: () {
               setState(() {
                 _scripts.clear();
-                // 重置全局设置为默认值
                 _executionDelay = 1000;
                 _originalLoopCount = 1;
                 _remainingLoopCount = 1;
+                _isRecording = false;
+                _isExecuting = false;
+                _successCount = 0;
+                _failureCount = 0;
+                _currentScriptIndex = 0;
               });
               Navigator.pop(context);
             },
@@ -2105,53 +2120,53 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     final script = _scripts[index];
     showCupertinoModalPopup(
       context: context,
-      builder: (context) => CupertinoActionSheet(
+      barrierDismissible: true,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('编辑脚本'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            if (script.type == "点击文字")
+              CupertinoTextField(
+                controller: TextEditingController(text: script.params['点击文字']),
+                placeholder: '点击文字',
+                onChanged: (value) => script.params['点击文字'] = value,
+              )
+            else
+              Column(
+                children: [
+                  ...List.generate(
+                    (script.params.length / 2).ceil(),
+                    (i) {
+                      final key = '输入框${i + 1}';
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: CupertinoTextField(
+                          controller: TextEditingController(text: script.params[key]),
+                          placeholder: key,
+                          onChanged: (value) => script.params[key] = value,
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+          ],
+        ),
         actions: [
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.pop(context);
-              setState(() {
-                script.isEnabled = !script.isEnabled;
-              });
-            },
-            child: Text(script.isEnabled ? '禁用' : '启用'),
+          CupertinoDialogAction(
+            child: const Text('取消'),
+            onPressed: () => Navigator.pop(context),
           ),
-          CupertinoActionSheetAction(
+          CupertinoDialogAction(
+            child: const Text('确定'),
             onPressed: () {
               Navigator.pop(context);
-              _showRepeatCountDialog(index);  // 修改为脚本自身的重复次数
+              setState(() {});
             },
-            child: const Text('设置重复次数'),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.pop(context);
-              final scriptCopy = Script(
-                type: script.type,
-                params: Map<String, dynamic>.from(script.params),
-                isEnabled: script.isEnabled,
-              );
-              setState(() {
-                _scripts.insert(index + 1, scriptCopy);
-              });
-            },
-            child: const Text('复制'),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.pop(context);
-              setState(() {
-                _scripts.removeAt(index);
-              });
-            },
-            isDestructiveAction: true,
-            child: const Text('删除'),
           ),
         ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('取消'),
-        ),
       ),
     );
   }
@@ -2265,36 +2280,80 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     );
   }
 
-  void _editScript(int index) {
-    final script = _scripts[index];
-    showCupertinoDialog(
-      context: context,
-      builder: (context) => CupertinoAlertDialog(
-        title: const Text('编辑脚本'),
-        content: CupertinoTextField(
-          controller: TextEditingController(
-            text: script.type == "点击文字" ? script.params['点击文字'] : '',
-          ),
-          placeholder: '请输入文字',
-          onChanged: (value) {
-            if (script.type == "点击文字") {
-              script.params['点击文字'] = value;
-            }
-          },
+  Widget _buildScriptItem(Script script, int index) {
+    return GestureDetector(
+      onTap: () => _editScript(index),  // 短按编辑
+      onLongPress: () => _showScriptOptions(index),  // 长按显示选项
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: CupertinoColors.systemGrey6.withAlpha(30),
+          borderRadius: BorderRadius.circular(6),
         ),
-        actions: [
-          CupertinoDialogAction(
-            child: const Text('取消'),
-            onPressed: () => Navigator.pop(context),
-          ),
-          CupertinoDialogAction(
-            child: const Text('确定'),
-            onPressed: () {
-              Navigator.pop(context);
-              setState(() {});
-            },
-          ),
-        ],
+        child: Stack(
+          children: [
+            Row(
+              children: [
+                // 左侧脚本类型
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: CupertinoColors.systemBlue.withAlpha(50),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    script.type,
+                    style: const TextStyle(
+                      color: CupertinoColors.white,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // 脚本内容
+                Expanded(
+                  child: Text(
+                    script.type == "点击文字" ? script.params['点击文字'] ?? '' : '输入表单',
+                    style: TextStyle(
+                      color: script.isEnabled ? CupertinoColors.white : CupertinoColors.systemGrey,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                // 重复次数
+                Text(
+                  '${script.params['重复次数'] ?? 1}次',
+                  style: const TextStyle(
+                    color: CupertinoColors.systemGrey,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+            // 右上角角标
+            Positioned(
+              top: 0,
+              right: 0,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(
+                  color: CupertinoColors.systemGrey.withAlpha(100),
+                  borderRadius: const BorderRadius.only(
+                    topRight: Radius.circular(6),
+                    bottomLeft: Radius.circular(6),
+                  ),
+                ),
+                child: Text(
+                  '${index + 1}',
+                  style: const TextStyle(
+                    color: CupertinoColors.white,
+                    fontSize: 10,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
