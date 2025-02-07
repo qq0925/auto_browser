@@ -2333,53 +2333,178 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     showCupertinoDialog(
       context: context,
       barrierDismissible: true,
-      builder: (context) => CupertinoAlertDialog(
-        title: const Text('编辑脚本'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            if (script.type == "点击文字")
-              CupertinoTextField(
-                controller: TextEditingController(text: script.params['点击文字']),
-                placeholder: '点击文字',
-                onChanged: (value) => script.params['点击文字'] = value,
-              )
-            else
-              Column(
-                children: [
-                  ...List.generate(
-                    (script.params.length / 2).ceil(),
-                    (i) {
-                      final key = '输入框${i + 1}';
-                      return Padding(
+      builder: (context) {
+        String type = script.type;
+        String clickText = script.params['点击文字'] ?? '';
+        List<String> inputValues = [];
+        int executionDelay = script.params['执行延迟'] ?? 800;
+
+        // 初始化输入框值
+        if (type == "输入框提交") {
+          int i = 1;
+          while (script.params.containsKey('输入框$i')) {
+            inputValues.add(script.params['输入框$i'] ?? '');
+            i++;
+          }
+        }
+        if (inputValues.isEmpty) inputValues.add('');
+
+        return StatefulBuilder(
+          builder: (context, setState) => CupertinoAlertDialog(
+            title: const Text('编辑脚本'),
+            content: Column(
+              children: [
+                const SizedBox(height: 8),
+                // 脚本类型选择
+                Row(
+                  children: [
+                    const Text('脚本类型'),
+                    const SizedBox(width: 8),
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      child: Row(
+                        children: [
+                          Text(type),
+                          const Icon(CupertinoIcons.chevron_down, size: 16),
+                        ],
+                      ),
+                      onPressed: () {
+                        showCupertinoModalPopup(
+                          context: context,
+                          builder: (context) => Container(
+                            height: 200,
+                            color: CupertinoColors.systemBackground.darkColor,
+                            child: SafeArea(
+                              child: CupertinoPicker(
+                                backgroundColor: CupertinoColors.black,
+                                itemExtent: 32,
+                                onSelectedItemChanged: (index) {
+                                  setState(() {
+                                    type = index == 0 ? "点击文字" : "输入框提交";
+                                  });
+                                },
+                                children: const [
+                                  Text("点击文字", style: TextStyle(color: CupertinoColors.white)),
+                                  Text("输入框提交", style: TextStyle(color: CupertinoColors.white)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                if (type == "点击文字")
+                  CupertinoTextField(
+                    controller: TextEditingController(text: clickText),
+                    placeholder: '点击文字',
+                    onChanged: (value) => clickText = value,
+                  )
+                else
+                  Column(
+                    children: [
+                      Row(
+                        children: [
+                          const Text('执行延迟'),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: CupertinoTextField(
+                              placeholder: '毫秒',
+                              keyboardType: TextInputType.number,
+                              controller: TextEditingController(text: executionDelay.toString()),
+                              onChanged: (value) => executionDelay = int.tryParse(value) ?? 800,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      ...List.generate(inputValues.length, (index) => Padding(
                         padding: const EdgeInsets.only(bottom: 8),
-                        child: CupertinoTextField(
-                          controller: TextEditingController(text: script.params[key]),
-                          placeholder: key,
-                          onChanged: (value) => script.params[key] = value,
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: CupertinoTextField(
+                                placeholder: '输入框${index + 1}',
+                                controller: TextEditingController(text: inputValues[index]),
+                                onChanged: (value) => inputValues[index] = value,
+                              ),
+                            ),
+                            CupertinoButton(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: const Icon(CupertinoIcons.minus_circle_fill, color: CupertinoColors.destructiveRed),
+                              onPressed: () {
+                                setState(() {
+                                  inputValues.removeAt(index);
+                                });
+                              },
+                            ),
+                          ],
                         ),
-                      );
-                    },
+                      )),
+                      CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(CupertinoIcons.add_circled, color: CupertinoColors.activeBlue),
+                            SizedBox(width: 8),
+                            Text('添加输入框'),
+                          ],
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            inputValues.add('');
+                          });
+                        },
+                      ),
+                    ],
                   ),
-                ],
+              ],
+            ),
+            actions: [
+              CupertinoDialogAction(
+                child: const Text('取消'),
+                onPressed: () => Navigator.pop(context),
               ),
-          ],
-        ),
-        actions: [
-          CupertinoDialogAction(
-            child: const Text('取消'),
-            onPressed: () => Navigator.pop(context),
+              CupertinoDialogAction(
+                child: const Text('确定'),
+                onPressed: () {
+                  if (type == "点击文字" && clickText.isNotEmpty) {
+                    this.setState(() {
+                      _scripts[index] = Script(
+                        type: type,
+                        params: {
+                          '点击文字': clickText,
+                        },
+                        isEnabled: true,
+                      );
+                    });
+                  } else if (type == "输入框提交" && inputValues.any((value) => value.isNotEmpty)) {
+                    final params = <String, dynamic>{
+                      '执行延迟': executionDelay,
+                    };
+                    for (var i = 0; i < inputValues.length; i++) {
+                      if (inputValues[i].isNotEmpty) {
+                        params['输入框${i + 1}'] = inputValues[i];
+                      }
+                    }
+                    this.setState(() {
+                      _scripts[index] = Script(
+                        type: type,
+                        params: params,
+                        isEnabled: true,
+                      );
+                    });
+                  }
+                  Navigator.pop(context);
+                },
+              ),
+            ],
           ),
-          CupertinoDialogAction(
-            child: const Text('确定'),
-            onPressed: () {
-              Navigator.pop(context);
-              setState(() {});
-            },
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
