@@ -454,24 +454,24 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
 
         return StatefulBuilder(
           builder: (context, setState) => CupertinoAlertDialog(
-            title: const Text('添加脚本'),
-            content: Column(
-              children: [
-                const SizedBox(height: 8),
-                // 脚本类型选择
-                Row(
-                  children: [
-                    const Text('脚本类型'),
-                    const SizedBox(width: 8),
-                    CupertinoButton(
-                      padding: EdgeInsets.zero,
-                      child: Row(
-                        children: [
-                          Text(type),
+          title: const Text('添加脚本'),
+          content: Column(
+            children: [
+              const SizedBox(height: 8),
+              // 脚本类型选择
+              Row(
+                children: [
+                  const Text('脚本类型'),
+                  const SizedBox(width: 8),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    child: Row(
+                      children: [
+                        Text(type),
                           const Icon(CupertinoIcons.chevron_down, size: 16),
-                        ],
-                      ),
-                      onPressed: () {
+                      ],
+                    ),
+                    onPressed: () {
                         showCupertinoModalPopup(
                           context: context,
                           builder: (context) => Container(
@@ -494,16 +494,16 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                             ),
                           ),
                         );
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
                 
                 // 根据类型显示不同的输入选项
                 if (type == "点击文字")
-                  CupertinoTextField(
-                    placeholder: '点击文字',
+              CupertinoTextField(
+                placeholder: '点击文字',
                     controller: TextEditingController(text: clickText),
                     onChanged: (value) => clickText = value,
                   )
@@ -562,27 +562,27 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                         ),
                       )),
                     ],
-                  ),
-              ],
-            ),
-            actions: [
-              CupertinoDialogAction(
-                child: const Text('取消'),
-                onPressed: () => Navigator.pop(context),
               ),
-              CupertinoDialogAction(
-                child: const Text('确定'),
-                onPressed: () {
+            ],
+          ),
+          actions: [
+            CupertinoDialogAction(
+              child: const Text('取消'),
+              onPressed: () => Navigator.pop(context),
+            ),
+            CupertinoDialogAction(
+              child: const Text('确定'),
+              onPressed: () {
                   if (type == "点击文字" && clickText.isNotEmpty) {
                     this.setState(() {
-                      _scripts.add(Script(
-                        type: type,
-                        params: {
+                    _scripts.add(Script(
+                      type: type,
+                      params: {
                           '点击文字': clickText,
-                        },
-                        isEnabled: true,
-                      ));
-                    });
+                      },
+                      isEnabled: true,
+                    ));
+                  });
                   } else if (type == "输入框提交" && inputValues.any((value) => value.isNotEmpty)) {
                     final params = <String, dynamic>{
                       '执行延迟': executionDelay,
@@ -599,196 +599,15 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                         isEnabled: true,
                       ));
                     });
-                  }
-                  Navigator.pop(context);
-                },
-              ),
-            ],
+                }
+                Navigator.pop(context);
+              },
+            ),
+          ],
           ),
         );
       },
     );
-  }
-
-  // 添加编辑脚本方法
-  void _editScript(int index) {
-    final script = _scripts[index];
-    final currentContext = context;
-    
-    showCupertinoDialog(
-      context: currentContext,
-      barrierDismissible: true,
-      builder: (context) => Theme(
-        data: ThemeData.dark(),
-        child: Builder(
-          builder: (context) => StatefulBuilder(
-            builder: (context, setState) => CupertinoAlertDialog(
-              title: const Text('编辑脚本'),
-              content: _buildScriptEditContent(script, setState),
-              actions: _buildScriptEditActions(context, script, index),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildScriptEditContent(Script script, StateSetter setState) {
-    ValueNotifier<String> typeNotifier = ValueNotifier<String>(script.type);
-    String clickText = script.params['点击文字'] ?? '';
-    List<String> inputValues = [];
-    int executionDelay = script.params['执行延迟'] ?? 800;
-
-    // 初始化输入框值
-    if (script.type == "输入框提交") {
-      int i = 1;
-      while (script.params.containsKey('输入框$i')) {
-        inputValues.add(script.params['输入框$i'] ?? '');
-        i++;
-      }
-    }
-    if (inputValues.isEmpty) inputValues.add('');
-
-    return ValueListenableBuilder<String>(
-      valueListenable: typeNotifier,
-      builder: (context, type, child) => Column(
-        children: [
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Text('脚本类型'),
-              const SizedBox(width: 8),
-              CupertinoButton(
-                padding: EdgeInsets.zero,
-                child: Row(
-                  children: [
-                    Text(type),
-                    const Icon(CupertinoIcons.chevron_down, size: 16),
-                  ],
-                ),
-                onPressed: () {
-                  showCupertinoModalPopup(
-                    context: context,
-                    builder: (context) => Container(
-                      height: 200,
-                      color: CupertinoColors.systemBackground.darkColor,
-                      child: SafeArea(
-                        child: CupertinoPicker(
-                          backgroundColor: CupertinoColors.black,
-                          itemExtent: 32,
-                          onSelectedItemChanged: (index) {
-                            typeNotifier.value = index == 0 ? "点击文字" : "输入框提交";
-                            script.type = typeNotifier.value;
-                          },
-                          children: const [
-                            Text("点击文字", style: TextStyle(color: CupertinoColors.white)),
-                            Text("输入框提交", style: TextStyle(color: CupertinoColors.white)),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          if (type == "点击文字")
-            CupertinoTextField(
-              placeholder: '点击文字',
-              controller: TextEditingController(text: clickText),
-              onChanged: (value) => clickText = value,
-            )
-          else
-            Column(
-              children: [
-                Row(
-                  children: [
-                    const Text('执行延迟'),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: CupertinoTextField(
-                        placeholder: '毫秒',
-                        keyboardType: TextInputType.number,
-                        controller: TextEditingController(text: executionDelay.toString()),
-                        onChanged: (value) => executionDelay = int.tryParse(value) ?? 800,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                ...List.generate(inputValues.length, (index) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: CupertinoTextField(
-                          placeholder: '输入框${index + 1}',
-                          controller: TextEditingController(text: inputValues[index]),
-                          onChanged: (value) => inputValues[index] = value,
-                        ),
-                      ),
-                      if (index == inputValues.length - 1)
-                        CupertinoButton(
-                          padding: const EdgeInsets.only(left: 8),
-                          child: const Icon(CupertinoIcons.add_circled),
-                          onPressed: () {
-                            setState(() {
-                              inputValues.add('');
-                            });
-                          },
-                        ),
-                      if (inputValues.length > 1)
-                        CupertinoButton(
-                          padding: const EdgeInsets.only(left: 8),
-                          child: const Icon(CupertinoIcons.minus_circle_fill, color: CupertinoColors.destructiveRed),
-                          onPressed: () {
-                            setState(() {
-                              inputValues.removeAt(index);
-                            });
-                          },
-                        ),
-                    ],
-                  ),
-                )),
-              ],
-            ),
-        ],
-      ),
-    );
-  }
-
-  List<Widget> _buildScriptEditActions(BuildContext context, Script script, int index) {
-    return [
-      CupertinoDialogAction(
-        child: const Text('取消'),
-        onPressed: () => Navigator.pop(context),
-      ),
-      CupertinoDialogAction(
-        child: const Text('确定'),
-        onPressed: () {
-          if (script.type == "点击文字" && script.params['点击文字']?.isNotEmpty == true) {
-            setState(() {
-              _scripts[index] = Script(
-                type: script.type,
-                params: script.params,
-                isEnabled: script.isEnabled,
-              );
-            });
-          } else if (script.type == "输入框提交") {
-            final params = Map<String, dynamic>.from(script.params);
-            setState(() {
-              _scripts[index] = Script(
-                type: script.type,
-                params: params,
-                isEnabled: script.isEnabled,
-              );
-            });
-          }
-          Navigator.pop(context);
-        },
-      ),
-    ];
   }
 
   // 修改脚本进度显示
@@ -799,10 +618,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         children: [
           Text(
             '脚本列表: ${_scripts.length}',
-            style: const TextStyle(
-              color: CupertinoColors.white,
-              fontSize: 16,
-            ),
+        style: const TextStyle(
+          color: CupertinoColors.white,
+          fontSize: 16,
+        ),
           ),
           if (_isExecuting)
             Text(
@@ -835,7 +654,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       
       for (var i = 0; i < _scripts.length && _isExecuting; i++) {
         setState(() => _currentScriptIndex = i);
-        if (!_scripts[i].isEnabled) continue;
+      if (!_scripts[i].isEnabled) continue;
         if (_isPaused) {
           await Future.doWhile(() async {
             await Future.delayed(const Duration(milliseconds: 100));
@@ -848,12 +667,12 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
           setState(() {
             if (success) {_successCount++;} else {_failureCount++;}
           });
-          await Future.delayed(Duration(milliseconds: _executionDelay));
-        } catch (e) {
+        await Future.delayed(Duration(milliseconds: _executionDelay));
+      } catch (e) {
           setState(() => _failureCount++);
-          debugPrint('Execute script error: $e');
-        }
+        debugPrint('Execute script error: $e');
       }
+    }
       
       if (_originalLoopCount > 0) {  // 只在非无限循环时减少计数
         _remainingLoopCount--;
@@ -1489,7 +1308,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                     // 显示脚本项
                                     final script = _scripts[index];
                                     return GestureDetector(
-                                      onTap: () => _editScript(index),
+                                      onTap: () => _showScriptOptions(index),
                                       child: Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),  // 减小内边距
                                         decoration: BoxDecoration(
@@ -1843,23 +1662,31 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   // 添加读取方法
   void _importScripts() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['zds'],
-        allowMultiple: false,
-        withData: true,
-        dialogTitle: '选择脚本文件',
-        allowCompression: false,
-        lockParentWindow: true,
-      );
+      FilePickerResult? result;
+      if (Platform.isIOS) {
+        result = await FilePicker.platform.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: ['zds'],
+          allowMultiple: false,
+          withData: true,
+          allowCompression: false,
+          dialogTitle: '选择脚本文件',
+          onFileLoading: (FilePickerStatus status) => debugPrint(status.toString()),
+          lockParentWindow: true,
+        );
+      } else {
+        result = await FilePicker.platform.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: ['zds'],
+          allowMultiple: false,
+          withData: true,
+        );
+      }
 
       if (result != null && result.files.isNotEmpty) {
         final file = result.files.first;
-        if (!file.path!.toLowerCase().endsWith('.zds')) {
-          throw Exception('请选择.zds格式的脚本文件');
-        }
-        
         String content;
+        
         if (Platform.isIOS) {
           if (file.bytes != null) {
             content = utf8.decode(file.bytes!);
@@ -1879,22 +1706,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
             _scripts.add(Script.fromJson(line));
           }
         });
-
-        if (mounted) {
-          showCupertinoDialog(
-            context: context,
-            builder: (context) => CupertinoAlertDialog(
-              title: const Text('导入成功'),
-              content: Text('已导入 ${_scripts.length} 个脚本'),
-              actions: [
-                CupertinoDialogAction(
-                  child: const Text('确定'),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ],
-            ),
-          );
-        }
       }
     } catch (e) {
       if (mounted) {
@@ -1984,7 +1795,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                             final uri = Uri.parse(finalUrl);
                             await tab.controller.loadRequest(uri);
                             if (mounted && context.mounted) { // Check both State and BuildContext
-                              Navigator.pop(context);
+                          Navigator.pop(context);
                             }
                           } catch (e) {
                             debugPrint('Load URL error: $e');
@@ -2125,7 +1936,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         );
         if (links.length > 0) {
           links[0].click();
-          return true;
+            return true;
         }
         return false;
       })();
@@ -2282,89 +2093,241 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   Widget _buildGlobalSettings() {
     return Column(
       children: [
-        Row(
-          children: [
-            const Text(
-              '执行延迟:',
-              style: TextStyle(
-                color: CupertinoColors.white,
-                fontSize: 12,
+        CupertinoButton(
+          padding: EdgeInsets.zero,
+          onPressed: _showDelaySettingDialog,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                '执行延迟',
+                style: TextStyle(color: CupertinoColors.white, fontSize: 14),
               ),
-            ),
-            const SizedBox(width: 4),
-            Expanded(
-              child: CupertinoTextField(
-                controller: TextEditingController(text: _executionDelay.toString()),
-                keyboardType: TextInputType.number,
-                style: const TextStyle(
-                  color: CupertinoColors.white,
-                  fontSize: 12,
+              Text(
+                '$_executionDelay ms',
+                style: TextStyle(
+                  color: CupertinoColors.white.withAlpha(153),
+                  fontSize: 14,
                 ),
-                decoration: BoxDecoration(
-                  color: CupertinoColors.systemGrey6,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                onChanged: (value) {
-                  final delay = int.tryParse(value);
-                  if (delay != null && delay > 0) {
-                    setState(() => _executionDelay = delay);
-                  }
-                },
               ),
-            ),
-            const Text(
-              'ms',
-              style: TextStyle(
-                color: CupertinoColors.white,
-                fontSize: 12,
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
-        const SizedBox(height: 4),
-        Row(
-          children: [
-            const Text(
-              '循环次数:',
-              style: TextStyle(
-                color: CupertinoColors.white,
-                fontSize: 12,
+        CupertinoButton(
+          padding: EdgeInsets.zero,
+          onPressed: _showLoopCountDialog,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                '循环次数',
+                style: TextStyle(color: CupertinoColors.white, fontSize: 14),
               ),
-            ),
-            const SizedBox(width: 4),
-            Expanded(
-              child: CupertinoTextField(
-                controller: TextEditingController(text: _originalLoopCount.toString()),
-                keyboardType: TextInputType.number,
-                style: const TextStyle(
-                  color: CupertinoColors.white,
-                  fontSize: 12,
+              Text(
+                _originalLoopCount == 0 ? '无限循环' : '$_originalLoopCount 次',
+                style: TextStyle(
+                  color: CupertinoColors.white.withAlpha(153),
+                  fontSize: 14,
                 ),
-                decoration: BoxDecoration(
-                  color: CupertinoColors.systemGrey6,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                onChanged: (value) {
-                  final count = int.tryParse(value);
-                  if (count != null) {
-                    setState(() {
-                      _originalLoopCount = count;
-                      _remainingLoopCount = count;
-                    });
-                  }
-                },
               ),
-            ),
-            const Text(
-              '次',
-              style: TextStyle(
-                color: CupertinoColors.white,
-                fontSize: 12,
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ],
+    );
+  }
+
+  void _showScriptOptions(int index) {
+    final script = _scripts[index];
+    showCupertinoModalPopup(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() {
+                script.isEnabled = !script.isEnabled;
+              });
+            },
+            child: Text(script.isEnabled ? '禁用' : '启用'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(context);
+              final scriptCopy = Script(
+                type: script.type,
+                params: Map<String, dynamic>.from(script.params),
+                isEnabled: script.isEnabled,
+              );
+              setState(() {
+                _scripts.insert(index + 1, scriptCopy);
+              });
+            },
+            child: const Text('复制'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() {
+                if (index > 0) {
+                  final temp = _scripts[index];
+                  _scripts[index] = _scripts[index - 1];
+                  _scripts[index - 1] = temp;
+                }
+              });
+            },
+            child: const Text('在前粘贴脚本'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() {
+                _scripts.removeAt(index);
+              });
+            },
+            isDestructiveAction: true,
+            child: const Text('删除'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() {
+                if (index > 0) {
+                  final temp = _scripts[index];
+                  _scripts[index] = _scripts[index - 1];
+                  _scripts[index - 1] = temp;
+                }
+              });
+            },
+            child: const Text('在前插入新脚本'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(context);
+              _showLoopCountDialog();
+            },
+            child: const Text('设置重复次数'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(context);
+              _showExecutionLimitDialog(index);
+            },
+            child: const Text('限制执行次数'),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+      ),
+    );
+  }
+
+  void _showDelaySettingDialog() {
+    showCupertinoDialog(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('执行延迟'),
+        content: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: CupertinoTextField(
+            controller: TextEditingController(text: _executionDelay.toString()),
+            keyboardType: TextInputType.number,
+            autofocus: true,
+            placeholder: '请输入延迟时间(毫秒)',
+            onChanged: (value) {
+              final delay = int.tryParse(value);
+              if (delay != null && delay > 0) {
+                setState(() => _executionDelay = delay);
+              }
+            },
+          ),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            child: const Text('取消'),
+            onPressed: () => Navigator.pop(context),
+          ),
+          CupertinoDialogAction(
+            child: const Text('确定'),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showLoopCountDialog() {
+    showCupertinoDialog(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('循环次数'),
+        content: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: CupertinoTextField(
+            controller: TextEditingController(text: _originalLoopCount.toString()),
+            keyboardType: TextInputType.number,
+            autofocus: true,
+            placeholder: '请输入循环次数(0表示无限循环)',
+            onChanged: (value) {
+              final count = int.tryParse(value);
+              if (count != null) {
+                setState(() {
+                  _originalLoopCount = count;
+                  _remainingLoopCount = count;
+                });
+              }
+            },
+          ),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            child: const Text('取消'),
+            onPressed: () => Navigator.pop(context),
+          ),
+          CupertinoDialogAction(
+            child: const Text('确定'),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showExecutionLimitDialog(int index) {
+    showCupertinoDialog(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('限制执行次数'),
+        content: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: CupertinoTextField(
+            keyboardType: TextInputType.number,
+            autofocus: true,
+            placeholder: '请输入执行次数限制',
+            onChanged: (value) {
+              final limit = int.tryParse(value);
+              if (limit != null && limit > 0) {
+                setState(() {
+                  _scripts[index].params['执行次数限制'] = limit;
+                });
+              }
+            },
+          ),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            child: const Text('取消'),
+            onPressed: () => Navigator.pop(context),
+          ),
+          CupertinoDialogAction(
+            child: const Text('确定'),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ],
+      ),
     );
   }
 }
