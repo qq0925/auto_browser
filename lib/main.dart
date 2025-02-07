@@ -615,6 +615,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     final script = _scripts[index];
     showCupertinoDialog(
       context: context,
+      barrierDismissible: true,  // 允许点击外部关闭
       builder: (context) {
         String type = script.type;
         String clickText = script.params['点击文字'] ?? '';
@@ -632,146 +633,149 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         if (inputValues.isEmpty) inputValues.add('');
 
         return StatefulBuilder(
-          builder: (context, setState) => CupertinoAlertDialog(
-            title: const Text('编辑脚本'),
-            content: Column(
-              children: [
-                const SizedBox(height: 8),
-                // 脚本类型选择
-                Row(
-                  children: [
-                    const Text('脚本类型'),
-                    const SizedBox(width: 8),
-                    CupertinoButton(
-                      padding: EdgeInsets.zero,
-                      child: Row(
-                        children: [
-                          Text(type),
-                          const Icon(CupertinoIcons.chevron_down, size: 16),
-                        ],
-                      ),
-                      onPressed: () {
-                        showCupertinoModalPopup(
-                          context: context,
-                          builder: (context) => Container(
-                            height: 200,
-                            color: CupertinoColors.systemBackground.darkColor,
-                            child: SafeArea(
-                              child: CupertinoPicker(
-                                backgroundColor: CupertinoColors.black,
-                                itemExtent: 32,
-                                onSelectedItemChanged: (index) {
-                                  setState(() {
-                                    type = index == 0 ? "点击文字" : "输入框提交";
-                                  });
-                                },
-                                children: const [
-                                  Text("点击文字", style: TextStyle(color: CupertinoColors.white)),
-                                  Text("输入框提交", style: TextStyle(color: CupertinoColors.white)),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                
-                // 根据类型显示不同的输入选项
-                if (type == "点击文字")
-                  CupertinoTextField(
-                    placeholder: '点击文字',
-                    controller: TextEditingController(text: clickText),
-                    onChanged: (value) => clickText = value,
-                  )
-                else
-                  Column(
+          builder: (context, setState) => Container(
+            color: CupertinoColors.black.withAlpha(204), // 0.8 * 255 ≈ 204
+            child: CupertinoAlertDialog(
+              title: const Text('编辑脚本'),
+              content: Column(
+                children: [
+                  const SizedBox(height: 8),
+                  // 脚本类型选择
+                  Row(
                     children: [
-                      // 执行延迟输入
-                      Row(
-                        children: [
-                          const Text('执行延迟'),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: CupertinoTextField(
-                              placeholder: '毫秒',
-                              keyboardType: TextInputType.number,
-                              controller: TextEditingController(text: executionDelay.toString()),
-                              onChanged: (value) => executionDelay = int.tryParse(value) ?? 800,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      // 输入框列表
-                      ...List.generate(inputValues.length, (index) => Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
+                      const Text('脚本类型'),
+                      const SizedBox(width: 8),
+                      CupertinoButton(
+                        padding: EdgeInsets.zero,
                         child: Row(
                           children: [
-                            Expanded(
-                              child: CupertinoTextField(
-                                placeholder: '输入框${index + 1}',
-                                controller: TextEditingController(text: inputValues[index]),
-                                onChanged: (value) => inputValues[index] = value,
+                            Text(type),
+                            const Icon(CupertinoIcons.chevron_down, size: 16),
+                          ],
+                        ),
+                        onPressed: () {
+                          showCupertinoModalPopup(
+                            context: context,
+                            builder: (context) => Container(
+                              height: 200,
+                              color: CupertinoColors.systemBackground.darkColor,
+                              child: SafeArea(
+                                child: CupertinoPicker(
+                                  backgroundColor: CupertinoColors.black,
+                                  itemExtent: 32,
+                                  onSelectedItemChanged: (index) {
+                                    setState(() {
+                                      type = index == 0 ? "点击文字" : "输入框提交";
+                                    });
+                                  },
+                                  children: const [
+                                    Text("点击文字", style: TextStyle(color: CupertinoColors.white)),
+                                    Text("输入框提交", style: TextStyle(color: CupertinoColors.white)),
+                                  ],
+                                ),
                               ),
                             ),
-                            CupertinoButton(
-                              padding: const EdgeInsets.only(left: 8),
-                              child: const Icon(CupertinoIcons.minus_circle_fill, color: CupertinoColors.destructiveRed),
-                              onPressed: () {
-                                setState(() {
-                                  inputValues.removeAt(index);
-                                });
-                              },
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  
+                  // 根据类型显示不同的输入选项
+                  if (type == "点击文字")
+                    CupertinoTextField(
+                      placeholder: '点击文字',
+                      controller: TextEditingController(text: clickText),
+                      onChanged: (value) => clickText = value,
+                    )
+                  else
+                    Column(
+                      children: [
+                        // 执行延迟输入
+                        Row(
+                          children: [
+                            const Text('执行延迟'),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: CupertinoTextField(
+                                placeholder: '毫秒',
+                                keyboardType: TextInputType.number,
+                                controller: TextEditingController(text: executionDelay.toString()),
+                                onChanged: (value) => executionDelay = int.tryParse(value) ?? 800,
+                              ),
                             ),
                           ],
                         ),
-                      )),
-                    ],
-                  ),
+                        const SizedBox(height: 8),
+                        // 输入框列表
+                        ...List.generate(inputValues.length, (index) => Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: CupertinoTextField(
+                                  placeholder: '输入框${index + 1}',
+                                  controller: TextEditingController(text: inputValues[index]),
+                                  onChanged: (value) => inputValues[index] = value,
+                                ),
+                              ),
+                              CupertinoButton(
+                                padding: const EdgeInsets.only(left: 8),
+                                child: const Icon(CupertinoIcons.minus_circle_fill, color: CupertinoColors.destructiveRed),
+                                onPressed: () {
+                                  setState(() {
+                                    inputValues.removeAt(index);
+                                  });
+                                },
+                              ),
+                            ],
+                          ),
+                        )),
+                      ],
+                    ),
+                ],
+              ),
+              actions: [
+                CupertinoDialogAction(
+                  child: const Text('取消'),
+                  onPressed: () => Navigator.pop(context),
+                ),
+                CupertinoDialogAction(
+                  child: const Text('确定'),
+                  onPressed: () {
+                    if (type == "点击文字" && clickText.isNotEmpty) {
+                      this.setState(() {
+                        _scripts[index] = Script(
+                          type: type,
+                          params: {
+                            '点击文字': clickText,
+                          },
+                          isEnabled: true,
+                        );
+                      });
+                    } else if (type == "输入框提交" && inputValues.any((value) => value.isNotEmpty)) {
+                      final params = <String, dynamic>{
+                        '执行延迟': executionDelay,
+                      };
+                      for (var i = 0; i < inputValues.length; i++) {
+                        if (inputValues[i].isNotEmpty) {
+                          params['输入框${i + 1}'] = inputValues[i];
+                        }
+                      }
+                      this.setState(() {
+                        _scripts[index] = Script(
+                          type: type,
+                          params: params,
+                          isEnabled: true,
+                        );
+                      });
+                    }
+                    Navigator.pop(context);
+                  },
+                ),
               ],
             ),
-            actions: [
-              CupertinoDialogAction(
-                child: const Text('取消'),
-                onPressed: () => Navigator.pop(context),
-              ),
-              CupertinoDialogAction(
-                child: const Text('确定'),
-                onPressed: () {
-                  if (type == "点击文字" && clickText.isNotEmpty) {
-                    this.setState(() {
-                      _scripts[index] = Script(
-                        type: type,
-                        params: {
-                          '点击文字': clickText,
-                        },
-                        isEnabled: true,
-                      );
-                    });
-                  } else if (type == "输入框提交" && inputValues.any((value) => value.isNotEmpty)) {
-                    final params = <String, dynamic>{
-                      '执行延迟': executionDelay,
-                    };
-                    for (var i = 0; i < inputValues.length; i++) {
-                      if (inputValues[i].isNotEmpty) {
-                        params['输入框${i + 1}'] = inputValues[i];
-                      }
-                    }
-                    this.setState(() {
-                      _scripts[index] = Script(
-                        type: type,
-                        params: params,
-                        isEnabled: true,
-                      );
-                    });
-                  }
-                  Navigator.pop(context);
-                },
-              ),
-            ],
           ),
         );
       },
@@ -826,7 +830,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         try {
           final success = await executeScript(_scripts[i]);
           setState(() {
-            if (success) _successCount++; else _failureCount++;
+            if (success) {_successCount++;} else {_failureCount++;}
           });
           await Future.delayed(Duration(milliseconds: _executionDelay));
         } catch (e) {
@@ -854,7 +858,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
           color: CupertinoColors.black.withAlpha(230),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: CupertinoColors.systemGrey4.withOpacity(0.2),
+            color: CupertinoColors.systemGrey4.withAlpha(51),
           ),
         ),
         child: Column(
@@ -982,7 +986,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                       decoration: BoxDecoration(
                         border: Border(
                           bottom: BorderSide(
-                            color: CupertinoColors.systemGrey.withOpacity(0.2),
+                            color: CupertinoColors.systemGrey.withAlpha(51),
                           ),
                         ),
                       ),
@@ -1891,16 +1895,30 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['zds'],
+        allowMultiple: false,
+        withData: true,  // 确保能读取文件数据
       );
 
-      if (result != null) {
-        final file = File(result.files.single.path!);
-        final content = await file.readAsString();
-        final lines = content.split('\n');
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
+        String content;
         
+        if (Platform.isIOS) {
+          // iOS 需要特殊处理
+          if (file.bytes != null) {
+            content = String.fromCharCodes(file.bytes!);
+          } else {
+            throw Exception('无法读取文件内容');
+          }
+        } else {
+          // Android 可以直接读取文件
+          content = await File(file.path!).readAsString();
+        }
+
+        final lines = content.split('\n');
         if (lines.isEmpty) throw Exception('文件为空');
         
-        // 解析全局配置
+        // 解析全局配置和脚本
         final globalConfig = lines.first;
         // 使用你的 JSON 解析逻辑
         // 示例：从 JSON 中提取延迟和循环次数
@@ -1996,10 +2014,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     
     final tab = _tabs[_currentIndex];
     final isDefaultPage = tab.url == 'about:blank';
+    final currentContext = context; // Capture the current context
     
     showCupertinoModalPopup(
-      context: context,
-      barrierColor: CupertinoColors.black,
+      context: currentContext,
+      barrierColor: CupertinoColors.black.withAlpha(204),
       builder: (context) => Container(
         height: MediaQuery.of(context).size.height,
         color: CupertinoColors.black,
@@ -2022,7 +2041,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                             ),
                         autofocus: true,
                         placeholder: '搜索或输入网址',
-                        onSubmitted: (url) {
+                        onSubmitted: (url) async {
                           if (url.isEmpty) {
                             Navigator.pop(context);
                             return;
@@ -2031,8 +2050,15 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                           if (!url.startsWith('http://') && !url.startsWith('https://')) {
                             finalUrl = 'https://$url';
                           }
-                          tab.controller.loadRequest(Uri.parse(finalUrl));
-                          Navigator.pop(context);
+                          try {
+                            final uri = Uri.parse(finalUrl);
+                            await tab.controller.loadRequest(uri);
+                            if (mounted && context.mounted) { // Check both State and BuildContext
+                              Navigator.pop(context);
+                            }
+                          } catch (e) {
+                            debugPrint('Load URL error: $e');
+                          }
                         },
                         decoration: BoxDecoration(
                           color: CupertinoColors.systemGrey6,
@@ -2221,7 +2247,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
           } else {
             targetForm.submit();
           }
-        }, ${executionDelay});
+        }, $executionDelay);
         
         return true;
       })();
