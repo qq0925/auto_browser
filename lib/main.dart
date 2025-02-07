@@ -2120,53 +2120,53 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     final script = _scripts[index];
     showCupertinoModalPopup(
       context: context,
-      barrierDismissible: true,
-      builder: (context) => CupertinoAlertDialog(
-        title: const Text('编辑脚本'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            if (script.type == "点击文字")
-              CupertinoTextField(
-                controller: TextEditingController(text: script.params['点击文字']),
-                placeholder: '点击文字',
-                onChanged: (value) => script.params['点击文字'] = value,
-              )
-            else
-              Column(
-                children: [
-                  ...List.generate(
-                    (script.params.length / 2).ceil(),
-                    (i) {
-                      final key = '输入框${i + 1}';
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: CupertinoTextField(
-                          controller: TextEditingController(text: script.params[key]),
-                          placeholder: key,
-                          onChanged: (value) => script.params[key] = value,
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-          ],
-        ),
+      builder: (context) => CupertinoActionSheet(
         actions: [
-          CupertinoDialogAction(
-            child: const Text('取消'),
-            onPressed: () => Navigator.pop(context),
-          ),
-          CupertinoDialogAction(
-            child: const Text('确定'),
+          CupertinoActionSheetAction(
             onPressed: () {
               Navigator.pop(context);
-              setState(() {});
+              setState(() {
+                script.isEnabled = !script.isEnabled;
+              });
             },
+            child: Text(script.isEnabled ? '禁用' : '启用'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(context);
+              _showRepeatCountDialog(index);
+            },
+            child: const Text('设置重复次数'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(context);
+              final scriptCopy = Script(
+                type: script.type,
+                params: Map<String, dynamic>.from(script.params),
+                isEnabled: script.isEnabled,
+              );
+              setState(() {
+                _scripts.insert(index + 1, scriptCopy);
+              });
+            },
+            child: const Text('复制'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() {
+                _scripts.removeAt(index);
+              });
+            },
+            isDestructiveAction: true,
+            child: const Text('删除'),
           ),
         ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
       ),
     );
   }
@@ -2282,7 +2282,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
 
   Widget _buildScriptItem(Script script, int index) {
     return GestureDetector(
-      onTap: () => _editScript(index),  // 短按编辑
+      onTap: () => _showScriptOptions(index),  // 短按编辑
       onLongPress: () => _showScriptOptions(index),  // 长按显示选项
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
