@@ -2163,12 +2163,13 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     final result = await _tabs[_currentIndex].controller.runJavaScriptReturningResult('''
       (function() {
         const text = "${script.params['点击文字'] ?? ''}";
-        const elements = document.querySelectorAll('*');
-        for (const el of elements) {
-          if (el.textContent.includes(text)) {
-            el.click();
-            return true;
-          }
+        // 优先查找链接
+        const links = Array.from(document.querySelectorAll('a')).filter(a => 
+          a.textContent.trim() === text.trim()
+        );
+        if (links.length > 0) {
+          links[0].click();
+          return true;
         }
         return false;
       })();
@@ -2180,21 +2181,54 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     if (!mounted || _tabs.isEmpty || _currentIndex < 0) return false;
     final formInputs = Map<String, String>.from(script.params)
       ..removeWhere((key, value) => !key.startsWith('输入框'));
+    final executionDelay = script.params['执行延迟'] ?? 800;
     
     final result = await _tabs[_currentIndex].controller.runJavaScriptReturningResult('''
       (function() {
-        const inputs = document.querySelectorAll('input');
-        ${formInputs.entries.map((e) => 
-          'if(inputs[${int.parse(e.key.substring(3)) - 1}]) inputs[${int.parse(e.key.substring(3)) - 1}].value = "${e.value}";'
-        ).join('\n')}
-        const form = document.querySelector('form');
-        if (form) {
-          form.submit();
-          return true;
+        // 查找所有表单
+        const forms = document.querySelectorAll('form');
+        if (forms.length === 0) return false;
+        
+        // 找到包含submit类型按钮的表单
+        let targetForm = null;
+        for (const form of forms) {
+          if (form.querySelector('input[type="submit"], button[type="submit"]')) {
+            targetForm = form;
+            break;
+          }
         }
-        return false;
+        if (!targetForm) return false;
+
+        // 获取表单中的所有输入框（包括input和textarea）
+        const inputs = Array.from(targetForm.querySelectorAll('input:not([type="submit"]), textarea'));
+        
+        // 填充输入值
+        ${formInputs.entries.map((e) => '''
+          if (inputs[${int.parse(e.key.substring(3)) - 1}]) {
+            const input = inputs[${int.parse(e.key.substring(3)) - 1}];
+            input.value = "${e.value}";
+            // 触发input和change事件
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        ''').join('\n')}
+
+        // 延迟后提交表单
+        setTimeout(() => {
+          const submitButton = targetForm.querySelector('input[type="submit"], button[type="submit"]');
+          if (submitButton) {
+            submitButton.click();
+          } else {
+            targetForm.submit();
+          }
+        }, ${executionDelay});
+        
+        return true;
       })();
     ''');
+    
+    // 等待执行延迟
+    await Future.delayed(Duration(milliseconds: executionDelay));
     return result.toString() == 'true';
   }
 
