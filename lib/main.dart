@@ -1308,70 +1308,33 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                     // 显示脚本项
                                     final script = _scripts[index];
                                     return GestureDetector(
-                                      onTap: () => _showScriptOptions(index),
+                                      onTap: () => _editScript(index),  // 短按编辑
+                                      onLongPress: () => _showScriptOptions(index),  // 长按显示选项
                                       child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),  // 减小内边距
-                                        decoration: BoxDecoration(
-                                          color: CupertinoColors.systemGrey6.withAlpha(30),
-                                          borderRadius: BorderRadius.circular(6),  // 减小圆角
-                                        ),
-                                        child: Stack(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                        child: Row(
                                           children: [
-                                            Row(
-                                              children: [
-                                                // 左侧脚本类型
-                                                Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),  // 减小内边距
-                                                  decoration: BoxDecoration(
-                                                    color: CupertinoColors.systemBlue.withAlpha(50),
-                                                    borderRadius: BorderRadius.circular(4),
-                                                  ),
-                                                  child: Text(
-                                                    script.type,
-                                                    style: const TextStyle(
-                                                      color: CupertinoColors.white,
-                                                      fontSize: 12,  // 减小字体
-                                                    ),
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 8),  // 减小间距
-                                                // 右侧脚本内容
-                                                Expanded(
-                                                  child: Text(
-                                                    script.params['点击文字'] ?? '',
-                                                    style: const TextStyle(
-                                                      color: CupertinoColors.white,
-                                                      fontSize: 12,  // 减小字体
-                                                    ),
-                                                    maxLines: 1,  // 限制为单行
-                                                    overflow: TextOverflow.ellipsis,
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 24),  // 减小角标预留空间
-                                              ],
-                                            ),
-                                            // 右上角角标
-                                            Positioned(
-                                              top: 0,
-                                              right: 0,
-                                              child: Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),  // 减小内边距
-                                                decoration: BoxDecoration(
-                                                  color: CupertinoColors.systemGrey.withAlpha(100),
-                                                  borderRadius: const BorderRadius.only(
-                                                    topRight: Radius.circular(6),
-                                                    bottomLeft: Radius.circular(6),
-                                                  ),
-                                                ),
-                                                child: Text(
-                                                  '${index + 1}',
-                                                  style: const TextStyle(
-                                                    color: CupertinoColors.white,
-                                                    fontSize: 10,  // 减小字体
-                                                  ),
+                                            Expanded(
+                                              child: Text(
+                                                // 显示脚本内容
+                                                script.type == "点击文字" 
+                                                  ? script.params['点击文字'] ?? ''
+                                                  : '输入表单',
+                                                style: TextStyle(
+                                                  color: script.isEnabled ? null : CupertinoColors.systemGrey,
                                                 ),
                                               ),
                                             ),
+                                            // 显示脚本循环次数
+                                            Text(
+                                              '${script.params['重复次数'] ?? 1}次',
+                                              style: const TextStyle(
+                                                color: CupertinoColors.systemGrey,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            // 其他UI元素...
                                           ],
                                         ),
                                       ),
@@ -2077,6 +2040,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
             onPressed: () {
               setState(() {
                 _scripts.clear();
+                // 重置全局设置为默认值
                 _executionDelay = 1000;
                 _originalLoopCount = 1;
                 _remainingLoopCount = 1;
@@ -2155,6 +2119,13 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
           CupertinoActionSheetAction(
             onPressed: () {
               Navigator.pop(context);
+              _showRepeatCountDialog(index);  // 修改为脚本自身的重复次数
+            },
+            child: const Text('设置重复次数'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(context);
               final scriptCopy = Script(
                 type: script.type,
                 params: Map<String, dynamic>.from(script.params),
@@ -2170,51 +2141,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
             onPressed: () {
               Navigator.pop(context);
               setState(() {
-                if (index > 0) {
-                  final temp = _scripts[index];
-                  _scripts[index] = _scripts[index - 1];
-                  _scripts[index - 1] = temp;
-                }
-              });
-            },
-            child: const Text('在前粘贴脚本'),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.pop(context);
-              setState(() {
                 _scripts.removeAt(index);
               });
             },
             isDestructiveAction: true,
             child: const Text('删除'),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.pop(context);
-              setState(() {
-                if (index > 0) {
-                  final temp = _scripts[index];
-                  _scripts[index] = _scripts[index - 1];
-                  _scripts[index - 1] = temp;
-                }
-              });
-            },
-            child: const Text('在前插入新脚本'),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.pop(context);
-              _showLoopCountDialog();
-            },
-            child: const Text('设置重复次数'),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.pop(context);
-              _showExecutionLimitDialog(index);
-            },
-            child: const Text('限制执行次数'),
           ),
         ],
         cancelButton: CupertinoActionSheetAction(
@@ -2296,22 +2227,25 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     );
   }
 
-  void _showExecutionLimitDialog(int index) {
+  void _showRepeatCountDialog(int index) {
     showCupertinoDialog(
       context: context,
       builder: (context) => CupertinoAlertDialog(
-        title: const Text('限制执行次数'),
+        title: const Text('设置重复次数'),
         content: Padding(
           padding: const EdgeInsets.symmetric(vertical: 16),
           child: CupertinoTextField(
+            controller: TextEditingController(
+              text: (_scripts[index].params['重复次数'] ?? 1).toString(),
+            ),
             keyboardType: TextInputType.number,
             autofocus: true,
-            placeholder: '请输入执行次数限制',
+            placeholder: '请输入重复次数',
             onChanged: (value) {
-              final limit = int.tryParse(value);
-              if (limit != null && limit > 0) {
+              final count = int.tryParse(value);
+              if (count != null && count > 0) {
                 setState(() {
-                  _scripts[index].params['执行次数限制'] = limit;
+                  _scripts[index].params['重复次数'] = count;
                 });
               }
             },
@@ -2325,6 +2259,40 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
           CupertinoDialogAction(
             child: const Text('确定'),
             onPressed: () => Navigator.pop(context),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _editScript(int index) {
+    final script = _scripts[index];
+    showCupertinoDialog(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('编辑脚本'),
+        content: CupertinoTextField(
+          controller: TextEditingController(
+            text: script.type == "点击文字" ? script.params['点击文字'] : '',
+          ),
+          placeholder: '请输入文字',
+          onChanged: (value) {
+            if (script.type == "点击文字") {
+              script.params['点击文字'] = value;
+            }
+          },
+        ),
+        actions: [
+          CupertinoDialogAction(
+            child: const Text('取消'),
+            onPressed: () => Navigator.pop(context),
+          ),
+          CupertinoDialogAction(
+            child: const Text('确定'),
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() {});
+            },
           ),
         ],
       ),
