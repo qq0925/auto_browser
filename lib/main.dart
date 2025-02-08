@@ -264,7 +264,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                   if (!submitButton) return;
                   
                   let data = {};
-                  // 获取所有非隐藏的输入框和文本框，并按照在DOM中的顺序编号
                   const inputs = Array.from(form.querySelectorAll('input:not([type="hidden"]):not([type="submit"]), textarea'))
                     .filter(input => {
                       const rect = input.getBoundingClientRect();
@@ -510,29 +509,27 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       builder: (context) {
         String type = "点击文字";
         String clickText = '';
-        List<String> inputValues = [''];  // 输入框的值
-        int executionDelay = 800;  // 默认延迟
+        List<String> inputValues = [''];
 
         return StatefulBuilder(
           builder: (context, setState) => CupertinoAlertDialog(
-          title: const Text('添加脚本'),
-          content: Column(
-            children: [
-              const SizedBox(height: 8),
-              // 脚本类型选择
-              Row(
-                children: [
-                  const Text('脚本类型'),
-                  const SizedBox(width: 8),
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    child: Row(
-                      children: [
-                        Text(type),
+            title: const Text('添加脚本'),
+            content: Column(
+              children: [
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Text('脚本类型'),
+                    const SizedBox(width: 8),
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      child: Row(
+                        children: [
+                          Text(type),
                           const Icon(CupertinoIcons.chevron_down, size: 16),
-                      ],
-                    ),
-                    onPressed: () {
+                        ],
+                      ),
+                      onPressed: () {
                         showCupertinoModalPopup(
                           context: context,
                           builder: (context) => Container(
@@ -545,6 +542,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                 onSelectedItemChanged: (index) {
                                   setState(() {
                                     type = index == 0 ? "点击文字" : "输入框提交";
+                                    if (type == "输入框提交" && inputValues.isEmpty) {
+                                      inputValues.add('');
+                                    }
                                   });
                                 },
                                 children: const [
@@ -555,39 +555,19 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                             ),
                           ),
                         );
-                    },
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-                
-                // 根据类型显示不同的输入选项
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
                 if (type == "点击文字")
-              CupertinoTextField(
-                placeholder: '点击文字',
-                    controller: TextEditingController(text: clickText),
+                  CupertinoTextField(
+                    placeholder: '点击文字',
                     onChanged: (value) => clickText = value,
                   )
                 else
                   Column(
                     children: [
-                      // 执行延迟输入
-                      Row(
-                        children: [
-                          const Text('执行延迟'),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: CupertinoTextField(
-                              placeholder: '毫秒',
-                              keyboardType: TextInputType.number,
-                              controller: TextEditingController(text: executionDelay.toString()),
-                              onChanged: (value) => executionDelay = int.tryParse(value) ?? 800,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      // 输入框列表
                       ...List.generate(inputValues.length, (index) => Padding(
                         padding: const EdgeInsets.only(bottom: 8),
                         child: Row(
@@ -595,20 +575,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                             Expanded(
                               child: CupertinoTextField(
                                 placeholder: '输入框${index + 1}',
-                                controller: TextEditingController(text: inputValues[index]),
                                 onChanged: (value) => inputValues[index] = value,
                               ),
                             ),
-                            if (index == inputValues.length - 1)
-                              CupertinoButton(
-                                padding: const EdgeInsets.only(left: 8),
-                                child: const Icon(CupertinoIcons.add_circled),
-                                onPressed: () {
-                                  setState(() {
-                                    inputValues.add('');
-                                  });
-                                },
-                              ),
                             if (inputValues.length > 1)
                               CupertinoButton(
                                 padding: const EdgeInsets.only(left: 8),
@@ -622,32 +591,44 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                           ],
                         ),
                       )),
+                      CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(CupertinoIcons.add_circled, color: CupertinoColors.activeBlue),
+                            SizedBox(width: 8),
+                            Text('添加输入框'),
+                          ],
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            inputValues.add('');
+                          });
+                        },
+                      ),
                     ],
-              ),
-            ],
-          ),
-          actions: [
-            CupertinoDialogAction(
-              child: const Text('取消'),
-              onPressed: () => Navigator.pop(context),
+                  ),
+              ],
             ),
-            CupertinoDialogAction(
-              child: const Text('确定'),
-              onPressed: () {
+            actions: [
+              CupertinoDialogAction(
+                child: const Text('取消'),
+                onPressed: () => Navigator.pop(context),
+              ),
+              CupertinoDialogAction(
+                child: const Text('确定'),
+                onPressed: () {
                   if (type == "点击文字" && clickText.isNotEmpty) {
                     this.setState(() {
-                    _scripts.add(Script(
-                      type: type,
-                      params: {
-                          '点击文字': clickText,
-                      },
-                      isEnabled: true,
-                    ));
-                  });
+                      _scripts.add(Script(
+                        type: type,
+                        params: {'点击文字': clickText},
+                        isEnabled: true,
+                      ));
+                    });
                   } else if (type == "输入框提交" && inputValues.any((value) => value.isNotEmpty)) {
-                    final params = <String, dynamic>{
-                      '执行延迟': executionDelay,
-                    };
+                    final params = <String, dynamic>{};
                     for (var i = 0; i < inputValues.length; i++) {
                       if (inputValues[i].isNotEmpty) {
                         params['输入框${i + 1}'] = inputValues[i];
@@ -660,11 +641,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                         isEnabled: true,
                       ));
                     });
-                }
-                Navigator.pop(context);
-              },
-            ),
-          ],
+                  }
+                  Navigator.pop(context);
+                },
+              ),
+            ],
           ),
         );
       },
@@ -2372,10 +2353,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         String type = script.type;
         String clickText = script.params['点击文字'] ?? '';
         List<String> inputValues = [];
-        int executionDelay = script.params['执行延迟'] ?? 800;
 
         // 初始化输入框值
         if (type == "输入框提交") {
+          // 按序号获取所有输入框的值
           int i = 1;
           while (script.params.containsKey('输入框$i')) {
             inputValues.add(script.params['输入框$i'] ?? '');
@@ -2416,6 +2397,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                 onSelectedItemChanged: (index) {
                                   setState(() {
                                     type = index == 0 ? "点击文字" : "输入框提交";
+                                    if (type == "输入框提交" && inputValues.isEmpty) {
+                                      inputValues.add('');
+                                    }
                                   });
                                 },
                                 children: const [
@@ -2440,21 +2424,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 else
                   Column(
                     children: [
-                      Row(
-                        children: [
-                          const Text('执行延迟'),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: CupertinoTextField(
-                              placeholder: '毫秒',
-                              keyboardType: TextInputType.number,
-                              controller: TextEditingController(text: executionDelay.toString()),
-                              onChanged: (value) => executionDelay = int.tryParse(value) ?? 800,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
                       ...List.generate(inputValues.length, (index) => Padding(
                         padding: const EdgeInsets.only(bottom: 8),
                         child: Row(
@@ -2466,15 +2435,16 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                 onChanged: (value) => inputValues[index] = value,
                               ),
                             ),
-                            CupertinoButton(
-                              padding: const EdgeInsets.only(left: 8),
-                              child: const Icon(CupertinoIcons.minus_circle_fill, color: CupertinoColors.destructiveRed),
-                              onPressed: () {
-                                setState(() {
-                                  inputValues.removeAt(index);
-                                });
-                              },
-                            ),
+                            if (inputValues.length > 1)
+                              CupertinoButton(
+                                padding: const EdgeInsets.only(left: 8),
+                                child: const Icon(CupertinoIcons.minus_circle_fill, color: CupertinoColors.destructiveRed),
+                                onPressed: () {
+                                  setState(() {
+                                    inputValues.removeAt(index);
+                                  });
+                                },
+                              ),
                           ],
                         ),
                       )),
@@ -2510,16 +2480,12 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                     this.setState(() {
                       _scripts[index] = Script(
                         type: type,
-                        params: {
-                          '点击文字': clickText,
-                        },
-                        isEnabled: true,
+                        params: {'点击文字': clickText},
+                        isEnabled: script.isEnabled,
                       );
                     });
                   } else if (type == "输入框提交" && inputValues.any((value) => value.isNotEmpty)) {
-                    final params = <String, dynamic>{
-                      '执行延迟': executionDelay,
-                    };
+                    final params = <String, dynamic>{};
                     for (var i = 0; i < inputValues.length; i++) {
                       if (inputValues[i].isNotEmpty) {
                         params['输入框${i + 1}'] = inputValues[i];
@@ -2529,7 +2495,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                       _scripts[index] = Script(
                         type: type,
                         params: params,
-                        isEnabled: true,
+                        isEnabled: script.isEnabled,
                       );
                     });
                   }
