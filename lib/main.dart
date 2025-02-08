@@ -1636,26 +1636,14 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   // 添加读取方法
   void _importScripts() async {
     try {
-      FilePickerResult? result;
-      if (Platform.isIOS) {
-        result = await FilePicker.platform.pickFiles(
-          type: FileType.custom,
-          allowedExtensions: ['zds'],
-          allowMultiple: false,
-          withData: true,
-          allowCompression: false,
-          dialogTitle: '选择脚本文件',
-          onFileLoading: (FilePickerStatus status) => debugPrint(status.toString()),
-          lockParentWindow: true,
-        );
-      } else {
-        result = await FilePicker.platform.pickFiles(
-          type: FileType.custom,
-          allowedExtensions: ['zds'],
-          allowMultiple: false,
-          withData: true,
-        );
-      }
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['zds'],
+        allowMultiple: false,
+        withData: true,
+        dialogTitle: '选择脚本文件',
+        lockParentWindow: true,
+      );
 
       if (result != null && result.files.isNotEmpty) {
         final file = result.files.first;
@@ -1674,12 +1662,45 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         final lines = content.split('\n').where((line) => line.trim().isNotEmpty).toList();
         if (lines.isEmpty) throw Exception('文件为空');
 
+        // 解析全局配置
+        final globalConfig = json.decode(lines.first);
+        if (globalConfig['type'] == '全局变量') {
+          setState(() {
+            _executionDelay = globalConfig['执行延迟'] ?? 1000;
+            _originalLoopCount = globalConfig['循环次数'] ?? 1;
+            _remainingLoopCount = _originalLoopCount;
+          });
+          lines.removeAt(0);  // 移除全局配置行
+        }
+
+        // 解析脚本
         setState(() {
           _scripts.clear();
           for (var line in lines) {
-            _scripts.add(Script.fromJson(line));
+            try {
+              _scripts.add(Script.fromJson(line));
+            } catch (e) {
+              debugPrint('Parse script error: $e');
+            }
           }
         });
+
+        // 显示导入成功提示
+        if (mounted) {
+          showCupertinoDialog(
+            context: context,
+            builder: (context) => CupertinoAlertDialog(
+              title: const Text('导入成功'),
+              content: Text('已导入 ${_scripts.length} 个脚本'),
+              actions: [
+                CupertinoDialogAction(
+                  child: const Text('确定'),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -2280,7 +2301,12 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 // 脚本内容
                 Expanded(
                   child: Text(
-                    script.type == "点击文字" ? script.params['点击文字'] ?? '' : '输入表单',
+                    script.type == "点击文字" 
+                      ? script.params['点击文字'] ?? '' 
+                      : script.params.entries
+                          .where((e) => e.key.startsWith('输入框'))
+                          .map((e) => e.value.toString())
+                          .join(', '),  // 显示所有输入框的值，用逗号分隔
                     style: TextStyle(
                       color: script.isEnabled ? CupertinoColors.white : CupertinoColors.systemGrey,
                       fontSize: 12,
