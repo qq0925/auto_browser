@@ -259,15 +259,27 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
 
                 // 监听表单提交
                 document.addEventListener('submit', function(e) {
-                  const formData = new FormData(e.target);
+                  const form = e.target;
+                  const submitButton = form.querySelector('input[type="submit"], button[type="submit"]');
+                  if (!submitButton) return;
+                  
                   let data = {};
-                  const inputs = Array.from(e.target.querySelectorAll('input:not([type="hidden"]):not([type="submit"]), textarea'));
+                  // 获取所有非隐藏的输入框和文本框，并按照在DOM中的顺序编号
+                  const inputs = Array.from(form.querySelectorAll('input:not([type="hidden"]):not([type="submit"]), textarea'))
+                    .filter(input => {
+                      const rect = input.getBoundingClientRect();
+                      return rect.width > 0 && rect.height > 0; // 确保元素是可见的
+                    });
+                  
                   inputs.forEach((input, index) => {
                     if (input.value) {
                       data['输入框' + (index + 1)] = input.value;
                     }
                   });
-                  ScriptRecorder.postMessage('输入提交|' + JSON.stringify(data));
+                  
+                  if (Object.keys(data).length > 0) {
+                    ScriptRecorder.postMessage('输入提交|' + JSON.stringify(data));
+                  }
                 });
               ''');
             },
@@ -1662,23 +1674,20 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         final lines = content.split('\n').where((line) => line.trim().isNotEmpty).toList();
         if (lines.isEmpty) throw Exception('文件为空');
 
-        // 解析全局配置
-        final globalConfig = json.decode(lines.first);
-        if (globalConfig['type'] == '全局变量') {
-          setState(() {
-            _executionDelay = globalConfig['执行延迟'] ?? 1000;
-            _originalLoopCount = globalConfig['循环次数'] ?? 1;
-            _remainingLoopCount = _originalLoopCount;
-          });
-          lines.removeAt(0);  // 移除全局配置行
-        }
-
-        // 解析脚本
         setState(() {
           _scripts.clear();
           for (var line in lines) {
             try {
-              _scripts.add(Script.fromJson(line));
+              final data = json.decode(line);
+              if (data['脚本类型'] == '全局变量') {
+                // 更新全局设置
+                _executionDelay = data['执行延迟'] ?? 1000;
+                _originalLoopCount = data['循环次数'] ?? 1;
+                _remainingLoopCount = _originalLoopCount;
+              } else {
+                // 添加到脚本列表
+                _scripts.add(Script.fromJson(line));
+              }
             } catch (e) {
               debugPrint('Parse script error: $e');
             }
