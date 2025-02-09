@@ -10,6 +10,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screen_wake/flutter_screen_wake.dart';
+import 'package:flutter/gestures.dart';
+import 'dart:async';  // 添加这行导入
 
 void main() {
   runApp(const MyApp());
@@ -131,6 +133,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   bool _keepScreenOn = false;
   bool _autoLeaveMode = false;
   bool _showLeaveModeOverlay = false;
+  // 添加计时器变量
+  Timer? _inactivityTimer;
 
   @override
   void initState() {
@@ -138,6 +142,40 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     WidgetsBinding.instance.addObserver(this);
     _loadBookmarksAndHistory();
     _initBrowser();
+    _initInactivityTimer();
+  }
+
+  // 初始化不活动计时器
+  void _initInactivityTimer() {
+    // 监听用户交互
+    GestureBinding.instance.pointerRouter.addGlobalRoute((PointerEvent event) {
+      _resetInactivityTimer();
+    });
+  }
+
+  // 重置不活动计时器
+  void _resetInactivityTimer() {
+    _inactivityTimer?.cancel();
+    if (_autoLeaveMode && !_showLeaveModeOverlay) {
+      _inactivityTimer = Timer(const Duration(minutes: 5), () {
+        if (mounted && _autoLeaveMode) {
+          _showLeaveMode();
+        }
+      });
+    }
+  }
+
+  // 修改离开模式开关的处理
+  void _toggleLeaveMode(bool value) {
+    setState(() {
+      _autoLeaveMode = value;
+    });
+    if (value) {
+      _resetInactivityTimer();
+    } else {
+      _inactivityTimer?.cancel();
+      _hideLeaveMode();
+    }
   }
 
   Future<void> _loadBookmarksAndHistory() async {
@@ -254,6 +292,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 }
               });
               _updateTabInfo(_currentIndex);
+              if (_isDarkMode) {
+                _applyDarkMode(true);
+              }
             },
             onNavigationRequest: (NavigationRequest request) {
               // 处理导航请求
@@ -461,23 +502,23 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
 
         return StatefulBuilder(
           builder: (context, setState) => CupertinoAlertDialog(
-            title: const Text('添加脚本'),
-            content: Column(
-              children: [
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    const Text('脚本类型'),
-                    const SizedBox(width: 8),
-                    CupertinoButton(
-                      padding: EdgeInsets.zero,
-                      child: Row(
-                        children: [
-                          Text(type),
+          title: const Text('添加脚本'),
+          content: Column(
+            children: [
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Text('脚本类型'),
+                  const SizedBox(width: 8),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    child: Row(
+                      children: [
+                        Text(type),
                           const Icon(CupertinoIcons.chevron_down, size: 16),
-                        ],
-                      ),
-                      onPressed: () {
+                      ],
+                    ),
+                    onPressed: () {
                         showCupertinoModalPopup(
                           context: context,
                           builder: (context) => Container(
@@ -503,14 +544,14 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                             ),
                           ),
                         );
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
                 if (type == "点击文字")
-                  CupertinoTextField(
-                    placeholder: '点击文字',
+              CupertinoTextField(
+                placeholder: '点击文字',
                     onChanged: (value) => clickText = value,
                   )
                 else
@@ -530,43 +571,43 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                               CupertinoButton(
                                 padding: const EdgeInsets.only(left: 8),
                                 child: const Icon(CupertinoIcons.minus_circle_fill, color: CupertinoColors.destructiveRed),
-                                onPressed: () {
-                                  setState(() {
+              onPressed: () {
+                  setState(() {
                                     inputValues.removeAt(index);
                                   });
-                                },
-                              ),
-                          ],
+              },
+            ),
+          ],
                         ),
                       )),
-                      CupertinoButton(
-                        padding: EdgeInsets.zero,
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
                         child: const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
+                      children: [
                             Icon(CupertinoIcons.add_circled, color: CupertinoColors.activeBlue),
                             SizedBox(width: 8),
                             Text('添加输入框'),
-                          ],
-                        ),
-                        onPressed: () {
+                      ],
+                    ),
+                    onPressed: () {
                           setState(() {
                             inputValues.add('');
                           });
-                        },
-                      ),
-                    ],
+                    },
                   ),
-              ],
-            ),
-            actions: [
-              CupertinoDialogAction(
-                child: const Text('取消'),
-                onPressed: () => Navigator.pop(context),
+                ],
               ),
-              CupertinoDialogAction(
-                child: const Text('确定'),
-                onPressed: () {
+            ],
+          ),
+          actions: [
+            CupertinoDialogAction(
+              child: const Text('取消'),
+              onPressed: () => Navigator.pop(context),
+            ),
+            CupertinoDialogAction(
+              child: const Text('确定'),
+              onPressed: () {
                   if (type == "点击文字" && clickText.isNotEmpty) {
                     this.setState(() {
                       _scripts.add(Script(
@@ -588,12 +629,12 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                         params: params,
                         isEnabled: true,
                       ));
-                    });
-                  }
-                  Navigator.pop(context);
-                },
-              ),
-            ],
+                  });
+                }
+                Navigator.pop(context);
+              },
+            ),
+          ],
           ),
         );
       },
@@ -644,7 +685,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       
       for (var i = 0; i < _scripts.length && _isExecuting; i++) {
         setState(() => _currentScriptIndex = i);
-        if (!_scripts[i].isEnabled) continue;
+      if (!_scripts[i].isEnabled) continue;
         if (_isPaused) {
           await Future.doWhile(() async {
             await Future.delayed(const Duration(milliseconds: 100));
@@ -657,12 +698,12 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
           setState(() {
             if (success) {_successCount++;} else {_failureCount++;}
           });
-          await Future.delayed(Duration(milliseconds: _executionDelay));
-        } catch (e) {
+        await Future.delayed(Duration(milliseconds: _executionDelay));
+      } catch (e) {
           setState(() => _failureCount++);
-          debugPrint('Execute script error: $e');
-        }
+        debugPrint('Execute script error: $e');
       }
+    }
       
       if (_originalLoopCount > 0) {  // 只在非无限循环时减少计数
         _remainingLoopCount--;
@@ -1532,6 +1573,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
 
   @override
   void dispose() {
+    _inactivityTimer?.cancel();
     _cleanupWebViews();
     WidgetsBinding.instance.removeObserver(this);
     _urlController.dispose();
@@ -1700,11 +1742,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     if (!_tabs.isNotEmpty || _currentIndex < 0 || _currentIndex >= _tabs.length) return;
     
     final tab = _tabs[_currentIndex];
-    final isDefaultPage = tab.url == 'about:blank';
-    final currentContext = context; // Capture the current context
+    // 检查是否是默认页面或本地文件
+    final isDefaultPage = tab.url == 'about:blank' || tab.url.startsWith('file:///');
     
     showCupertinoModalPopup(
-      context: currentContext,
+      context: context,
       barrierColor: CupertinoColors.black.withAlpha(204),
       builder: (context) => Container(
         height: MediaQuery.of(context).size.height,
@@ -1720,12 +1762,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                       child: CupertinoTextField(
                         controller: TextEditingController(
                           text: isDefaultPage ? '' : tab.url,
-                        )..selection = isDefaultPage ? 
-                            const TextSelection.collapsed(offset: 0) :
-                            TextSelection(
-                              baseOffset: 0,
-                              extentOffset: tab.url.length,
-                            ),
+                        )..selection = TextSelection(
+                          baseOffset: 0,
+                          extentOffset: isDefaultPage ? 0 : tab.url.length,
+                        ),
                         autofocus: true,
                         placeholder: '搜索或输入网址',
                         onSubmitted: (url) async {
@@ -2530,11 +2570,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                           onChanged: (value) {
                             setState(() => _autoLeaveMode = value);
                             this.setState(() {});
-                            if (value) {
-                              _showLeaveMode();
-                            } else {
-                              _hideLeaveMode();
-                            }
+                            _toggleLeaveMode(value);
                           },
                         ),
                         subtitle: const Text(
@@ -2678,7 +2714,26 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     if (_tabs.isEmpty || _currentIndex < 0) return;
     
     _tabs[_currentIndex].controller.runJavaScript('''
-      document.documentElement.style.filter = '${isDark ? "brightness(0.8) invert(0.9)" : "none"}';
+      (function() {
+        if ($isDark) {
+          document.documentElement.style.backgroundColor = '#000000';
+          document.documentElement.style.color = '#FFFFFF';
+          // 修改所有文本输入框的样式
+          const inputs = document.querySelectorAll('input[type="text"], textarea');
+          inputs.forEach(input => {
+            input.style.backgroundColor = '#1C1C1E';
+            input.style.color = '#FFFFFF';
+          });
+        } else {
+          document.documentElement.style.backgroundColor = '';
+          document.documentElement.style.color = '';
+          const inputs = document.querySelectorAll('input[type="text"], textarea');
+          inputs.forEach(input => {
+            input.style.backgroundColor = '';
+            input.style.color = '';
+          });
+        }
+      })();
     ''');
   }
 
