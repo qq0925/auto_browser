@@ -123,6 +123,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   int _successCount = 0;   // 成功次数
   int _failureCount = 0;   // 失败次数
   int _currentScriptIndex = 0;  // 添加当前执行位次
+  bool _isFullScreen = false;
+  bool _isDarkMode = false;
+  bool _keepScreenOn = false;
+  bool _preventSleep = false;
+  bool _autoLeaveMode = false;
 
   @override
   void initState() {
@@ -750,7 +755,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
               icon: CupertinoIcons.settings,
               title: '设置',
               onTap: () {
-                // TODO: 实现设置功能
+                _showSettings();
               },
             ),
           ],
@@ -852,7 +857,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                       ),
                       child: CupertinoListTile(
                         title: Text(
-                          bookmark.title,
+                          bookmark.title.isEmpty ? '无标题' : bookmark.title,
                           style: const TextStyle(color: CupertinoColors.white),
                         ),
                         subtitle: Text(
@@ -932,15 +937,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                   final item = _history[index];
                   return CupertinoListTile(
                     title: Text(
-                      item.title,
+                      item.title.isEmpty ? '无标题' : item.title,
                       style: const TextStyle(color: CupertinoColors.white),
                     ),
                     subtitle: Text(
                       item.url,
-                      style: const TextStyle(color: CupertinoColors.systemGrey),
-                    ),
-                    trailing: Text(
-                      _formatTime(item.visitedAt),
                       style: const TextStyle(color: CupertinoColors.systemGrey),
                     ),
                     onTap: () {
@@ -957,21 +958,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         ),
       ),
     );
-  }
-
-  String _formatTime(DateTime time) {
-    final now = DateTime.now();
-    final difference = now.difference(time);
-    
-    if (difference.inMinutes < 1) {
-      return '刚刚';
-    } else if (difference.inHours < 1) {
-      return '${difference.inMinutes}分钟前';
-    } else if (difference.inDays < 1) {
-      return '${difference.inHours}小时前';
-    } else {
-      return '${difference.inDays}天前';
-    }
   }
 
   @override
@@ -1003,10 +989,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 onTap: () => _showUrlInput(),
                 child: AbsorbPointer(
                   child: CupertinoTextField(
-                    controller: _urlController,
+                    controller: TextEditingController(text: _getDisplayTitle()),  // 使用标题而不是URL
                     enabled: false,
                     textAlign: TextAlign.left,
-                    placeholder: _getDisplayTitle(),
+                    style: const TextStyle(fontSize: 14),  // 调整字体大小
                     decoration: BoxDecoration(
                       color: CupertinoColors.systemGrey6,
                       borderRadius: BorderRadius.circular(8),
@@ -1042,6 +1028,15 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
               },
               child: const Icon(
                 CupertinoIcons.refresh,
+                color: CupertinoColors.systemGrey,
+              ),
+            ),
+            // 设置按钮
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              onPressed: _showSettings,
+              child: const Icon(
+                CupertinoIcons.settings,
                 color: CupertinoColors.systemGrey,
               ),
             ),
@@ -1769,7 +1764,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                       children: [
                         CupertinoListTile(
                           title: Text(
-                            item.title,
+                            item.title.isEmpty ? '无标题' : item.title,
                             style: const TextStyle(color: CupertinoColors.white),
                           ),
                           subtitle: Text(
@@ -1777,9 +1772,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                             style: const TextStyle(color: CupertinoColors.systemGrey),
                           ),
                           onTap: () {
-                            _tabs[_currentIndex].controller.loadRequest(
-                              Uri.parse(item.url),
-                            );
+                            _tabs[_currentIndex].controller.loadRequest(Uri.parse(item.url));
                             Navigator.pop(context);
                           },
                         ),
@@ -1796,7 +1789,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     );
   }
 
-  // 添加获取显示文本的方法
+  // 修改获取显示文本的方法
   String _getDisplayTitle() {
     if (!_tabs.isNotEmpty || _currentIndex < 0 || _currentIndex >= _tabs.length) {
       return '欢迎使用';
@@ -1807,7 +1800,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       return '欢迎使用';
     }
     
-    return tab.title.isEmpty ? '无标题页面' : tab.title;
+    // 使用网页标题，如果没有则显示"无标题"
+    return tab.title.isNotEmpty ? tab.title : '无标题';
   }
 
   // 添加书签相关方法
@@ -2428,5 +2422,204 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   Future<bool> _canGoForward() async {
     if (_tabs.isEmpty || _currentIndex < 0) return false;
     return await _tabs[_currentIndex].controller.canGoForward();
+  }
+
+  void _showSettings() {
+    showCupertinoModalPopup(
+      context: context,
+      builder: (context) => StatefulBuilder(  // 使用 StatefulBuilder 来管理设置状态
+        builder: (context, setState) => Container(
+          height: MediaQuery.of(context).size.height * 0.8,
+          decoration: const BoxDecoration(
+            color: CupertinoDynamicColor.withBrightness(
+              color: CupertinoColors.systemBackground,
+              darkColor: CupertinoColors.black,
+            ),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+          ),
+          child: Column(
+            children: [
+              // 顶部标题栏
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      '设置',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      child: const Text('完成'),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              // 设置项列表
+              Expanded(
+                child: ListView(
+                  children: [
+                    // 显示设置组
+                    _buildSettingGroup(children: [
+                      _buildSettingItem(
+                        title: '全屏',
+                        trailing: CupertinoSwitch(
+                          value: _isFullScreen,
+                          onChanged: (value) {
+                            setState(() => _isFullScreen = value);
+                            this.setState(() {});  // 更新外层状态
+                          },
+                        ),
+                      ),
+                      _buildSettingItem(
+                        title: '夜间模式',
+                        trailing: CupertinoSwitch(
+                          value: _isDarkMode,
+                          onChanged: (value) {
+                            setState(() => _isDarkMode = value);
+                            this.setState(() {});
+                          },
+                        ),
+                      ),
+                      _buildSettingItem(
+                        title: '屏幕常亮',
+                        trailing: CupertinoSwitch(
+                          value: _keepScreenOn,
+                          onChanged: (value) {
+                            setState(() => _keepScreenOn = value);
+                            this.setState(() {});
+                          },
+                        ),
+                        subtitle: const Text(
+                          '建议开启，以避免黑屏可能导致脚本执行变慢等情况',
+                          style: TextStyle(
+                            color: CupertinoColors.systemGrey,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                      _buildSettingItem(
+                        title: '禁用系统休眠',
+                        trailing: CupertinoSwitch(
+                          value: _preventSleep,
+                          onChanged: (value) {
+                            setState(() => _preventSleep = value);
+                            this.setState(() {});
+                          },
+                        ),
+                        subtitle: const Text(
+                          '开启可解决由锁屏黑屏引起的WIFI断开、执行变慢等情况，但会增加耗电量',
+                          style: TextStyle(
+                            color: CupertinoColors.systemGrey,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                      _buildSettingItem(
+                        title: '离开模式',
+                        trailing: CupertinoSwitch(
+                          value: _autoLeaveMode,
+                          onChanged: (value) {
+                            setState(() => _autoLeaveMode = value);
+                            this.setState(() {});
+                          },
+                        ),
+                        subtitle: const Text(
+                          '主页面5分钟无操作后，自动进入离开模式(脚本仍正常运行)，可省电、防止浏览器假死',
+                          style: TextStyle(
+                            color: CupertinoColors.systemGrey,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ]),
+
+                    // 关于
+                    _buildSettingGroup(children: [
+                      _buildSettingItem(
+                        title: '关于Auok浏览器',
+                        trailing: const Icon(
+                          CupertinoIcons.forward,
+                          color: CupertinoColors.systemGrey,
+                          size: 20,
+                        ),
+                        onTap: () {
+                          // 显示关于信息
+                        },
+                      ),
+                    ]),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSettingGroup({required List<Widget> children}) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 12),
+      decoration: BoxDecoration(
+        color: CupertinoColors.systemGrey6.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        children: children,
+      ),
+    );
+  }
+
+  Widget _buildSettingItem({
+    required String title,
+    Widget? trailing,
+    VoidCallback? onTap,
+    Widget? subtitle,
+  }) {
+    return CupertinoButton(
+      padding: EdgeInsets.zero,
+      onPressed: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: const BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: CupertinoColors.systemGrey5,
+              width: 0.5,
+            ),
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: CupertinoColors.white,
+                      fontSize: 16,
+                    ),
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 4),
+                    subtitle,
+                  ],
+                ],
+              ),
+            ),
+            if (trailing != null) trailing,
+          ],
+        ),
+      ),
+    );
   }
 }
