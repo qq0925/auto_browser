@@ -8,6 +8,8 @@ import 'package:path_provider/path_provider.dart';  // 添加这行导入
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_screen_wake/flutter_screen_wake.dart';
 
 void main() {
   runApp(const MyApp());
@@ -127,8 +129,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   bool _isFullScreen = false;
   bool _isDarkMode = false;
   bool _keepScreenOn = false;
-  bool _preventSleep = false;
   bool _autoLeaveMode = false;
+  bool _showLeaveModeOverlay = false;
 
   @override
   void initState() {
@@ -221,6 +223,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
               setState(() {
                 isLoading = true;
                 _loadingProgress = 0;
+                if (url.startsWith('file:///')) {
+                  _tabs[_currentIndex].url = 'about:start';  // 修改显示的URL
+                }
               });
             },
             onProgress: (progress) {
@@ -236,57 +241,19 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 isLoading = false;
                 _loadingProgress = 1;
                 
-                // 添加空值检查
-                if (mounted && _tabs.isNotEmpty && _currentIndex >= 0 && _currentIndex < _tabs.length) {
+                // 只有非默认页面才添加到历史记录
+                if (mounted && _tabs.isNotEmpty && _currentIndex >= 0 && 
+                    _currentIndex < _tabs.length && 
+                    !url.startsWith('file:///') && url != 'about:blank') {
                   _history.insert(0, HistoryItem(
                     title: title,
                     url: url,
                     visitedAt: DateTime.now(),
                   ));
+                  _saveBookmarksAndHistory();
                 }
               });
               _updateTabInfo(_currentIndex);
-              _saveBookmarksAndHistory();
-              
-              await controller.runJavaScript('''
-                document.addEventListener('click', function(e) {
-                  let text = '';
-                  let type = '';
-                  
-                  if (e.target.closest('a')) {
-                    type = '点击文字';
-                    text = e.target.textContent || e.target.innerText;
-                  }
-                  
-                  if (text.trim()) {
-                    ScriptRecorder.postMessage(type + '|' + text.trim());
-                  }
-                });
-
-                // 监听表单提交
-                document.addEventListener('submit', function(e) {
-                  const form = e.target;
-                  const submitButton = form.querySelector('input[type="submit"], button[type="submit"]');
-                  if (!submitButton) return;
-                  
-                  let data = {};
-                  const inputs = Array.from(form.querySelectorAll('input:not([type="hidden"]):not([type="submit"]), textarea'))
-                    .filter(input => {
-                      const rect = input.getBoundingClientRect();
-                      return rect.width > 0 && rect.height > 0; // 确保元素是可见的
-                    });
-                  
-                  inputs.forEach((input, index) => {
-                    if (input.value) {
-                      data['输入框' + (index + 1)] = input.value;
-                    }
-                  });
-                  
-                  if (Object.keys(data).length > 0) {
-                    ScriptRecorder.postMessage('输入框提交|' + JSON.stringify(data));
-                  }
-                });
-              ''');
             },
             onNavigationRequest: (NavigationRequest request) {
               // 处理导航请求
@@ -990,12 +957,15 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 onTap: () => _showUrlInput(),
                 child: AbsorbPointer(
                   child: CupertinoTextField(
-                    controller: TextEditingController(text: _getDisplayTitle()),  // 使用标题而不是URL
+                    controller: TextEditingController(text: _getDisplayTitle()),
                     enabled: false,
                     textAlign: TextAlign.left,
-                    style: const TextStyle(fontSize: 14),  // 调整字体大小
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: CupertinoColors.white,  // 文字颜色改为白色
+                    ),
                     decoration: BoxDecoration(
-                      color: CupertinoColors.systemGrey6,
+                      color: CupertinoColors.black.withAlpha(204),  // 背景色改为黑色半透明
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
@@ -1518,6 +1488,42 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                   ),
                 ),
               ),
+            // 离开模式遮罩
+            if (_showLeaveModeOverlay)
+              Container(
+                color: CupertinoColors.black.withAlpha(180),
+                child: Stack(
+                  children: [
+                    // 中间的提示文字
+                    const Center(
+                      child: Text(
+                        '离开模式',
+                        style: TextStyle(
+                          color: CupertinoColors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    // 右下角的返回按钮
+                    Positioned(
+                      right: 16,
+                      bottom: 16,
+                      child: CupertinoButton(
+                        padding: const EdgeInsets.all(16),
+                        color: CupertinoColors.black.withAlpha(100),
+                        child: const Text('返回'),
+                        onPressed: () {
+                          setState(() {
+                            _autoLeaveMode = false;
+                            _showLeaveModeOverlay = false;
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
       ),
@@ -1797,7 +1803,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     }
     
     final tab = _tabs[_currentIndex];
-    if (tab.url == 'about:blank') {
+    final url = tab.url;
+    
+    // 处理默认页面
+    if (url == 'about:blank' || url.startsWith('file:///')) {
       return '欢迎使用';
     }
     
@@ -2476,6 +2485,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                           onChanged: (value) {
                             setState(() => _isFullScreen = value);
                             this.setState(() {});
+                            // 立即应用全屏效果
+                            SystemChrome.setEnabledSystemUIMode(
+                              value ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
+                            );
                           },
                         ),
                       ),
@@ -2486,6 +2499,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                           onChanged: (value) {
                             setState(() => _isDarkMode = value);
                             this.setState(() {});
+                            // 立即应用夜间模式
+                            _applyDarkMode(value);
                           },
                         ),
                       ),
@@ -2493,30 +2508,15 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                         title: '屏幕常亮',
                         trailing: CupertinoSwitch(
                           value: _keepScreenOn,
-                          onChanged: (value) {
+                          onChanged: (value) async {
                             setState(() => _keepScreenOn = value);
                             this.setState(() {});
+                            // 立即应用屏幕常亮
+                            await FlutterScreenWake.keepOn(value);
                           },
                         ),
                         subtitle: const Text(
                           '建议开启，以避免黑屏可能导致脚本执行变慢等情况',
-                          style: TextStyle(
-                            color: CupertinoColors.systemGrey,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                      _buildSettingItem(
-                        title: '禁用系统休眠',
-                        trailing: CupertinoSwitch(
-                          value: _preventSleep,
-                          onChanged: (value) {
-                            setState(() => _preventSleep = value);
-                            this.setState(() {});
-                          },
-                        ),
-                        subtitle: const Text(
-                          '开启可解决由锁屏黑屏引起的WIFI断开、执行变慢等情况，但会增加耗电量',
                           style: TextStyle(
                             color: CupertinoColors.systemGrey,
                             fontSize: 12,
@@ -2530,6 +2530,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                           onChanged: (value) {
                             setState(() => _autoLeaveMode = value);
                             this.setState(() {});
+                            if (value) {
+                              _showLeaveMode();
+                            } else {
+                              _hideLeaveMode();
+                            }
                           },
                         ),
                         subtitle: const Text(
@@ -2666,5 +2671,28 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         ],
       ),
     );
+  }
+
+  // 应用夜间模式
+  void _applyDarkMode(bool isDark) {
+    if (_tabs.isEmpty || _currentIndex < 0) return;
+    
+    _tabs[_currentIndex].controller.runJavaScript('''
+      document.documentElement.style.filter = '${isDark ? "brightness(0.8) invert(0.9)" : "none"}';
+    ''');
+  }
+
+  // 显示离开模式遮罩
+  void _showLeaveMode() {
+    setState(() {
+      _showLeaveModeOverlay = true;
+    });
+  }
+
+  // 隐藏离开模式遮罩
+  void _hideLeaveMode() {
+    setState(() {
+      _showLeaveModeOverlay = false;
+    });
   }
 }
