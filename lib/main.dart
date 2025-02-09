@@ -277,7 +277,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                   });
                   
                   if (Object.keys(data).length > 0) {
-                    ScriptRecorder.postMessage('输入提交|' + JSON.stringify(data));
+                    ScriptRecorder.postMessage('输入框提交|' + JSON.stringify(data));
                   }
                 });
               ''');
@@ -376,7 +376,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                     isEnabled: true,
                   ));
                   break;
-                case '输入提交':
+                case '输入框提交':
                   try {
                     final data = json.decode(content) as Map<String, dynamic>;
                     _scripts.add(Script(
@@ -457,7 +457,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     if (!_isRecording || !mounted) return;
 
     setState(() {
-      if (type == '输入提交') {
+      if (type == '输入框提交') {
         try {
           final data = json.decode(content) as Map<String, dynamic>;
           _scripts.add(Script(
@@ -1933,17 +1933,15 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
             break;
           }
         }
-        if (!targetForm) return false;
-
-        // 修改输入框选择逻辑，排除 hidden 类型
-        const inputs = Array.from(targetForm.querySelectorAll('input:not([type="hidden"]):not([type="submit"]), textarea'));
         
+        if (!targetForm) return false;
+        
+        const inputs = Array.from(targetForm.querySelectorAll('input:not([type="hidden"]):not([type="submit"]), textarea'));
         ${formInputs.entries.map((e) => '''
           if (inputs[${int.parse(e.key.substring(3)) - 1}]) {
-            const input = inputs[${int.parse(e.key.substring(3)) - 1}];
-            input.value = "$e.value";
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-            input.dispatchEvent(new Event('change', { bubbles: true }));
+            inputs[${int.parse(e.key.substring(3)) - 1}].value = "${e.value}";  // 直接使用值
+            inputs[${int.parse(e.key.substring(3)) - 1}].dispatchEvent(new Event('input', { bubbles: true }));
+            inputs[${int.parse(e.key.substring(3)) - 1}].dispatchEvent(new Event('change', { bubbles: true }));
           }
         ''').join('\n')}
 
