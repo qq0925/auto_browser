@@ -9,9 +9,9 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_screen_wake/flutter_screen_wake.dart';
 import 'package:flutter/gestures.dart';
 import 'dart:async';  // 添加这行导入
+import 'package:wakelock_plus/wakelock_plus.dart';  // 替换 flutter_screen_wake 的导入
 
 void main() {
   runApp(const MyApp());
@@ -143,6 +143,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     _loadBookmarksAndHistory();
     _initBrowser();
     _initInactivityTimer();
+    
+    // 恢复屏幕常亮设置
+    WakelockPlus.toggle(enable: _keepScreenOn);
   }
 
   // 初始化不活动计时器
@@ -668,53 +671,107 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   }
 
   // 修改执行脚本的逻辑
-  Future<bool> _executeScripts() async {
-    if (_scripts.isEmpty) return true;
+  Future<bool> executeScript(Script script) async {
+    if (!script.isEnabled || _tabs.isEmpty || _currentIndex < 0) return false;
     
-    setState(() {
-      _isExecuting = true;
-      _successCount = 0;
-      _failureCount = 0;
-      _currentScriptIndex = 0;
-    });
+    // 获取当前标签页的控制器
+    final currentController = _tabs[_currentIndex].controller;
     
-    _remainingLoopCount = _originalLoopCount;
+    // 获取脚本的重复次数，默认为1
+    final repeatCount = script.params['重复次数'] ?? 1;
+    bool success = true;
     
-    while (_originalLoopCount == 0 || _remainingLoopCount > 0) {  // 修改循环条件
+    // 执行指定次数
+    for (var i = 0; i < repeatCount; i++) {
       if (!_isExecuting) break;  // 允许中断执行
       
-      for (var i = 0; i < _scripts.length && _isExecuting; i++) {
-        setState(() => _currentScriptIndex = i);
-      if (!_scripts[i].isEnabled) continue;
-        if (_isPaused) {
-          await Future.doWhile(() async {
-            await Future.delayed(const Duration(milliseconds: 100));
-            return _isPaused;
-          });
-        }
-        
-        try {
-          final success = await executeScript(_scripts[i]);
-          setState(() {
-            if (success) {_successCount++;} else {_failureCount++;}
-          });
-        await Future.delayed(Duration(milliseconds: _executionDelay));
-      } catch (e) {
-          setState(() => _failureCount++);
-        debugPrint('Execute script error: $e');
+      bool result = false;
+      switch (script.type) {
+        case "点击文字":
+          result = await _executeClickScript(script, currentController);
+          break;
+        case "输入框提交":
+          result = await _executeFormSubmit(script, currentController);
+          break;
       }
-    }
       
-      if (_originalLoopCount > 0) {  // 只在非无限循环时减少计数
-        _remainingLoopCount--;
+      if (!result) {
+        success = false;
+        break;  // 如果执行失败就停止重复
+      }
+      
+      // 如果不是最后一次重复，则等待执行延迟
+      if (i < repeatCount - 1) {
+        await Future.delayed(Duration(milliseconds: _executionDelay));
       }
     }
     
-    setState(() {
-      _isExecuting = false;
-      _currentScriptIndex = 0;
-    });
-    return _successCount > 0;
+    return success;
+  }
+
+  // 修改点击脚本执行方法
+  Future<bool> _executeClickScript(Script script, WebViewController controller) async {
+    if (!mounted) return false;
+    final result = await controller.runJavaScriptReturningResult('''
+      (function() {
+        const text = "${script.params['点击文字'] ?? ''}";
+        // 优先查找链接
+        const links = Array.from(document.querySelectorAll('a')).filter(a => 
+          a.textContent.trim() === text.trim()
+        );
+        if (links.length > 0) {
+          links[0].click();
+          return true;
+        }
+        return false;
+      })();
+    ''');
+    return result.toString() == 'true';
+  }
+
+  // 修改表单提交脚本执行方法
+  Future<bool> _executeFormSubmit(Script script, WebViewController controller) async {
+    if (!mounted) return false;
+    final formInputs = Map<String, String>.from(script.params)
+      ..removeWhere((key, value) => !key.startsWith('输入框'));
+    final executionDelay = script.params['执行延迟'] ?? 800;
+    
+    final result = await controller.runJavaScriptReturningResult('''
+      (function() {
+        const forms = document.querySelectorAll('form');
+        if (forms.length === 0) return false;
+        
+        let targetForm = null;
+        for (const form of forms) {
+          if (form.querySelector('input[type="submit"], button[type="submit"]')) {
+            targetForm = form;
+            break;
+          }
+        }
+        
+        if (!targetForm) return false;
+        
+        const inputs = Array.from(targetForm.querySelectorAll('input:not([type="hidden"]):not([type="submit"]), textarea'));
+        ${formInputs.entries.map((e) => '''
+          if (inputs[${int.parse(e.key.substring(3)) - 1}]) {
+            inputs[${int.parse(e.key.substring(3)) - 1}].value = "${e.value}";
+            inputs[${int.parse(e.key.substring(3)) - 1}].dispatchEvent(new Event('input', { bubbles: true }));
+            inputs[${int.parse(e.key.substring(3)) - 1}].dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        ''').join('\n')}
+
+        setTimeout(() => {
+          const submitButton = targetForm.querySelector('input[type="submit"], button[type="submit"]');
+          if (submitButton) submitButton.click();
+          else targetForm.submit();
+        }, $executionDelay);
+        
+        return true;
+      })();
+    ''');
+    
+    await Future.delayed(Duration(milliseconds: executionDelay));
+    return result.toString() == 'true';
   }
 
   // 修改菜单管理器样式
@@ -1910,106 +1967,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     _saveBookmarksAndHistory();
   }
 
-  // 添加脚本执行方法
-  Future<bool> executeScript(Script script) async {
-    if (!script.isEnabled) return true;
-    
-    // 获取脚本的重复次数，默认为1
-    final repeatCount = script.params['重复次数'] ?? 1;
-    bool success = true;
-    
-    // 执行指定次数
-    for (var i = 0; i < repeatCount; i++) {
-      if (!_isExecuting) break;  // 允许中断执行
-      
-      bool result = false;
-      switch (script.type) {
-        case "点击文字":
-          result = await _executeClickScript(script);
-          break;
-        case "输入框提交":
-          result = await _executeFormSubmit(script);
-          break;
-        // ... 其他类型的处理
-      }
-      
-      if (!result) {
-        success = false;
-        break;  // 如果执行失败就停止重复
-      }
-      
-      // 如果不是最后一次重复，则等待执行延迟
-      if (i < repeatCount - 1) {
-        await Future.delayed(Duration(milliseconds: _executionDelay));
-      }
-    }
-    
-    return success;
-  }
-
-  Future<bool> _executeClickScript(Script script) async {
-    if (!mounted || _tabs.isEmpty || _currentIndex < 0) return false;
-    final result = await _tabs[_currentIndex].controller.runJavaScriptReturningResult('''
-      (function() {
-        const text = "${script.params['点击文字'] ?? ''}";
-        // 优先查找链接
-        const links = Array.from(document.querySelectorAll('a')).filter(a => 
-          a.textContent.trim() === text.trim()
-        );
-        if (links.length > 0) {
-          links[0].click();
-            return true;
-        }
-        return false;
-      })();
-    ''');
-    return result.toString() == 'true';
-  }
-
-  Future<bool> _executeFormSubmit(Script script) async {
-    if (!mounted || _tabs.isEmpty || _currentIndex < 0) return false;
-    final formInputs = Map<String, String>.from(script.params)
-      ..removeWhere((key, value) => !key.startsWith('输入框'));
-    final executionDelay = script.params['执行延迟'] ?? 800;
-    
-    final result = await _tabs[_currentIndex].controller.runJavaScriptReturningResult('''
-      (function() {
-        const forms = document.querySelectorAll('form');
-        if (forms.length === 0) return false;
-        
-        let targetForm = null;
-        for (const form of forms) {
-          if (form.querySelector('input[type="submit"], button[type="submit"]')) {
-            targetForm = form;
-            break;
-          }
-        }
-        
-        if (!targetForm) return false;
-        
-        const inputs = Array.from(targetForm.querySelectorAll('input:not([type="hidden"]):not([type="submit"]), textarea'));
-        ${formInputs.entries.map((e) => '''
-          if (inputs[${int.parse(e.key.substring(3)) - 1}]) {
-            inputs[${int.parse(e.key.substring(3)) - 1}].value = "${e.value}";  // 直接使用值
-            inputs[${int.parse(e.key.substring(3)) - 1}].dispatchEvent(new Event('input', { bubbles: true }));
-            inputs[${int.parse(e.key.substring(3)) - 1}].dispatchEvent(new Event('change', { bubbles: true }));
-          }
-        ''').join('\n')}
-
-        setTimeout(() => {
-          const submitButton = targetForm.querySelector('input[type="submit"], button[type="submit"]');
-          if (submitButton) submitButton.click();
-          else targetForm.submit();
-        }, $executionDelay);
-        
-        return true;
-      })();
-    ''');
-    
-    await Future.delayed(Duration(milliseconds: executionDelay));
-    return result.toString() == 'true';
-  }
-
   void _clearScripts() {
     if (!mounted) return;
     setState(() {
@@ -2577,7 +2534,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                             setState(() => _keepScreenOn = value);
                             this.setState(() {});
                             // 立即应用屏幕常亮
-                            await FlutterScreenWake.keepOn(value);
+                            await WakelockPlus.toggle(enable: value);
                           },
                         ),
                         subtitle: const Text(
@@ -2808,5 +2765,55 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     setState(() {
       _showLeaveModeOverlay = false;
     });
+  }
+
+  Future<bool> _executeScripts() async {
+    if (_scripts.isEmpty) return true;
+    
+    setState(() {
+      _isExecuting = true;
+      _successCount = 0;
+      _failureCount = 0;
+      _currentScriptIndex = 0;
+    });
+    
+    _remainingLoopCount = _originalLoopCount;
+    
+    while (_originalLoopCount == 0 || _remainingLoopCount > 0) {
+      if (!_isExecuting) break;
+      
+      for (var i = 0; i < _scripts.length && _isExecuting; i++) {
+        setState(() => _currentScriptIndex = i);
+        if (!_scripts[i].isEnabled) continue;
+        
+        if (_isPaused) {
+          await Future.doWhile(() async {
+            await Future.delayed(const Duration(milliseconds: 100));
+            return _isPaused;
+          });
+        }
+        
+        try {
+          final success = await executeScript(_scripts[i]);
+          setState(() {
+            if (success) {_successCount++;} else {_failureCount++;}
+          });
+          await Future.delayed(Duration(milliseconds: _executionDelay));
+        } catch (e) {
+          setState(() => _failureCount++);
+          debugPrint('Execute script error: $e');
+        }
+      }
+      
+      if (_originalLoopCount > 0) {
+        _remainingLoopCount--;
+      }
+    }
+    
+    setState(() {
+      _isExecuting = false;
+      _currentScriptIndex = 0;
+    });
+    return _successCount > 0;
   }
 }
