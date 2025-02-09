@@ -7,6 +7,7 @@ import 'package:share_plus/share_plus.dart';  // 添加分享功能的包
 import 'package:path_provider/path_provider.dart';  // 添加这行导入
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 void main() {
   runApp(const MyApp());
@@ -2427,15 +2428,12 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   void _showSettings() {
     showCupertinoModalPopup(
       context: context,
-      builder: (context) => StatefulBuilder(  // 使用 StatefulBuilder 来管理设置状态
+      builder: (context) => StatefulBuilder(
         builder: (context, setState) => Container(
           height: MediaQuery.of(context).size.height * 0.8,
-          decoration: const BoxDecoration(
-            color: CupertinoDynamicColor.withBrightness(
-              color: CupertinoColors.systemBackground,
-              darkColor: CupertinoColors.black,
-            ),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+          decoration: BoxDecoration(
+            color: CupertinoColors.black.withAlpha(230),  // 修改背景色为半透明黑色
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
           ),
           child: Column(
             children: [
@@ -2450,6 +2448,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
+                        color: CupertinoColors.white,  // 添加文字颜色
                       ),
                     ),
                     CupertinoButton(
@@ -2460,7 +2459,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                   ],
                 ),
               ),
-              const Divider(height: 1),
+              const Divider(
+                height: 1,
+                color: CupertinoColors.systemGrey4,  // 添加分割线颜色
+              ),
               // 设置项列表
               Expanded(
                 child: ListView(
@@ -2473,7 +2475,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                           value: _isFullScreen,
                           onChanged: (value) {
                             setState(() => _isFullScreen = value);
-                            this.setState(() {});  // 更新外层状态
+                            this.setState(() {});
                           },
                         ),
                       ),
@@ -2550,7 +2552,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                           size: 20,
                         ),
                         onTap: () {
-                          // 显示关于信息
+                          Navigator.pop(context);  // 先关闭设置页面
+                          _showAboutDialog();     // 再显示关于弹窗
                         },
                       ),
                     ]),
@@ -2566,9 +2569,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
 
   Widget _buildSettingGroup({required List<Widget> children}) {
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 12),
+      margin: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),  // 添加水平边距
       decoration: BoxDecoration(
-        color: CupertinoColors.systemGrey6.withOpacity(0.2),
+        color: CupertinoColors.systemGrey6.withOpacity(0.2),  // 修改组背景色
         borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
@@ -2605,7 +2608,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                   Text(
                     title,
                     style: const TextStyle(
-                      color: CupertinoColors.white,
+                      color: CupertinoColors.white,  // 修改标题文字颜色
                       fontSize: 16,
                     ),
                   ),
@@ -2619,6 +2622,48 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
             if (trailing != null) trailing,
           ],
         ),
+      ),
+    );
+  }
+
+  Future<String> _getAppVersion() async {
+    final packageInfo = await PackageInfo.fromPlatform();
+    return packageInfo.version;
+  }
+
+  // 修改 _showAboutDialog 方法为异步方法
+  void _showAboutDialog() async {
+    final version = await _getAppVersion();
+    if (!mounted) return;
+    
+    showCupertinoDialog(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('Auok浏览器'),
+        content: Column(
+          children: [
+            const SizedBox(height: 8),
+            Text(
+              '版本：$version',
+              style: const TextStyle(
+                fontSize: 14,
+                color: CupertinoColors.systemGrey,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Auok浏览器是一个iOS端手机浏览器自动化的软件，你可以用它实现在wap页面游戏中实现自动化功能。',
+              style: TextStyle(fontSize: 14),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+        actions: [
+          CupertinoDialogAction(
+            child: const Text('确定'),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ],
       ),
     );
   }
