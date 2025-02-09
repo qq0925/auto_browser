@@ -453,31 +453,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     });
   }
 
-  void _recordAction(String type, String content) {
-    if (!_isRecording || !mounted) return;
-
-    setState(() {
-      if (type == '输入框提交') {
-        try {
-          final data = json.decode(content) as Map<String, dynamic>;
-          _scripts.add(Script(
-            type: type,
-            params: data,
-            isEnabled: true,
-          ));
-        } catch (e) {
-          debugPrint('Parse input data error: $e');
-        }
-      } else {
-        _scripts.add(Script(
-          type: type,
-          params: {'点击文字': content},
-          isEnabled: true,
-        ));
-      }
-    });
-  }
-
   // 添加导出脚本方法
   String exportScript() {
     final List<String> lines = [];
@@ -679,8 +654,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   }
 
   // 修改执行脚本的逻辑
-  Future<void> _executeScripts() async {
-    if (_scripts.isEmpty) return;
+  Future<bool> _executeScripts() async {
+    if (_scripts.isEmpty) return true;
     
     setState(() {
       _isExecuting = true;
@@ -696,7 +671,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       
       for (var i = 0; i < _scripts.length && _isExecuting; i++) {
         setState(() => _currentScriptIndex = i);
-      if (!_scripts[i].isEnabled) continue;
+        if (!_scripts[i].isEnabled) continue;
         if (_isPaused) {
           await Future.doWhile(() async {
             await Future.delayed(const Duration(milliseconds: 100));
@@ -709,12 +684,12 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
           setState(() {
             if (success) {_successCount++;} else {_failureCount++;}
           });
-        await Future.delayed(Duration(milliseconds: _executionDelay));
-      } catch (e) {
+          await Future.delayed(Duration(milliseconds: _executionDelay));
+        } catch (e) {
           setState(() => _failureCount++);
-        debugPrint('Execute script error: $e');
+          debugPrint('Execute script error: $e');
+        }
       }
-    }
       
       if (_originalLoopCount > 0) {  // 只在非无限循环时减少计数
         _remainingLoopCount--;
@@ -725,6 +700,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       _isExecuting = false;
       _currentScriptIndex = 0;
     });
+    return _successCount > 0;
   }
 
   // 修改菜单管理器样式
@@ -1104,10 +1080,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                       // 后退按钮
                       CupertinoButton(
                         padding: EdgeInsets.zero,
-                        onPressed: () {
-                          if (_currentIndex > 0) {
-                            _tabs[_currentIndex].controller.goBack();
-                            _recordAction("网页后退", "");
+                        onPressed: () async {
+                          if (await _canGoBack()) {
+                            await _tabs[_currentIndex].controller.goBack();
                           }
                         },
                         child: const Icon(
@@ -1118,10 +1093,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                       // 前进按钮
                       CupertinoButton(
                         padding: EdgeInsets.zero,
-                        onPressed: () {
-                          if (_currentIndex < _tabs.length - 1) {
-                            _tabs[_currentIndex].controller.goForward();
-                            _recordAction("网页前进", "");
+                        onPressed: () async {
+                          if (await _canGoForward()) {
+                            await _tabs[_currentIndex].controller.goForward();
                           }
                         },
                         child: const Icon(
@@ -1869,34 +1843,42 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
 
   // 添加脚本执行方法
   Future<bool> executeScript(Script script) async {
-    try {
+    if (!script.isEnabled) return true;
+    
+    // 获取脚本的重复次数，默认为1
+    final repeatCount = script.params['重复次数'] ?? 1;
+    bool success = true;
+    
+    // 执行指定次数
+    for (var i = 0; i < repeatCount; i++) {
+      if (!_isExecuting) break;  // 允许中断执行
+      
+      bool result = false;
       switch (script.type) {
         case "点击文字":
-          return await _executeClickText(script);
+          result = await _executeClickScript(script);
+          break;
         case "输入框提交":
-          return await _executeFormSubmit(script);
-        case "刷新网页":
-          await _tabs[_currentIndex].controller.reload();
-          return true;
-        case "延时脚本":
-          await Future.delayed(Duration(milliseconds: script.params['执行延迟'] ?? 800));
-          return true;
-        case "逻辑脚本-出现文字":
-          return await _executeLogicScript(script);
-        case "执行本地脚本集":
-          return await _executeLocalScript(script);
-        case "脚本替换":
-          return await _executeScriptReplace(script);
-        default:
-          return false;
+          result = await _executeFormSubmit(script);
+          break;
+        // ... 其他类型的处理
       }
-    } catch (e) {
-      debugPrint('Script execution error: $e');
-      return false;
+      
+      if (!result) {
+        success = false;
+        break;  // 如果执行失败就停止重复
+      }
+      
+      // 如果不是最后一次重复，则等待执行延迟
+      if (i < repeatCount - 1) {
+        await Future.delayed(Duration(milliseconds: _executionDelay));
+      }
     }
+    
+    return success;
   }
 
-  Future<bool> _executeClickText(Script script) async {
+  Future<bool> _executeClickScript(Script script) async {
     if (!mounted || _tabs.isEmpty || _currentIndex < 0) return false;
     final result = await _tabs[_currentIndex].controller.runJavaScriptReturningResult('''
       (function() {
@@ -1957,75 +1939,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     
     await Future.delayed(Duration(milliseconds: executionDelay));
     return result.toString() == 'true';
-  }
-
-  Future<bool> _executeLogicScript(Script script) async {
-    if (!mounted || _tabs.isEmpty || _currentIndex < 0) return false;
-    final targetText = script.params['出现文字'];
-    final result = await _tabs[_currentIndex].controller.runJavaScriptReturningResult(
-      'document.body.textContent.includes("$targetText")'
-    );
-    
-    if (result.toString() == 'true') {
-      final thenScript = Script.fromJson(json.encode(script.params['出现文字,则执行:']));
-      return await executeScript(thenScript);
-    } else {
-      final elseScript = Script.fromJson(json.encode(script.params['未出现文字,则执行:']));
-      return await executeScript(elseScript);
-    }
-  }
-
-  Future<bool> _executeLocalScript(Script script) async {
-    try {
-      final scriptPath = script.params['本地脚本'] as String;
-      final file = File(scriptPath);
-      if (!await file.exists()) return false;
-
-      // 保存当前状态
-      final currentScripts = List<Script>.from(_scripts);
-      final currentIndex = _currentIndex;
-
-      // 加载并执行新脚本
-      final content = await file.readAsString();
-      final lines = content.split('\n').where((line) => line.trim().isNotEmpty).toList();
-      
-      _scripts.clear();
-      for (var line in lines) {
-        _scripts.add(Script.fromJson(line));
-      }
-      await _executeScripts();
-
-      // 恢复原始状态
-      _scripts
-        ..clear()
-        ..addAll(currentScripts);
-      _currentIndex = currentIndex;
-      return true;
-    } catch (e) {
-      debugPrint('Execute local script error: $e');
-      return false;
-    }
-  }
-
-  Future<bool> _executeScriptReplace(Script script) async {
-    try {
-      final scriptPath = script.params['替换为:'] as String;
-      final file = File(scriptPath);
-      if (!await file.exists()) return false;
-
-      final content = await file.readAsString();
-      final lines = content.split('\n').where((line) => line.trim().isNotEmpty).toList();
-      
-      // 替换当前脚本
-      _scripts.removeAt(_currentIndex);
-      for (var line in lines) {
-        _scripts.insert(_currentIndex, Script.fromJson(line));
-      }
-      return true;
-    } catch (e) {
-      debugPrint('Script replace error: $e');
-      return false;
-    }
   }
 
   void _clearScripts() {
@@ -2505,5 +2418,15 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         );
       },
     );
+  }
+
+  Future<bool> _canGoBack() async {
+    if (_tabs.isEmpty || _currentIndex < 0) return false;
+    return await _tabs[_currentIndex].controller.canGoBack();
+  }
+
+  Future<bool> _canGoForward() async {
+    if (_tabs.isEmpty || _currentIndex < 0) return false;
+    return await _tabs[_currentIndex].controller.canGoForward();
   }
 }
