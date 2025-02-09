@@ -1199,6 +1199,23 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                           color: CupertinoColors.systemGrey,
                         ),
                       ),
+                      // 返回默认页按钮
+                      CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        onPressed: () async {
+                          if (_tabs.isNotEmpty && _currentIndex >= 0) {
+                            await _tabs[_currentIndex].controller.loadFlutterAsset('assets/welcome.html');
+                            setState(() {
+                              _tabs[_currentIndex].url = 'about:blank';
+                              _tabs[_currentIndex].title = '欢迎';
+                            });
+                          }
+                        },
+                        child: const Icon(
+                          CupertinoIcons.home,
+                          color: CupertinoColors.systemGrey,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -1580,68 +1597,76 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     super.dispose();
   }
 
-  // 修改导出方法
-  void _exportScripts() async {
-    try {
-      final content = exportScript();
-      
-      if (Platform.isIOS) {
-        // 使用 Share.share 来分享/保存文件内容
-        final tempDir = await getTemporaryDirectory();
-        final file = File('${tempDir.path}/script.zds');
-        await file.writeAsString(content);
-        
-        await Share.shareXFiles(
-          [XFile(file.path)],
-          subject: '导出脚本',
-        );
-      } else {
-        // Android 上使用 FilePicker
-        String? outputFile = await FilePicker.platform.saveFile(
-          dialogTitle: '保存脚本',
-          fileName: 'script.zds',
-          allowedExtensions: ['zds'],
-          type: FileType.custom,
-        );
-
-        if (outputFile != null) {
-          final file = File(outputFile);
-          await file.writeAsString(content);
-          
-          if (mounted) {
-            showCupertinoDialog(
-              context: context,
-              builder: (context) => CupertinoAlertDialog(
-                title: const Text('导出成功'),
-                content: Text('脚本已保存到：$outputFile'),
-                actions: [
-                  CupertinoDialogAction(
-                    child: const Text('确定'),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
-              ),
-            );
-          }
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        showCupertinoDialog(
-          context: context,
-          builder: (context) => CupertinoAlertDialog(
-            title: const Text('导出失败'),
-            content: Text('错误信息：$e'),
-            actions: [
-              CupertinoDialogAction(
-                child: const Text('确定'),
-                onPressed: () => Navigator.pop(context),
+  // 修改导出脚本的方法
+  void _exportScripts() {
+    String scriptName = '新脚本集';  // 默认名称
+    
+    showCupertinoDialog(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('导出脚本集'),
+        content: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            children: [
+              CupertinoTextField(
+                controller: TextEditingController(text: scriptName),
+                autofocus: true,
+                placeholder: '请输入脚本集名称',
+                onChanged: (value) => scriptName = value,
+                decoration: BoxDecoration(
+                  color: CupertinoColors.systemGrey6.withAlpha(50),
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
             ],
           ),
-        );
-      }
-    }
+        ),
+        actions: [
+          CupertinoDialogAction(
+            child: const Text('取消'),
+            onPressed: () => Navigator.pop(context),
+          ),
+          CupertinoDialogAction(
+            child: const Text('导出'),
+            onPressed: () async {
+              final currentContext = context;
+              Navigator.pop(currentContext);
+              final scriptContent = exportScript();
+              
+              try {
+                final directory = await getTemporaryDirectory();
+                final file = File('${directory.path}/${scriptName.isEmpty ? "新脚本集" : scriptName}.zds');
+                await file.writeAsString(scriptContent);
+                
+                if (!mounted) return;
+                await Share.shareXFiles([XFile(file.path)], subject: scriptName);
+              } catch (e) {
+                debugPrint('Export script error: $e');
+                // 使用同步方式显示错误
+                if (mounted) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    showCupertinoDialog(
+                      context: currentContext,
+                      builder: (context) => CupertinoAlertDialog(
+                        title: const Text('导出失败'),
+                        content: Text('错误信息: $e'),
+                        actions: [
+                          CupertinoDialogAction(
+                            child: const Text('确定'),
+                            onPressed: () => Navigator.pop(context),
+                          ),
+                        ],
+                      ),
+                    );
+                  });
+                }
+              }
+            },
+          ),
+        ],
+      ),
+    );
   }
 
   // 添加读取方法
@@ -1763,9 +1788,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                         controller: TextEditingController(
                           text: isDefaultPage ? '' : tab.url,
                         )..selection = TextSelection(
-                          baseOffset: 0,
+                              baseOffset: 0,
                           extentOffset: isDefaultPage ? 0 : tab.url.length,
-                        ),
+                            ),
                         autofocus: true,
                         placeholder: '搜索或输入网址',
                         onSubmitted: (url) async {
@@ -2716,22 +2741,56 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     _tabs[_currentIndex].controller.runJavaScript('''
       (function() {
         if ($isDark) {
-          document.documentElement.style.backgroundColor = '#000000';
-          document.documentElement.style.color = '#FFFFFF';
-          // 修改所有文本输入框的样式
-          const inputs = document.querySelectorAll('input[type="text"], textarea');
-          inputs.forEach(input => {
-            input.style.backgroundColor = '#1C1C1E';
-            input.style.color = '#FFFFFF';
-          });
+          // 添加夜间模式样式
+          const style = document.createElement('style');
+          style.id = 'dark-mode-style';
+          style.textContent = `
+            html, body {
+              background-color: #000000 !important;
+              color: #FFFFFF !important;
+            }
+            
+            /* 处理文本和链接 */
+            p, span, div, h1, h2, h3, h4, h5, h6, a {
+              color: #FFFFFF !important;
+            }
+            
+            /* 处理输入框和文本框 */
+            input, textarea, select {
+              background-color: #1C1C1E !important;
+              color: #FFFFFF !important;
+              border-color: #333333 !important;
+            }
+            
+            /* 处理按钮 */
+            button {
+              background-color: #1C1C1E !important;
+              color: #FFFFFF !important;
+              border-color: #333333 !important;
+            }
+            
+            /* 处理表格 */
+            table, th, td {
+              border-color: #333333 !important;
+            }
+            
+            /* 处理图片和媒体亮度 */
+            img, video {
+              filter: brightness(0.8);
+            }
+            
+            /* 处理背景图片 */
+            [style*="background-image"] {
+              filter: brightness(0.8);
+            }
+          `;
+          document.head.appendChild(style);
         } else {
-          document.documentElement.style.backgroundColor = '';
-          document.documentElement.style.color = '';
-          const inputs = document.querySelectorAll('input[type="text"], textarea');
-          inputs.forEach(input => {
-            input.style.backgroundColor = '';
-            input.style.color = '';
-          });
+          // 移除夜间模式样式
+          const darkStyle = document.getElementById('dark-mode-style');
+          if (darkStyle) {
+            darkStyle.remove();
+          }
         }
       })();
     ''');
