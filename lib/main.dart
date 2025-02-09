@@ -12,8 +12,17 @@ import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
 import 'dart:async';  // 添加这行导入
 import 'package:wakelock_plus/wakelock_plus.dart';  // 替换 flutter_screen_wake 的导入
+import 'package:permission_handler/permission_handler.dart';  // 添加权限处理包
 
-void main() {
+void main() async {  // 改为异步函数
+  WidgetsFlutterBinding.ensureInitialized();  // 确保Flutter绑定初始化
+  
+  // 请求网络权限
+  if (Platform.isIOS) {
+    await Permission.photos.request();  // iOS需要先请求照片权限
+    await Permission.mediaLibrary.request();  // 媒体库权限
+  }
+  
   runApp(const MyApp());
 }
 

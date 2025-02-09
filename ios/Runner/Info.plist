@@ -88,5 +88,7 @@
 			</dict>
 		</dict>
 	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Auok浏览器需要访问网络以加载网页内容</string>
 </dict>
 </plist>
