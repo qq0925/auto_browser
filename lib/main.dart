@@ -683,8 +683,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   Widget _buildScriptProgress() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        children: [
+                    child: Row(
+                      children: [
           Text(
             '脚本列表: ${_scripts.length}',
         style: const TextStyle(
@@ -699,9 +699,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 color: CupertinoColors.activeBlue,
                 fontSize: 16,
               ),
-            ),
-        ],
-      ),
+              ),
+            ],
+          ),
     );
   }
 
@@ -2192,60 +2192,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     );
   }
 
-  void _showScriptOptions(int index) {
-    final script = _scripts[index];
-    showCupertinoModalPopup(
-      context: context,
-      builder: (context) => CupertinoActionSheet(
-        actions: [
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.pop(context);
-              setState(() {
-                script.isEnabled = !script.isEnabled;
-              });
-            },
-            child: Text(script.isEnabled ? '禁用' : '启用'),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.pop(context);
-              _showRepeatCountDialog(index);
-            },
-            child: const Text('设置重复次数'),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.pop(context);
-              final scriptCopy = Script(
-                type: script.type,
-                params: Map<String, dynamic>.from(script.params),
-                isEnabled: script.isEnabled,
-              );
-              setState(() {
-                _scripts.insert(index + 1, scriptCopy);
-              });
-            },
-            child: const Text('复制'),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.pop(context);
-              setState(() {
-                _scripts.removeAt(index);
-              });
-            },
-            isDestructiveAction: true,
-            child: const Text('删除'),
-          ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('取消'),
-        ),
-      ),
-    );
-  }
 
   void _showDelaySettingDialog() {
     showCupertinoDialog(
@@ -2356,124 +2302,108 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     );
   }
 
-  void _showRepeatCountDialog(int index) {
-    showCupertinoDialog(
-      context: context,
-      builder: (context) => CupertinoAlertDialog(
-        title: const Text('设置重复次数'),
-        content: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          child: CupertinoTextField(
-            controller: TextEditingController(
-              text: (_scripts[index].params['重复次数'] ?? 1).toString(),
-            ),
-            keyboardType: TextInputType.number,
-            autofocus: true,
-            placeholder: '请输入重复次数',
-            onChanged: (value) {
-              final count = int.tryParse(value);
-              if (count != null && count > 0) {
-                setState(() {
-                  _scripts[index].params['重复次数'] = count;
-                });
-              }
-            },
-          ),
-        ),
-        actions: [
-          CupertinoDialogAction(
-            child: const Text('取消'),
-            onPressed: () => Navigator.pop(context),
-          ),
-          CupertinoDialogAction(
-            child: const Text('确定'),
-            onPressed: () => Navigator.pop(context),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildScriptItem(Script script, int index) {
     return GestureDetector(
-      onTap: () => _editScript(index),  // 短按编辑
-      onLongPress: () => _showScriptOptions(index),  // 长按显示选项
+      onTap: () => _showAddOrEditScript(script: script),  // 添加短按编辑功能
+      onLongPress: () {
+        // 保持原有的长按菜单功能
+        showCupertinoModalPopup(
+          context: context,
+          builder: (context) => CupertinoActionSheet(
+            actions: [
+              CupertinoActionSheetAction(
+                onPressed: () {
+                  Navigator.pop(context);
+                  setState(() {
+                    _scripts.removeAt(index);
+                  });
+                },
+                isDestructiveAction: true,
+                child: const Text('删除'),
+              ),
+              CupertinoActionSheetAction(
+                onPressed: () {
+                  Navigator.pop(context);
+                  setState(() {
+                    _scripts.insert(index + 1, Script(
+                      type: script.type,
+                      params: Map<String, dynamic>.from(script.params),
+                      mode: script.mode,
+                    ));
+                  });
+                },
+                child: const Text('复制'),
+              ),
+              if (index > 0)
+                CupertinoActionSheetAction(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    setState(() {
+                      final item = _scripts.removeAt(index);
+                      _scripts.insert(index - 1, item);
+                    });
+                  },
+                  child: const Text('上移'),
+                ),
+              if (index < _scripts.length - 1)
+                CupertinoActionSheetAction(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    setState(() {
+                      final item = _scripts.removeAt(index);
+                      _scripts.insert(index + 1, item);
+                    });
+                  },
+                  child: const Text('下移'),
+                ),
+            ],
+            cancelButton: CupertinoActionSheetAction(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+          ),
+        );
+      },
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        // 保持原有的脚本项UI不变
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: script.isEnabled 
-            ? CupertinoColors.systemGrey6.withAlpha(30)
-            : CupertinoColors.systemRed.withAlpha(30),
-          borderRadius: BorderRadius.circular(6),
+          border: Border(
+            bottom: BorderSide(
+              color: CupertinoColors.white.withAlpha(200),
+            ),
+          ),
         ),
-        child: Stack(
+        child: Row(
           children: [
-            Row(
-              children: [
-                // 左侧脚本类型
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: CupertinoColors.systemBlue.withAlpha(50),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
+            CupertinoSwitch(
+              value: script.isEnabled,
+              onChanged: (value) {
+                setState(() => script.isEnabled = value);
+              },
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
                     script.type,
                     style: const TextStyle(
                       color: CupertinoColors.white,
-                      fontSize: 12,
+                      fontSize: 16,
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                // 脚本内容
-                Expanded(
-                  child: Text(
-                    script.type == "点击文字" 
-                      ? script.params['点击文字'] ?? '' 
-                      : script.params.entries
-                          .where((e) => e.key.startsWith('输入框'))
-                          .map((e) => e.value.toString())
-                          .join(', '),  // 显示所有输入框的值，用逗号分隔
+                  const SizedBox(height: 4),
+                  Text(
+                    '${script.mode.label} - ${_getScriptDescription(script)}',
                     style: TextStyle(
-                      color: script.isEnabled ? CupertinoColors.white : CupertinoColors.systemGrey,
-                      fontSize: 12,
+                      color: CupertinoColors.white.withAlpha(200),
+                      fontSize: 14,
                     ),
                   ),
-                ),
-                // 重复次数
-                Padding(
-                  padding: const EdgeInsets.only(right: 24),  // 为角标留出空间
-                  child: Text(
-                    '${script.params['重复次数'] ?? 1}次',
-                    style: const TextStyle(
-                      color: CupertinoColors.systemGrey,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            // 右上角角标
-            Positioned(
-              top: 0,
-              right: 0,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                decoration: BoxDecoration(
-                  color: CupertinoColors.systemGrey.withAlpha(100),
-                  borderRadius: const BorderRadius.only(
-                    topRight: Radius.circular(6),
-                    bottomLeft: Radius.circular(6),
-                  ),
-                ),
-                child: Text(
-                  '${index + 1}',
-                  style: const TextStyle(
-                    color: CupertinoColors.white,
-                    fontSize: 10,
-                  ),
-                ),
+                ],
               ),
             ),
           ],
@@ -2482,170 +2412,21 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     );
   }
 
-  void _editScript(int index) {
-    final script = _scripts[index];
-    showCupertinoDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (context) {
-        String type = script.type;
-        String clickText = script.params['点击文字'] ?? '';
-        List<String> inputValues = [];
-
-        // 初始化输入框值
-        if (type == "输入框提交") {
-          // 按序号获取所有输入框的值
-          int i = 1;
-          while (script.params.containsKey('输入框$i')) {
-            inputValues.add(script.params['输入框$i'] ?? '');
-            i++;
-          }
-        }
-        if (inputValues.isEmpty) inputValues.add('');
-
-        return StatefulBuilder(
-          builder: (context, setState) => CupertinoAlertDialog(
-            title: const Text('编辑脚本'),
-            content: Column(
-              children: [
-                const SizedBox(height: 8),
-                // 脚本类型选择
-                Row(
-                  children: [
-                    const Text('脚本类型'),
-                    const SizedBox(width: 8),
-                    CupertinoButton(
-                      padding: EdgeInsets.zero,
-                      child: Row(
-                        children: [
-                          Text(type),
-                          const Icon(CupertinoIcons.chevron_down, size: 16),
-                        ],
-                      ),
-                      onPressed: () {
-                        showCupertinoModalPopup(
-                          context: context,
-                          builder: (context) => Container(
-                            height: 200,
-                            color: CupertinoColors.systemBackground.darkColor,
-                            child: SafeArea(
-                              child: CupertinoPicker(
-                                backgroundColor: CupertinoColors.black,
-                                itemExtent: 32,
-                                onSelectedItemChanged: (index) {
-                                  setState(() {
-                                    type = index == 0 ? "点击文字" : "输入框提交";
-                                    if (type == "输入框提交" && inputValues.isEmpty) {
-                                      inputValues.add('');
-                                    }
-                                  });
-                                },
-                                children: const [
-                                  Text("点击文字", style: TextStyle(color: CupertinoColors.white)),
-                                  Text("输入框提交", style: TextStyle(color: CupertinoColors.white)),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                if (type == "点击文字")
-                  CupertinoTextField(
-                    controller: TextEditingController(text: clickText),
-                    placeholder: '点击文字',
-                    onChanged: (value) => clickText = value,
-                  )
-                else
-                  Column(
-                    children: [
-                      ...List.generate(inputValues.length, (index) => Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: CupertinoTextField(
-                                placeholder: '输入框${index + 1}',
-                                controller: TextEditingController(text: inputValues[index]),
-                                onChanged: (value) => inputValues[index] = value,
-                              ),
-                            ),
-                            if (inputValues.length > 1)
-                              CupertinoButton(
-                                padding: const EdgeInsets.only(left: 8),
-                                child: const Icon(CupertinoIcons.minus_circle_fill, color: CupertinoColors.destructiveRed),
-                                onPressed: () {
-                                  setState(() {
-                                    inputValues.removeAt(index);
-                                  });
-                                },
-                              ),
-                          ],
-                        ),
-                      )),
-                      CupertinoButton(
-                        padding: EdgeInsets.zero,
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(CupertinoIcons.add_circled, color: CupertinoColors.activeBlue),
-                            SizedBox(width: 8),
-                            Text('添加输入框'),
-                          ],
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            inputValues.add('');
-                          });
-                        },
-                      ),
-                    ],
-                  ),
-              ],
-            ),
-            actions: [
-              CupertinoDialogAction(
-                child: const Text('取消'),
-                onPressed: () => Navigator.pop(context),
-              ),
-              CupertinoDialogAction(
-                child: const Text('确定'),
-                onPressed: () {
-                  if (type == "点击文字" && clickText.isNotEmpty) {
-                    this.setState(() {
-                      _scripts[index] = Script(
-                        type: type,
-                        params: {'点击文字': clickText},
-                        isEnabled: script.isEnabled,
-                      );
-                    });
-                  } else if (type == "输入框提交" && inputValues.any((value) => value.isNotEmpty)) {
-                    final params = <String, dynamic>{};
-                    for (var i = 0; i < inputValues.length; i++) {
-                      if (inputValues[i].isNotEmpty) {
-                        params['输入框${i + 1}'] = inputValues[i];
-                      }
-                    }
-                    this.setState(() {
-                      _scripts[index] = Script(
-                        type: type,
-                        params: params,
-                        isEnabled: script.isEnabled,
-                      );
-                    });
-                  }
-                  Navigator.pop(context);
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
+  // 添加辅助方法来生成脚本描述
+  String _getScriptDescription(Script script) {
+    if (script.type == "点击文字") {
+      switch (script.mode) {
+        case ScriptMode.simple:
+          return '点击: ${script.params['点击文字']}';
+        case ScriptMode.normal:
+          return '点击: ${script.params['点击文字']}, 延迟: ${script.params['执行延迟']}${script.params['时间单位']}';
+        case ScriptMode.expert:
+          return '点击: ${script.params['点击文字']}, 筛选: ${script.params['多个筛选']}';
+      }
+    }
+    return '';
   }
+
 
   Future<bool> _canGoBack() async {
     if (_tabs.isEmpty || _currentIndex < 0) return false;
