@@ -184,7 +184,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   void _resetInactivityTimer() {
     _inactivityTimer?.cancel();
     if (_autoLeaveMode && !_showLeaveModeOverlay) {
-      _inactivityTimer = Timer(const Duration(minutes: 5), () {
+      _inactivityTimer = Timer(const Duration(minutes: 1), () {
         if (mounted && _autoLeaveMode) {
           _showLeaveMode();
         }
