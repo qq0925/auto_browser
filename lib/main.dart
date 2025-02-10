@@ -117,6 +117,17 @@ class Script {
   }
 }
 
+// 添加时间单位枚举
+enum TimeUnit {
+  milliseconds('毫秒', 1),
+  seconds('秒', 1000),
+  minutes('分钟', 60000);
+
+  final String label;
+  final int multiplier;
+  const TimeUnit(this.label, this.multiplier);
+}
+
 class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingObserver {
   final List<BrowserTab> _tabs = [];
   int _currentIndex = 0;
@@ -144,6 +155,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   bool _showLeaveModeOverlay = false;
   // 添加计时器变量
   Timer? _inactivityTimer;
+  // 添加时间单位状态
+  TimeUnit _delayTimeUnit = TimeUnit.milliseconds;
 
   @override
   void initState() {
@@ -338,7 +351,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                   _tabs[_currentIndex].url = 'about:blank';
                 }
               });
-              // 在页面开始加载时就应用夜间模式
               if (_isDarkMode) {
                 _applyDarkMode(true);
               }
@@ -375,13 +387,49 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
               if (_keepScreenOn) {
                 await WakelockPlus.enable();
               }
+
+              // 添加脚本录制的事件监听器
+              await controller.runJavaScript('''
+                document.addEventListener('click', function(e) {
+                  let text = '';
+                  let type = '';
+                  
+                  if (e.target.closest('a')) {
+                    type = '点击文字';
+                    text = e.target.textContent || e.target.innerText;
+                  }
+                  
+                  if (text.trim()) {
+                    ScriptRecorder.postMessage(type + '|' + text.trim());
+                  }
+                });
+
+                // 监听表单提交
+                document.addEventListener('submit', function(e) {
+                  const form = e.target;
+                  const submitButton = form.querySelector('input[type="submit"], button[type="submit"]');
+                  if (!submitButton) return;
+                  
+                  let data = {};
+                  const inputs = Array.from(form.querySelectorAll('input:not([type="hidden"]):not([type="submit"]), textarea'))
+                    .filter(input => {
+                      const rect = input.getBoundingClientRect();
+                      return rect.width > 0 && rect.height > 0; // 确保元素是可见的
+                    });
+                  
+                  inputs.forEach((input, index) => {
+                    if (input.value) {
+                      data['输入框' + (index + 1)] = input.value;
+                    }
+                  });
+                  
+                  if (Object.keys(data).length > 0) {
+                    ScriptRecorder.postMessage('输入框提交|' + JSON.stringify(data));
+                  }
+                });
+              ''');
             },
             onNavigationRequest: (NavigationRequest request) {
-              // 如果正在执行脚本，阻止所有导航
-              if (_isExecuting) {
-                _showTemporaryTip('脚本运行期间不能进行此操作');
-                return NavigationDecision.prevent;
-              }
               // 处理导航请求
               String url = request.url;
               if (!url.startsWith('http://') && !url.startsWith('https://')) {
@@ -557,7 +605,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     });
   }
 
-  // 添加导出脚本方法
+  // 修改导出脚本方法
   String exportScript() {
     final List<String> lines = [];
     
@@ -565,7 +613,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     final globalScript = Script(
       type: "全局变量",
       params: {
-        '执行延迟': _executionDelay,
+        '执行延迟': _executionDelay ~/ _delayTimeUnit.multiplier,
+        '时间单位': _delayTimeUnit.label,
         '循环次数': _originalLoopCount,
       },
       isEnabled: true,
@@ -900,14 +949,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
               icon: CupertinoIcons.refresh,
               title: '刷新页面',
               onTap: () {
-                if (_isExecuting) {
-                  _showTemporaryTip('脚本运行期间不能进行此操作');
-                  return;
-                }
                 _tabs[_currentIndex].controller.reload();
                 setState(() => _showMenuPanel = false);
               },
-              child: const Text('刷新'),
             ),
             _buildMenuItem(
               icon: CupertinoIcons.settings,
@@ -926,7 +970,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     required IconData icon,
     required String title,
     required VoidCallback onTap,
-    Widget? child,
   }) {
     return CupertinoButton(
       padding: EdgeInsets.zero,
@@ -944,7 +987,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 fontSize: 16,
               ),
             ),
-            if (child != null) child,
           ],
         ),
       ),
@@ -1186,10 +1228,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
             CupertinoButton(
               padding: const EdgeInsets.symmetric(horizontal: 8),
               onPressed: () {
-                if (_isExecuting) {
-                  _showTemporaryTip('脚本运行期间不能进行此操作');
-                  return;
-                }
                 if (_tabs.isNotEmpty && _tabs[_currentIndex].url != 'about:blank') {
                   _tabs[_currentIndex].controller.reload();
                 }
@@ -1244,10 +1282,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                       CupertinoButton(
                         padding: EdgeInsets.zero,
                         onPressed: () async {
-                          if (_isExecuting) {
-                            _showTemporaryTip('脚本运行期间不能进行此操作');
-                            return;
-                          }
                           if (await _canGoBack()) {
                             await _tabs[_currentIndex].controller.goBack();
                           }
@@ -1261,10 +1295,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                       CupertinoButton(
                         padding: EdgeInsets.zero,
                         onPressed: () async {
-                          if (_isExecuting) {
-                            _showTemporaryTip('脚本运行期间不能进行此操作');
-                            return;
-                          }
                           if (await _canGoForward()) {
                             await _tabs[_currentIndex].controller.goForward();
                           }
@@ -1367,10 +1397,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                       CupertinoButton(
                         padding: EdgeInsets.zero,
                         onPressed: () async {
-                          if (_isExecuting) {
-                            _showTemporaryTip('脚本运行期间不能进行此操作');
-                            return;
-                          }
                           if (_tabs.isNotEmpty && _currentIndex >= 0) {
                             await _tabs[_currentIndex].controller.loadFlutterAsset('assets/welcome.html');
                             setState(() {
@@ -1845,23 +1871,13 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         allowedExtensions: ['zds'],
         allowMultiple: false,
         withData: true,
-        dialogTitle: '选择脚本文件',
-        lockParentWindow: true,
       );
 
       if (result != null && result.files.isNotEmpty) {
         final file = result.files.first;
-        String content;
-        
-        if (Platform.isIOS) {
-          if (file.bytes != null) {
-            content = utf8.decode(file.bytes!);
-          } else {
-            throw Exception('无法读取文件内容');
-          }
-        } else {
-          content = await File(file.path!).readAsString(encoding: utf8);
-        }
+        String content = Platform.isIOS 
+          ? utf8.decode(file.bytes!)
+          : await File(file.path!).readAsString();
 
         final lines = content.split('\n').where((line) => line.trim().isNotEmpty).toList();
         if (lines.isEmpty) throw Exception('文件为空');
@@ -1874,10 +1890,17 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
               if (data['脚本类型'] == '全局变量') {
                 // 更新全局设置
                 _executionDelay = data['执行延迟'] ?? 1000;
+                // 处理时间单位
+                final timeUnitLabel = data['时间单位'] ?? '毫秒';
+                _delayTimeUnit = TimeUnit.values.firstWhere(
+                  (unit) => unit.label == timeUnitLabel,
+                  orElse: () => TimeUnit.milliseconds,
+                );
+                // 转换延迟值
+                _executionDelay *= _delayTimeUnit.multiplier;
                 _originalLoopCount = data['循环次数'] ?? 1;
                 _remainingLoopCount = _originalLoopCount;
               } else {
-                // 添加到脚本列表
                 _scripts.add(Script.fromJson(line));
               }
             } catch (e) {
@@ -1886,7 +1909,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
           }
         });
 
-        // 显示导入成功提示
         if (mounted) {
           showCupertinoDialog(
             context: context,
@@ -2107,7 +2129,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 style: TextStyle(color: CupertinoColors.white, fontSize: 14),
               ),
               Text(
-                '$_executionDelay ms',
+                '${_executionDelay ~/ _delayTimeUnit.multiplier} ${_delayTimeUnit.label}',
                 style: TextStyle(
                   color: CupertinoColors.white.withAlpha(153),
                   fontSize: 14,
@@ -2198,33 +2220,71 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   void _showDelaySettingDialog() {
     showCupertinoDialog(
       context: context,
-      builder: (context) => CupertinoAlertDialog(
-        title: const Text('执行延迟'),
-        content: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          child: CupertinoTextField(
-            controller: TextEditingController(text: _executionDelay.toString()),
-            keyboardType: TextInputType.number,
-            autofocus: true,
-            placeholder: '请输入延迟时间(毫秒)',
-            onChanged: (value) {
-              final delay = int.tryParse(value);
-              if (delay != null && delay > 0) {
-                setState(() => _executionDelay = delay);
-              }
-            },
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => CupertinoAlertDialog(
+          title: const Text('执行延迟'),
+          content: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                child: CupertinoTextField(
+                  controller: TextEditingController(text: (_executionDelay ~/ _delayTimeUnit.multiplier).toString()),
+                  keyboardType: TextInputType.number,
+                  autofocus: true,
+                  placeholder: '请输入延迟时间',
+                  onChanged: (value) {
+                    final delay = int.tryParse(value);
+                    if (delay != null && delay > 0) {
+                      this.setState(() => _executionDelay = delay * _delayTimeUnit.multiplier);
+                    }
+                  },
+                ),
+              ),
+              CupertinoButton(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(_delayTimeUnit.label),
+                    const Icon(CupertinoIcons.chevron_down, size: 16),
+                  ],
+                ),
+                onPressed: () {
+                  showCupertinoModalPopup(
+                    context: context,
+                    builder: (context) => Container(
+                      height: 200,
+                      color: CupertinoColors.systemBackground.darkColor,
+                      child: CupertinoPicker(
+                        backgroundColor: CupertinoColors.black,
+                        itemExtent: 32,
+                        onSelectedItemChanged: (index) {
+                          setState(() {
+                            _delayTimeUnit = TimeUnit.values[index];
+                            // 转换当前延迟值到新单位
+                            _executionDelay = (_executionDelay ~/ _delayTimeUnit.multiplier) * _delayTimeUnit.multiplier;
+                          });
+                        },
+                        children: TimeUnit.values.map((unit) => 
+                          Text(unit.label, style: const TextStyle(color: CupertinoColors.white))
+                        ).toList(),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
           ),
+          actions: [
+            CupertinoDialogAction(
+              child: const Text('取消'),
+              onPressed: () => Navigator.pop(context),
+            ),
+            CupertinoDialogAction(
+              child: const Text('确定'),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ],
         ),
-        actions: [
-          CupertinoDialogAction(
-            child: const Text('取消'),
-            onPressed: () => Navigator.pop(context),
-          ),
-          CupertinoDialogAction(
-            child: const Text('确定'),
-            onPressed: () => Navigator.pop(context),
-          ),
-        ],
       ),
     );
   }
@@ -2645,7 +2705,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                             setState(() => _keepScreenOn = value);
                             if (value) {
                               await WakelockPlus.enable();
-                            } else {
+    } else {
                               await WakelockPlus.disable();
                             }
                           },
@@ -2788,7 +2848,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
             ),
             const SizedBox(height: 16),
             const Text(
-              'Auok浏览器是一款iOS端脚本自动化的浏览器，你可以用它实现在wap游戏页面中的自动化功能。',
+              'Auok浏览器是一个iOS端脚本自动化的浏览器，你可以用它在wap游戏页面中实现自动化的功能。',
               style: TextStyle(fontSize: 14),
               textAlign: TextAlign.center,
             ),
@@ -2810,35 +2870,81 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     
     _tabs[_currentIndex].controller.runJavaScript('''
       (function() {
-        let darkStyle = document.getElementById('dark-mode-style');
+        const existingStyle = document.getElementById('dark-mode-style');
+        if (existingStyle) {
+          existingStyle.remove();
+        }
         
         if ($isDark) {
-          if (!darkStyle) {
-            darkStyle = document.createElement('style');
-            darkStyle.id = 'dark-mode-style';
-            darkStyle.textContent = `
-              html, body, div, span, p, h1, h2, h3, h4, h5, h6 {
-                background-color: #121212 !important;
-                color: #FFFFFF !important;
-              }
-              
-              * {
-                border-color: #333333 !important;
-              }
-              
-              input, textarea, select, button {
-                background-color: #1C1C1E !important;
-                color: #FFFFFF !important;
-              }
-              
-              img, video {
-                opacity: 0.8;
-              }
-            `;
-            document.documentElement.appendChild(darkStyle);
-          }
-        } else if (darkStyle) {
-          darkStyle.remove();
+          const style = document.createElement('style');
+          style.id = 'dark-mode-style';
+          style.textContent = `
+            /* 基础样式 */
+            html, body {
+              background: #292929 !important;
+              color: #a7a7a7 !important;
+            }
+            
+            /* 移除所有阴影效果 */
+            * {
+              text-shadow: none !important;
+              box-shadow: none !important;
+            }
+            
+            /* 文本元素 */
+            h1, h2, h3, h4, h5, h6, p, span, div, 
+            li, td, th, label, input, textarea, 
+            button, select, option {
+              background-color: #292929 !important;
+              color: #a7a7a7 !important;
+            }
+            
+            /* 链接样式 */
+            a, a * {
+              color: #6d97d5 !important;
+            }
+            
+            a:visited, a:visited * {
+              color: #bd8cff !important;
+            }
+            
+            /* 输入框和按钮 */
+            input, textarea, select, button {
+              background-color: #292929 !important;
+              color: #b0b0b0 !important;
+              border-color: #45484c !important;
+            }
+            
+            /* 表格边框 */
+            table, th, td {
+              border-color: #45484c !important;
+            }
+            
+            /* 图片和背景图片 */
+            img, video, [style*="background-image"] {
+              filter: brightness(0.8);
+            }
+            
+            /* 伪元素 */
+            :after, :before {
+              -webkit-filter: brightness(0.4);
+            }
+            
+            /* 透明背景元素 */
+            [style*="background-color: transparent"] {
+              background-color: transparent !important;
+            }
+            
+            /* 确保所有背景色 */
+            div:not([style*="background-color: transparent"]),
+            section:not([style*="background-color: transparent"]),
+            nav:not([style*="background-color: transparent"]),
+            header:not([style*="background-color: transparent"]),
+            footer:not([style*="background-color: transparent"]) {
+              background-color: #292929 !important;
+            }
+          `;
+          document.head.appendChild(style);
         }
       })();
     ''');
@@ -2906,35 +3012,5 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       _currentScriptIndex = 0;
     });
     return _successCount > 0;
-  }
-
-  // 添加显示临时提示的方法
-  void _showTemporaryTip(String message) {
-    if (!mounted) return;
-    
-    final overlay = Navigator.of(context).overlay;
-    if (overlay == null) return;
-    
-    final entry = OverlayEntry(
-      builder: (context) => Center(
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 20),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          decoration: BoxDecoration(
-            color: CupertinoColors.black.withAlpha(230),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            message,
-            style: const TextStyle(color: CupertinoColors.white),
-          ),
-        ),
-      ),
-    );
-    
-    overlay.insert(entry);
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) entry.remove();
-    });
   }
 }
