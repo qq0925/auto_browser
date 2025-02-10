@@ -91,7 +91,7 @@ class BrowserHomePage extends StatefulWidget {
 
 // 添加脚本模式枚举
 enum ScriptMode {
-  simple('简易'),
+  simple('简单'),
   normal('普通'),
   expert('专家');
 
@@ -99,40 +99,71 @@ enum ScriptMode {
   const ScriptMode(this.label);
 }
 
-// 修改 Script 类
+// 修改 Script 类，添加模式属性
 class Script {
-  String type;
-  Map<String, dynamic> params;
+  final String type;
+  final Map<String, dynamic> params;
   bool isEnabled;
   ScriptMode mode;  // 添加模式属性
 
   Script({
     required this.type,
-    this.params = const {},
+    required this.params,
     this.isEnabled = true,
-    this.mode = ScriptMode.simple,  // 默认简易模式
+    this.mode = ScriptMode.simple,  // 默认简单模式
   });
 
-  factory Script.fromJson(String jsonStr) {
-    final data = json.decode(jsonStr);
+  // 修改 fromJson 和 toJson 方法以包含模式
+  factory Script.fromJson(String json) {
+    final data = jsonDecode(json);
     return Script(
       type: data['脚本类型'],
-      params: Map<String, dynamic>.from(data)..remove('脚本类型')..remove('模式'),
-      isEnabled: true,
+      params: Map<String, dynamic>.from(data['参数']),
+      isEnabled: data['启用'] ?? true,
       mode: ScriptMode.values.firstWhere(
-        (m) => m.label == data['模式'],
+        (m) => m.label == (data['模式'] ?? '简单'),
         orElse: () => ScriptMode.simple,
       ),
     );
   }
 
   String toJson() {
-    final data = {
+    return jsonEncode({
       '脚本类型': type,
+      '参数': params,
+      '启用': isEnabled,
       '模式': mode.label,
-      ...params,
-    };
-    return json.encode(data);
+    });
+  }
+
+  Map<String, dynamic> getClickParams() {
+    if (type != "点击文字") return {};
+    
+    switch (mode) {
+      case ScriptMode.simple:
+        return {
+          '点击文字': params['点击文字'] ?? '',
+        };
+      case ScriptMode.normal:
+        return {
+          '执行延迟': params['执行延迟'] ?? 0,
+          '时间单位': params['时间单位'] ?? '毫秒',
+          '出现文字': params['出现文字'] ?? '',
+          '点击文字': params['点击文字'] ?? '',
+          '完全匹配': params['完全匹配'] ?? false,
+        };
+      case ScriptMode.expert:
+        return {
+          '执行延迟': params['执行延迟'] ?? 0,
+          '时间单位': params['时间单位'] ?? '毫秒',
+          '出现文字': params['出现文字'] ?? '',
+          '在此之后': params['在此之后'] ?? '',
+          '在此之前': params['在此之前'] ?? '',
+          '点击文字': params['点击文字'] ?? '',
+          '完全匹配': params['完全匹配'] ?? false,
+          '多个筛选': params['多个筛选'] ?? 1,
+        };
+    }
   }
 }
 
@@ -648,155 +679,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     return lines.join('\n');
   }
 
-  void _addScript() {
-    showCupertinoDialog(
-      context: context,
-      builder: (context) {
-        String type = "点击文字";
-        String clickText = '';
-        List<String> inputValues = [''];
-
-        return StatefulBuilder(
-          builder: (context, setState) => CupertinoAlertDialog(
-          title: const Text('添加脚本'),
-          content: Column(
-            children: [
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  const Text('脚本类型'),
-                  const SizedBox(width: 8),
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    child: Row(
-                      children: [
-                        Text(type),
-                          const Icon(CupertinoIcons.chevron_down, size: 16),
-                      ],
-                    ),
-                    onPressed: () {
-                        showCupertinoModalPopup(
-                          context: context,
-                          builder: (context) => Container(
-                            height: 200,
-                            color: CupertinoColors.systemBackground.darkColor,
-                            child: SafeArea(
-                              child: CupertinoPicker(
-                                backgroundColor: CupertinoColors.black,
-                                itemExtent: 32,
-                                onSelectedItemChanged: (index) {
-                                  setState(() {
-                                    type = index == 0 ? "点击文字" : "输入框提交";
-                                    if (type == "输入框提交" && inputValues.isEmpty) {
-                                      inputValues.add('');
-                                    }
-                                  });
-                                },
-                                children: const [
-                                  Text("点击文字", style: TextStyle(color: CupertinoColors.white)),
-                                  Text("输入框提交", style: TextStyle(color: CupertinoColors.white)),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                    },
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-                if (type == "点击文字")
-              CupertinoTextField(
-                placeholder: '点击文字',
-                    onChanged: (value) => clickText = value,
-                  )
-                else
-                  Column(
-                    children: [
-                      ...List.generate(inputValues.length, (index) => Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: CupertinoTextField(
-                                placeholder: '输入框${index + 1}',
-                                onChanged: (value) => inputValues[index] = value,
-                              ),
-                            ),
-                            if (inputValues.length > 1)
-                              CupertinoButton(
-                                padding: const EdgeInsets.only(left: 8),
-                                child: const Icon(CupertinoIcons.minus_circle_fill, color: CupertinoColors.destructiveRed),
-              onPressed: () {
-                  setState(() {
-                                    inputValues.removeAt(index);
-                                  });
-              },
-            ),
-          ],
-                        ),
-                      )),
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                            Icon(CupertinoIcons.add_circled, color: CupertinoColors.activeBlue),
-                            SizedBox(width: 8),
-                            Text('添加输入框'),
-                      ],
-                    ),
-                    onPressed: () {
-                          setState(() {
-                            inputValues.add('');
-                          });
-                    },
-                  ),
-                ],
-              ),
-            ],
-          ),
-          actions: [
-            CupertinoDialogAction(
-              child: const Text('取消'),
-              onPressed: () => Navigator.pop(context),
-            ),
-            CupertinoDialogAction(
-              child: const Text('确定'),
-              onPressed: () {
-                  if (type == "点击文字" && clickText.isNotEmpty) {
-                    this.setState(() {
-                      _scripts.add(Script(
-                        type: type,
-                        params: {'点击文字': clickText},
-                        isEnabled: true,
-                      ));
-                    });
-                  } else if (type == "输入框提交" && inputValues.any((value) => value.isNotEmpty)) {
-                    final params = <String, dynamic>{};
-                    for (var i = 0; i < inputValues.length; i++) {
-                      if (inputValues[i].isNotEmpty) {
-                        params['输入框${i + 1}'] = inputValues[i];
-                      }
-                    }
-                    this.setState(() {
-                      _scripts.add(Script(
-                        type: type,
-                        params: params,
-                        isEnabled: true,
-                      ));
-                  });
-                }
-                Navigator.pop(context);
-              },
-            ),
-          ],
-          ),
-        );
-      },
-    );
-  }
-
   // 修改脚本进度显示
   Widget _buildScriptProgress() {
     return Padding(
@@ -868,76 +750,149 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   Future<bool> _executeClickScript(Script script, WebViewController controller) async {
     if (!mounted) return false;
     
-    final params = script.params;
+    final params = script.getClickParams();
     final clickText = params['点击文字'] ?? '';
-    final appearText = params['出现文字'] ?? '';
-    final afterText = params['在...之后'] ?? '';
-    final beforeText = params['在...之前'] ?? '';
-    final exactMatch = params['完全匹配点击'] ?? false;
-    final filterIndex = params['多个筛选']?.toString() ?? '';
-    
+    if (clickText.isEmpty) return false;
+
+    // 处理延迟
+    if (script.mode != ScriptMode.simple) {
+      final delay = params['执行延迟'] ?? 0;
+      final timeUnit = params['时间单位'] ?? '毫秒';
+      final multiplier = TimeUnit.values.firstWhere(
+        (unit) => unit.label == timeUnit,
+        orElse: () => TimeUnit.milliseconds,
+      ).multiplier;
+      
+      await Future.delayed(Duration(milliseconds: delay * multiplier));
+    }
+
+    // 构建 JavaScript 代码
     final result = await controller.runJavaScriptReturningResult('''
       (function() {
-        ${appearText.isNotEmpty ? '''
-          const appearTexts = "$appearText".split(';');
-          const hasAppearText = appearTexts.some(text => 
-            document.body.innerText.includes(text.trim())
-          );
-          if (!hasAppearText) return false;
-        ''' : ''}
-        
-        let searchText = "$clickText";
-        let searchTexts = searchText.split(';');
-        let content = document.body.innerHTML;
-        
-        ${afterText.isNotEmpty ? '''
-          const afterIndex = content.indexOf("$afterText");
-          if (afterIndex === -1) return false;
-          content = content.substring(afterIndex);
-        ''' : ''}
-        
-        ${beforeText.isNotEmpty ? '''
-          const beforeIndex = content.indexOf("$beforeText");
-          if (beforeIndex === -1) return false;
-          content = content.substring(0, beforeIndex);
-        ''' : ''}
-        
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = content;
-        
-        const links = Array.from(tempDiv.querySelectorAll('a')).filter(a => {
-          const text = a.textContent.trim();
-          return searchTexts.some(searchText => 
-            ${exactMatch ? 'text === searchText.trim()' : 'text.includes(searchText.trim())'}
-          );
-        });
-        
-        if (links.length === 0) return false;
-        
-        let targetIndex = 0;
-        if ("$filterIndex") {
-          const index = parseInt("$filterIndex");
-          if (index === 0) {
-            targetIndex = Math.floor(Math.random() * links.length);
-          } else if (index > 0) {
-            targetIndex = Math.min(index - 1, links.length - 1);
-          } else {
-            targetIndex = Math.max(links.length + index, 0);
-          }
-        }
-        
-        const originalLink = document.querySelector(
-          `a:nth-of-type(\${Array.from(document.querySelectorAll('a')).indexOf(links[targetIndex]) + 1})`
-        );
-        if (originalLink) {
-          originalLink.click();
-          return true;
-        }
-        return false;
+        ${_buildClickScriptLogic(script.mode, params)}
       })();
     ''');
     
     return result.toString() == 'true';
+  }
+
+  // 根据不同模式构建点击逻辑
+  String _buildClickScriptLogic(ScriptMode mode, Map<String, dynamic> params) {
+    switch (mode) {
+      case ScriptMode.simple:
+        return '''
+          const text = "${params['点击文字']}";
+          const links = Array.from(document.querySelectorAll('a')).filter(a => 
+            a.textContent.trim() === text.trim()
+          );
+          if (links.length > 0) {
+            links[0].click();
+            return true;
+          }
+          return false;
+        ''';
+        
+      case ScriptMode.normal:
+        return '''
+          // 检查是否存在触发条件的文字
+          const triggerTexts = "${params['出现文字'] ?? ''}".split(';').filter(t => t.trim());
+          if (triggerTexts.length > 0) {
+            const pageText = document.body.textContent;
+            const hasText = triggerTexts.some(text => 
+              text && pageText.includes(text.trim())
+            );
+            if (!hasText) return false;
+          }
+          
+          // 查找可点击的文字
+          const clickTexts = "${params['点击文字']}".split(';').filter(t => t.trim());
+          const isExactMatch = ${params['完全匹配'] ? 'true' : 'false'};
+          
+          for (const text of clickTexts) {
+            const links = Array.from(document.querySelectorAll('a')).filter(a => {
+              const linkText = a.textContent.trim();
+              return isExactMatch ? linkText === text.trim() : linkText.includes(text.trim());
+            });
+            
+            if (links.length > 0) {
+              links[0].click();
+              return true;
+            }
+          }
+          return false;
+        ''';
+        
+      case ScriptMode.expert:
+        return '''
+          // 检查是否存在触发条件的文字
+          const triggerTexts = "${params['出现文字'] ?? ''}".split(';').filter(t => t.trim());
+          if (triggerTexts.length > 0) {
+            const pageText = document.body.textContent;
+            const hasText = triggerTexts.some(text => 
+              text && pageText.includes(text.trim())
+            );
+            if (!hasText) return false;
+          }
+          
+          // 获取搜索范围
+          let content = document.body.innerHTML;
+          const afterText = "${params['在此之后'] ?? ''}".trim();
+          const beforeText = "${params['在此之前'] ?? ''}".trim();
+          
+          if (afterText) {
+            const afterIndex = content.indexOf(afterText);
+            if (afterIndex === -1) return false;
+            content = content.substring(afterIndex + afterText.length);
+          }
+          
+          if (beforeText) {
+            const beforeIndex = content.indexOf(beforeText);
+            if (beforeIndex === -1) return false;
+            content = content.substring(0, beforeIndex);
+          }
+          
+          // 创建临时容器来解析HTML
+          const temp = document.createElement('div');
+          temp.innerHTML = content;
+          
+          // 查找可点击的文字
+          const clickTexts = "${params['点击文字']}".split(';').filter(t => t.trim());
+          const isExactMatch = ${params['完全匹配'] ? 'true' : 'false'};
+          const selectionIndex = ${params['多个筛选'] ?? 1};
+          
+          for (const text of clickTexts) {
+            const links = Array.from(temp.querySelectorAll('a')).filter(a => {
+              const linkText = a.textContent.trim();
+              return isExactMatch ? linkText === text.trim() : linkText.includes(text.trim());
+            });
+            
+            if (links.length > 0) {
+              let targetIndex = 0;
+              if (selectionIndex === 0) {
+                // 随机选择
+                targetIndex = Math.floor(Math.random() * links.length);
+              } else if (selectionIndex > 0) {
+                // 正向选择
+                targetIndex = Math.min(selectionIndex - 1, links.length - 1);
+              } else {
+                // 反向选择
+                targetIndex = Math.max(links.length + selectionIndex, 0);
+              }
+              
+              // 在实际页面中找到并点击对应的链接
+              const targetText = links[targetIndex].textContent.trim();
+              const actualLinks = Array.from(document.querySelectorAll('a')).filter(a => 
+                a.textContent.trim() === targetText
+              );
+              if (actualLinks.length > 0) {
+                actualLinks[0].click();
+                return true;
+              }
+            }
+          }
+          return false;
+        ''';
+    }
   }
 
   // 修改表单提交脚本执行方法
@@ -1558,7 +1513,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                     const SizedBox(height: 16),
                                     CupertinoButton(
                                       color: CupertinoColors.systemGreen,
-                                      onPressed: _addScript,
+                                      onPressed: () => _showAddOrEditScript(),  // 修改这里
                                       child: const Row(
                                         mainAxisAlignment: MainAxisAlignment.center,
                                         children: [
@@ -1588,7 +1543,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                           const Divider(color: CupertinoColors.white),
                                           CupertinoButton(
                                             padding: const EdgeInsets.all(16),
-                                            onPressed: _addScript,
+                                            onPressed: () => _showAddOrEditScript(),  // 修改这里
                                             child: const Row(
                                               mainAxisAlignment: MainAxisAlignment.center,
                                               children: [
@@ -3100,5 +3055,301 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     
     _resetInactivityTimer();
     return _successCount > 0;
+  }
+
+  // 添加脚本编辑对话框
+  void _showAddOrEditScript({Script? script}) {
+    String type = script?.type ?? "点击文字";
+    ScriptMode mode = script?.mode ?? ScriptMode.simple;
+    Map<String, dynamic> params = script?.params ?? {};
+    
+    showCupertinoDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => CupertinoAlertDialog(
+          title: Text(script == null ? '添加脚本' : '编辑脚本'),
+          content: Column(
+            children: [
+              // 类型和模式选择行
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // 类型选择
+                  Expanded(
+                    child: _buildTypeSelector(
+                      type,
+                      (newType) => setState(() {
+                        type = newType;
+                        // 重置模式和参数
+                        mode = ScriptMode.simple;
+                        params = {};
+                      }),
+                    ),
+                  ),
+                  // 模式选择
+                  Expanded(
+                    child: _buildModeSelector(
+                      type,
+                      mode,
+                      (newMode) => setState(() => mode = newMode),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              // 根据类型和模式显示不同的参数输入界面
+              if (type == "点击文字") ...[
+                // 简单模式
+                if (mode == ScriptMode.simple)
+                  _buildSimpleClickParams(params, (key, value) {
+                    setState(() => params[key] = value);
+                  }),
+                
+                // 普通模式
+                if (mode == ScriptMode.normal)
+                  _buildNormalClickParams(params, (key, value) {
+                    setState(() => params[key] = value);
+                  }),
+                
+                // 专家模式
+                if (mode == ScriptMode.expert)
+                  _buildExpertClickParams(params, (key, value) {
+                    setState(() => params[key] = value);
+                  }),
+              ],
+            ],
+          ),
+          actions: [
+            CupertinoDialogAction(
+              child: const Text('取消'),
+              onPressed: () => Navigator.pop(context),
+            ),
+            CupertinoDialogAction(
+              child: const Text('确定'),
+              onPressed: () {
+                final newScript = Script(
+                  type: type,
+                  params: params,
+                  mode: mode,
+                  isEnabled: script?.isEnabled ?? true,
+                );
+                
+                setState(() {
+                  if (script == null) {
+                    _scripts.add(newScript);
+                  } else {
+                    final index = _scripts.indexOf(script);
+                    _scripts[index] = newScript;
+                  }
+                });
+                Navigator.pop(context);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // 构建不同模式的参数输入界面
+  Widget _buildSimpleClickParams(Map<String, dynamic> params, Function(String, dynamic) onChanged) {
+    return CupertinoTextField(
+      placeholder: '点击文字',
+      controller: TextEditingController(text: params['点击文字'] ?? ''),
+      onChanged: (value) => onChanged('点击文字', value),
+    );
+  }
+
+  Widget _buildNormalClickParams(Map<String, dynamic> params, Function(String, dynamic) onChanged) {
+    return Column(
+      children: [
+        _buildDelayInput(params, onChanged),
+        const SizedBox(height: 8),
+        _buildTextField('出现文字', params['出现文字'] ?? '', 
+          '多个关键词用;分隔', onChanged),
+        const SizedBox(height: 8),
+        _buildTextField('点击文字', params['点击文字'] ?? '',
+          '多个文字用;分隔', onChanged),
+        const SizedBox(height: 8),
+        _buildSwitch('完全匹配', params['完全匹配'] ?? false, onChanged),
+      ],
+    );
+  }
+
+  Widget _buildExpertClickParams(Map<String, dynamic> params, Function(String, dynamic) onChanged) {
+    return Column(
+      children: [
+        _buildDelayInput(params, onChanged),
+        const SizedBox(height: 8),
+        _buildTextField('出现文字', params['出现文字'] ?? '',
+          '多个关键词用;分隔', onChanged),
+        const SizedBox(height: 8),
+        _buildTextField('在此之后', params['在此之后'] ?? '',
+          '留空表示从头开始', onChanged),
+        const SizedBox(height: 8),
+        _buildTextField('在此之前', params['在此之前'] ?? '',
+          '留空表示到结尾', onChanged),
+        const SizedBox(height: 8),
+        _buildTextField('点击文字', params['点击文字'] ?? '',
+          '多个文字用;分隔', onChanged),
+        const SizedBox(height: 8),
+        _buildSwitch('完全匹配', params['完全匹配'] ?? false, onChanged),
+        const SizedBox(height: 8),
+        _buildTextField('多个筛选', params['多个筛选']?.toString() ?? '1',
+          '正数第几个,0随机,负数倒数', onChanged),
+      ],
+    );
+  }
+
+  // 添加辅助方法来构建界面组件
+  Widget _buildTypeSelector(String currentType, Function(String) onChanged) {
+    return CupertinoButton(
+      padding: EdgeInsets.zero,
+      child: Row(
+        children: [
+          Text(currentType),
+          const Icon(CupertinoIcons.chevron_down, size: 16),
+        ],
+      ),
+      onPressed: () {
+        showCupertinoModalPopup(
+          context: context,
+          builder: (context) => Container(
+            height: 200,
+            color: CupertinoColors.systemBackground.darkColor,
+            child: CupertinoPicker(
+              backgroundColor: CupertinoColors.black,
+              itemExtent: 32,
+              onSelectedItemChanged: (index) {
+                onChanged(index == 0 ? "点击文字" : "输入框提交");
+              },
+              children: const [
+                Text("点击文字", style: TextStyle(color: CupertinoColors.white)),
+                Text("输入框提交", style: TextStyle(color: CupertinoColors.white)),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildModeSelector(String type, ScriptMode currentMode, Function(ScriptMode) onChanged) {
+    final modes = type == "点击文字" 
+      ? ScriptMode.values 
+      : [ScriptMode.simple, ScriptMode.normal];
+      
+    return CupertinoButton(
+      padding: EdgeInsets.zero,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          Text(currentMode.label),
+          const Icon(CupertinoIcons.chevron_down, size: 16),
+        ],
+      ),
+      onPressed: () {
+        showCupertinoModalPopup(
+          context: context,
+          builder: (context) => Container(
+            height: 200,
+            color: CupertinoColors.systemBackground.darkColor,
+            child: CupertinoPicker(
+              backgroundColor: CupertinoColors.black,
+              itemExtent: 32,
+              onSelectedItemChanged: (index) {
+                onChanged(modes[index]);
+              },
+              children: modes.map((m) => Text(
+                m.label,
+                style: const TextStyle(color: CupertinoColors.white),
+              )).toList(),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildTextField(String label, String value, String placeholder, Function(String, String) onChanged) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(color: CupertinoColors.white)),
+        const SizedBox(height: 4),
+        CupertinoTextField(
+          placeholder: placeholder,
+          controller: TextEditingController(text: value),
+          onChanged: (newValue) => onChanged(label, newValue),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSwitch(String label, bool value, Function(String, bool) onChanged) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: const TextStyle(color: CupertinoColors.white)),
+        CupertinoSwitch(
+          value: value,
+          onChanged: (newValue) => onChanged(label, newValue),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDelayInput(Map<String, dynamic> params, Function(String, dynamic) onChanged) {
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('执行延迟', style: TextStyle(color: CupertinoColors.white)),
+              const SizedBox(height: 4),
+              CupertinoTextField(
+                placeholder: '延迟时间',
+                keyboardType: TextInputType.number,
+                controller: TextEditingController(
+                  text: (params['执行延迟'] ?? 0).toString(),
+                ),
+                onChanged: (value) => onChanged('执行延迟', int.tryParse(value) ?? 0),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        CupertinoButton(
+          padding: EdgeInsets.zero,
+          child: Row(
+            children: [
+              Text(params['时间单位'] ?? '毫秒'),
+              const Icon(CupertinoIcons.chevron_down, size: 16),
+            ],
+          ),
+          onPressed: () {
+            showCupertinoModalPopup(
+              context: context,
+              builder: (context) => Container(
+                height: 200,
+                color: CupertinoColors.systemBackground.darkColor,
+                child: CupertinoPicker(
+                  backgroundColor: CupertinoColors.black,
+                  itemExtent: 32,
+                  onSelectedItemChanged: (index) {
+                    onChanged('时间单位', TimeUnit.values[index].label);
+                  },
+                  children: TimeUnit.values.map((unit) => Text(
+                    unit.label,
+                    style: const TextStyle(color: CupertinoColors.white),
+                  )).toList(),
+                ),
+              ),
+            );
+          },
+        ),
+      ],
+    );
   }
 }
