@@ -149,12 +149,14 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _loadBookmarksAndHistory();
-    _initBrowser();
-    _initInactivityTimer();
     
-    // 恢复屏幕常亮设置
-    WakelockPlus.toggle(enable: _keepScreenOn);
+    // 使用 Future.delayed 确保界面初始化完成后再恢复状态
+    Future.delayed(Duration.zero, () async {
+      await _loadBookmarksAndHistory();
+      await _restoreTabsState();
+    });
+    
+    _initInactivityTimer();
   }
 
   // 初始化不活动计时器
@@ -245,20 +247,79 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     }
   }
 
-  Future<void> _initBrowser() async {
+  // 修改保存标签页状态的方法
+  Future<void> _saveTabsState() async {
     try {
-      if (!mounted) return;
-      await Future.delayed(const Duration(milliseconds: 100));
-      // 只在首次启动时添加新标签页
-      if (_tabs.isEmpty) {
-        _addNewTab();
-      }
+      final prefs = await SharedPreferences.getInstance();
+      final tabsData = await Future.wait(_tabs.map((tab) async {
+        final url = await tab.controller.currentUrl() ?? 'about:blank';
+        final title = await tab.controller.getTitle() ?? '新标签页';
+        return {
+          'url': url.startsWith('file:///') ? 'about:blank' : url,
+          'title': title,
+        };
+      }));
+      
+      await prefs.setString('last_tabs', jsonEncode({
+        'tabs': tabsData,
+        'currentIndex': _currentIndex,
+        'isDarkMode': _isDarkMode,
+        'keepScreenOn': _keepScreenOn,
+      }));
     } catch (e) {
-      debugPrint('Init browser error: $e');
+      debugPrint('Save tabs state error: $e');
     }
   }
 
-  void _addNewTab() {
+  // 修改恢复标签页状态的方法
+  Future<void> _restoreTabsState() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final tabsJson = prefs.getString('last_tabs');
+      
+      if (tabsJson != null) {
+        final data = jsonDecode(tabsJson);
+        final tabsList = List<Map<String, dynamic>>.from(data['tabs']);
+        final savedIndex = data['currentIndex'] as int;
+        
+        // 恢复设置
+        setState(() {
+          _isDarkMode = data['isDarkMode'] ?? false;
+          _keepScreenOn = data['keepScreenOn'] ?? false;
+        });
+        
+        // 恢复标签页
+        for (var tabData in tabsList) {
+          final url = tabData['url'] as String;
+          if (url != 'about:blank') {
+            await _addNewTab(
+              initialUrl: url,
+              initialTitle: tabData['title'] as String,
+            );
+          } else {
+            await _addNewTab();
+          }
+        }
+        
+        if (savedIndex >= 0 && savedIndex < _tabs.length) {
+          setState(() => _currentIndex = savedIndex);
+        }
+        
+        // 应用设置
+        if (_keepScreenOn) {
+          await WakelockPlus.enable();
+        }
+      } else {
+        await _addNewTab();
+      }
+    } catch (e) {
+      debugPrint('Restore tabs state error: $e');
+      await _addNewTab();
+    }
+  }
+
+  // 修改 _addNewTab 方法以支持初始 URL 和标题
+  Future<void> _addNewTab({String? initialUrl, String? initialTitle}) async {
     if (!mounted) return;
     
     try {
@@ -274,9 +335,12 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 isLoading = true;
                 _loadingProgress = 0;
                 if (url.startsWith('file:///')) {
-                  _tabs[_currentIndex].url = 'about:start';  // 修改显示的URL
+                  _tabs[_currentIndex].url = 'about:blank';
                 }
               });
+              if (_isDarkMode) {
+                _applyDarkMode(true);
+              }
             },
             onProgress: (progress) {
               if (!mounted) return;
@@ -284,14 +348,12 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 _loadingProgress = progress / 100;
               });
             },
-            onPageFinished: (String url) async {
+            onPageFinished: (url) async {
               if (!mounted) return;
               final title = await controller.getTitle() ?? 'New Tab';
               setState(() {
                 isLoading = false;
                 _loadingProgress = 1;
-                
-                // 只有非默认页面才添加到历史记录
                 if (mounted && _tabs.isNotEmpty && _currentIndex >= 0 && 
                     _currentIndex < _tabs.length && 
                     !url.startsWith('file:///') && url != 'about:blank') {
@@ -304,8 +366,13 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 }
               });
               _updateTabInfo(_currentIndex);
+              
+              // 重新应用设置
               if (_isDarkMode) {
                 _applyDarkMode(true);
+              }
+              if (_keepScreenOn) {
+                await WakelockPlus.enable();
               }
             },
             onNavigationRequest: (NavigationRequest request) {
@@ -417,15 +484,20 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
               }
             });
           },
-        )
-        ..loadFlutterAsset('assets/welcome.html');  // 修改这里，加载本地HTML文件
+        );
+
+      if (initialUrl != null && initialUrl != 'about:blank') {
+        await controller.loadRequest(Uri.parse(initialUrl));
+      } else {
+        await controller.loadFlutterAsset('assets/welcome.html');
+      }
 
       setState(() {
         _tabs.add(BrowserTab(
           id: DateTime.now().millisecondsSinceEpoch.toString(),
           controller: controller,
-          title: '欢迎',  // 设置默认标题
-          url: 'about:blank',
+          title: initialTitle ?? '欢迎',
+          url: initialUrl ?? 'about:blank',
           isLoading: false,
         ));
         _currentIndex = _tabs.length - 1;
@@ -1037,8 +1109,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
       _saveBookmarksAndHistory();
+      _saveTabsState();
     }
     super.didChangeAppLifecycleState(state);
   }
@@ -1667,9 +1740,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   void _exportScripts() {
     String scriptName = '新脚本集';  // 默认名称
     
-    showCupertinoDialog(
-      context: context,
-      builder: (context) => CupertinoAlertDialog(
+            showCupertinoDialog(
+              context: context,
+              builder: (context) => CupertinoAlertDialog(
         title: const Text('导出脚本集'),
         content: Padding(
           padding: const EdgeInsets.symmetric(vertical: 16),
@@ -1688,11 +1761,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
             ],
           ),
         ),
-        actions: [
-          CupertinoDialogAction(
+                actions: [
+                  CupertinoDialogAction(
             child: const Text('取消'),
-            onPressed: () => Navigator.pop(context),
-          ),
+                    onPressed: () => Navigator.pop(context),
+                  ),
           CupertinoDialogAction(
             child: const Text('导出'),
             onPressed: () async {
@@ -1707,27 +1780,27 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 
                 if (!mounted) return;
                 await Share.shareXFiles([XFile(file.path)], subject: scriptName);
-              } catch (e) {
+    } catch (e) {
                 debugPrint('Export script error: $e');
                 // 使用同步方式显示错误
-                if (mounted) {
+      if (mounted) {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
-                    showCupertinoDialog(
+        showCupertinoDialog(
                       context: currentContext,
-                      builder: (context) => CupertinoAlertDialog(
-                        title: const Text('导出失败'),
+          builder: (context) => CupertinoAlertDialog(
+            title: const Text('导出失败'),
                         content: Text('错误信息: $e'),
-                        actions: [
-                          CupertinoDialogAction(
-                            child: const Text('确定'),
-                            onPressed: () => Navigator.pop(context),
-                          ),
-                        ],
-                      ),
-                    );
+            actions: [
+              CupertinoDialogAction(
+                child: const Text('确定'),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+        );
                   });
-                }
-              }
+      }
+    }
             },
           ),
         ],
@@ -2541,9 +2614,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                           value: _keepScreenOn,
                           onChanged: (value) async {
                             setState(() => _keepScreenOn = value);
-                            this.setState(() {});
-                            // 立即应用屏幕常亮
-                            await WakelockPlus.toggle(enable: value);
+                            if (value) {
+                              await WakelockPlus.enable();
+                            } else {
+                              await WakelockPlus.disable();
+                            }
                           },
                         ),
                         subtitle: const Text(
@@ -2700,25 +2775,33 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     );
   }
 
-  // 应用夜间模式
+  // 修改夜间模式的实现
   void _applyDarkMode(bool isDark) {
     if (_tabs.isEmpty || _currentIndex < 0) return;
     
     _tabs[_currentIndex].controller.runJavaScript('''
       (function() {
+        // 移除已有的样式
+        const existingStyle = document.getElementById('dark-mode-style');
+        if (existingStyle) {
+          existingStyle.remove();
+        }
+        
         if ($isDark) {
-          // 添加夜间模式样式
+          // 创建并立即添加样式
           const style = document.createElement('style');
           style.id = 'dark-mode-style';
           style.textContent = `
             html, body {
-              background-color: #000000 !important;
+              background-color: #121212 !important;
               color: #FFFFFF !important;
+              transition: none !important;
             }
             
             /* 处理文本和链接 */
             p, span, div, h1, h2, h3, h4, h5, h6, a {
               color: #FFFFFF !important;
+              transition: none !important;
             }
             
             /* 处理输入框和文本框 */
@@ -2726,6 +2809,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
               background-color: #1C1C1E !important;
               color: #FFFFFF !important;
               border-color: #333333 !important;
+              transition: none !important;
             }
             
             /* 处理按钮 */
@@ -2733,30 +2817,28 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
               background-color: #1C1C1E !important;
               color: #FFFFFF !important;
               border-color: #333333 !important;
+              transition: none !important;
             }
             
             /* 处理表格 */
             table, th, td {
               border-color: #333333 !important;
+              transition: none !important;
             }
             
             /* 处理图片和媒体亮度 */
             img, video {
               filter: brightness(0.8);
+              transition: none !important;
             }
             
             /* 处理背景图片 */
             [style*="background-image"] {
               filter: brightness(0.8);
+              transition: none !important;
             }
           `;
           document.head.appendChild(style);
-        } else {
-          // 移除夜间模式样式
-          const darkStyle = document.getElementById('dark-mode-style');
-          if (darkStyle) {
-            darkStyle.remove();
-          }
         }
       })();
     ''');
@@ -2808,7 +2890,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
             if (success) {_successCount++;} else {_failureCount++;}
           });
           await Future.delayed(Duration(milliseconds: _executionDelay));
-        } catch (e) {
+    } catch (e) {
           setState(() => _failureCount++);
           debugPrint('Execute script error: $e');
         }
