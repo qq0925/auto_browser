@@ -810,16 +810,12 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   Future<bool> executeScript(Script script) async {
     if (!script.isEnabled || _tabs.isEmpty || _currentIndex < 0) return false;
     
-    // 获取当前标签页的控制器
     final currentController = _tabs[_currentIndex].controller;
-    
-    // 获取脚本的重复次数，默认为1
     final repeatCount = script.params['重复次数'] ?? 1;
     bool success = true;
     
-    // 执行指定次数
     for (var i = 0; i < repeatCount; i++) {
-      if (!_isExecuting) break;  // 允许中断执行
+      if (!_isExecuting) break;
       
       bool result = false;
       switch (script.type) {
@@ -833,13 +829,19 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       
       if (!result) {
         success = false;
-        break;  // 如果执行失败就停止重复
+        break;
       }
       
       // 如果不是最后一次重复，则等待执行延迟
       if (i < repeatCount - 1) {
+        // 使用全局延迟设置
         await Future.delayed(Duration(milliseconds: _executionDelay));
       }
+    }
+    
+    // 在脚本执行完成后，如果不是最后一个脚本，添加全局延迟
+    if (success && _currentScriptIndex < _scripts.length - 1) {
+      await Future.delayed(Duration(milliseconds: _executionDelay));
     }
     
     return success;
@@ -1609,37 +1611,37 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                   children: [
                                     CupertinoButton(
                                       padding: EdgeInsets.zero,
-                                      onPressed: _executeScripts,
-                                      child: const Icon(
+                                      onPressed: _isRecording ? null : _executeScripts,  // 录制时禁用
+                                      child: Icon(
                                         CupertinoIcons.play_fill,
-                                        color: CupertinoColors.systemBlue,
+                                        color: _isRecording ? CupertinoColors.systemGrey : CupertinoColors.white,
                                         size: 20,
                                       ),
                                     ),
                                     CupertinoButton(
                                       padding: EdgeInsets.zero,
-                                      onPressed: _exportScripts,
-                                      child: const Icon(
+                                      onPressed: _isRecording ? null : _exportScripts,  // 录制时禁用
+                                      child: Icon(
                                         CupertinoIcons.arrow_down_doc_fill,
-                                        color: CupertinoColors.white,
+                                        color: _isRecording ? CupertinoColors.systemGrey : CupertinoColors.white,
                                         size: 20,
                                       ),
                                     ),
                                     CupertinoButton(
                                       padding: EdgeInsets.zero,
-                                      onPressed: _importScripts,
-                                      child: const Icon(
+                                      onPressed: _isRecording ? null : _importScripts,  // 录制时禁用
+                                      child: Icon(
                                         CupertinoIcons.doc_text_fill,
-                                        color: CupertinoColors.white,
+                                        color: _isRecording ? CupertinoColors.systemGrey : CupertinoColors.white,
                                         size: 20,
                                       ),
                                     ),
                                     CupertinoButton(
                                       padding: EdgeInsets.zero,
-                                      onPressed: _clearScripts,
-                                      child: const Icon(
+                                      onPressed: _isRecording ? null : _clearScripts,  // 录制时禁用
+                                      child: Icon(
                                         CupertinoIcons.clear_fill,
-                                        color: CupertinoColors.systemRed,
+                                        color: _isRecording ? CupertinoColors.systemGrey : CupertinoColors.systemRed,
                                         size: 20,
                                       ),
                                     ),

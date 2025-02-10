@@ -3,27 +3,37 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>欢迎</title>
+    <title>欢迎使用</title>
     <style>
         body {
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            background-color: #000;
-            color: #fff;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        }
-        .welcome {
-            font-size: 32px;
-            font-weight: bold;
+            padding: 20px;
+            color: #333;
+            line-height: 1.6;
             text-align: center;
+        }
+        h1 {
+            color: #007AFF;
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+        p {
+            margin: 10px 0;
+            font-size: 16px;
         }
     </style>
 </head>
 <body>
-    <div class="welcome">欢迎使用 auok！</div>
+    <h1>欢迎使用 Auok 浏览器</h1>
+    <p>点击顶部地址栏开始浏览</p>
+    <p>点击右侧按钮打开脚本管理器</p>
+    
+    <!-- 添加一个隐藏的图片来触发网络请求 -->
+    <img src="https://www.apple.com/favicon.ico" style="display: none;" onerror="this.style.display='none'">
+    
+    <script>
+        // 也可以通过 fetch 发起一个请求
+        fetch('https://www.apple.com/favicon.ico').catch(() => {});
+    </script>
 </body>
 </html> 
