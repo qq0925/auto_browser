@@ -89,30 +89,49 @@ class BrowserHomePage extends StatefulWidget {
   State<BrowserHomePage> createState() => _BrowserHomePageState();
 }
 
+// 添加脚本模式枚举
+enum ScriptMode {
+  simple('简易'),
+  normal('普通'),
+  expert('专家');
+
+  final String label;
+  const ScriptMode(this.label);
+}
+
+// 修改 Script 类
 class Script {
   String type;
   Map<String, dynamic> params;
   bool isEnabled;
+  ScriptMode mode;
 
   Script({
     required this.type,
     this.params = const {},
     this.isEnabled = true,
+    this.mode = ScriptMode.simple,
   });
 
-  // 从 JSON 字符串创建脚本
   factory Script.fromJson(String jsonStr) {
     final data = json.decode(jsonStr);
     return Script(
       type: data['脚本类型'],
-      params: Map<String, dynamic>.from(data)..remove('脚本类型'),
+      params: Map<String, dynamic>.from(data)..remove('脚本类型')..remove('模式'),
       isEnabled: true,
+      mode: ScriptMode.values.firstWhere(
+        (m) => m.label == data['模式'],
+        orElse: () => ScriptMode.simple,
+      ),
     );
   }
 
-  // 转换为 JSON 字符串
   String toJson() {
-    final data = {'脚本类型': type, ...params};
+    final data = {
+      '脚本类型': type,
+      '模式': mode.label,
+      ...params,
+    };
     return json.encode(data);
   }
 }
@@ -169,22 +188,20 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       await _restoreTabsState();
     });
     
-    _initInactivityTimer();
-  }
-
-  // 初始化不活动计时器
-  void _initInactivityTimer() {
-    // 监听用户交互
+    // 监听所有用户交互
     GestureBinding.instance.pointerRouter.addGlobalRoute((PointerEvent event) {
-      _resetInactivityTimer();
+      if (!_isExecuting) {  // 只在非执行状态下重置计时器
+        _resetInactivityTimer();
+      }
     });
   }
 
   // 重置不活动计时器
   void _resetInactivityTimer() {
     _inactivityTimer?.cancel();
-    if (_autoLeaveMode && !_showLeaveModeOverlay) {
-      _inactivityTimer = Timer(const Duration(minutes: 1), () {
+    if (_autoLeaveMode && !_showLeaveModeOverlay && !_isExecuting) {
+      // 只在非执行状态下重置计时器
+      _inactivityTimer = Timer(const Duration(minutes: 3), () {
         if (mounted && _autoLeaveMode) {
           _showLeaveMode();
         }
@@ -850,20 +867,76 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   // 修改点击脚本执行方法
   Future<bool> _executeClickScript(Script script, WebViewController controller) async {
     if (!mounted) return false;
+    
+    final params = script.params;
+    final clickText = params['点击文字'] ?? '';
+    final appearText = params['出现文字'] ?? '';
+    final afterText = params['在...之后'] ?? '';
+    final beforeText = params['在...之前'] ?? '';
+    final exactMatch = params['完全匹配点击'] ?? false;
+    final filterIndex = params['多个筛选']?.toString() ?? '';
+    
     final result = await controller.runJavaScriptReturningResult('''
       (function() {
-        const text = "${script.params['点击文字'] ?? ''}";
-        // 优先查找链接
-        const links = Array.from(document.querySelectorAll('a')).filter(a => 
-          a.textContent.trim() === text.trim()
+        ${appearText.isNotEmpty ? '''
+          const appearTexts = "$appearText".split(';');
+          const hasAppearText = appearTexts.some(text => 
+            document.body.innerText.includes(text.trim())
+          );
+          if (!hasAppearText) return false;
+        ''' : ''}
+        
+        let searchText = "$clickText";
+        let searchTexts = searchText.split(';');
+        let content = document.body.innerHTML;
+        
+        ${afterText.isNotEmpty ? '''
+          const afterIndex = content.indexOf("$afterText");
+          if (afterIndex === -1) return false;
+          content = content.substring(afterIndex);
+        ''' : ''}
+        
+        ${beforeText.isNotEmpty ? '''
+          const beforeIndex = content.indexOf("$beforeText");
+          if (beforeIndex === -1) return false;
+          content = content.substring(0, beforeIndex);
+        ''' : ''}
+        
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = content;
+        
+        const links = Array.from(tempDiv.querySelectorAll('a')).filter(a => {
+          const text = a.textContent.trim();
+          return searchTexts.some(searchText => 
+            ${exactMatch ? 'text === searchText.trim()' : 'text.includes(searchText.trim())'}
+          );
+        });
+        
+        if (links.length === 0) return false;
+        
+        let targetIndex = 0;
+        if ("$filterIndex") {
+          const index = parseInt("$filterIndex");
+          if (index === 0) {
+            targetIndex = Math.floor(Math.random() * links.length);
+          } else if (index > 0) {
+            targetIndex = Math.min(index - 1, links.length - 1);
+          } else {
+            targetIndex = Math.max(links.length + index, 0);
+          }
+        }
+        
+        const originalLink = document.querySelector(
+          `a:nth-of-type(\${Array.from(document.querySelectorAll('a')).indexOf(links[targetIndex]) + 1})`
         );
-        if (links.length > 0) {
-          links[0].click();
+        if (originalLink) {
+          originalLink.click();
           return true;
         }
         return false;
       })();
     ''');
+    
     return result.toString() == 'true';
   }
 
@@ -2731,7 +2804,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                           },
                         ),
                         subtitle: const Text(
-                          '主页面5分钟无操作后，自动进入离开模式(脚本仍正常运行)，可省电、防止浏览器假死',
+                          '主页面3分钟无操作后，自动进入离开模式(脚本仍正常运行)，可省电、防止浏览器假死',
                           style: TextStyle(
                             color: CupertinoColors.systemGrey,
                             fontSize: 12,
@@ -2966,6 +3039,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     });
   }
 
+  // 修改执行脚本的方法
   Future<bool> _executeScripts() async {
     if (_scripts.isEmpty) return true;
     
@@ -2976,12 +3050,16 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       _currentScriptIndex = 0;
     });
     
+    DateTime lastInteraction = DateTime.now();
     _remainingLoopCount = _originalLoopCount;
     
     while (_originalLoopCount == 0 || _remainingLoopCount > 0) {
       if (!_isExecuting) break;
       
       for (var i = 0; i < _scripts.length && _isExecuting; i++) {
+        // 在每个脚本执行前添加延迟
+        await Future.delayed(Duration(milliseconds: _executionDelay));
+        
         setState(() => _currentScriptIndex = i);
         if (!_scripts[i].isEnabled) continue;
         
@@ -2992,13 +3070,19 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
           });
         }
         
+        // 检查是否需要进入离开模式
+        if (_autoLeaveMode && 
+            DateTime.now().difference(lastInteraction).inMinutes >= 3 && 
+            !_showLeaveModeOverlay) {
+          _showLeaveMode();
+        }
+        
         try {
           final success = await executeScript(_scripts[i]);
           setState(() {
             if (success) {_successCount++;} else {_failureCount++;}
           });
-          await Future.delayed(Duration(milliseconds: _executionDelay));
-    } catch (e) {
+        } catch (e) {
           setState(() => _failureCount++);
           debugPrint('Execute script error: $e');
         }
@@ -3013,6 +3097,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       _isExecuting = false;
       _currentScriptIndex = 0;
     });
+    
+    _resetInactivityTimer();
     return _successCount > 0;
   }
 }

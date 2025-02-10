@@ -31,15 +31,15 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  webview_flutter: ^4.7.0
-  cupertino_icons: ^1.0.6
-  file_picker: ^6.1.1
-  share_plus: ^7.2.1
-  path_provider: ^2.0.15  # 用于获取临时目录
-  shared_preferences: ^2.0.0
-  package_info_plus: ^5.0.1
-  wakelock_plus: ^1.1.4
-  permission_handler: ^11.3.0
+  webview_flutter: ^4.10.0
+  cupertino_icons: ^1.0.8
+  file_picker: ^8.3.3
+  share_plus: ^10.1.4
+  path_provider: ^2.1.5
+  shared_preferences: ^2.5.1
+  package_info_plus: ^8.2.1
+  wakelock_plus: ^1.2.10
+  permission_handler: ^11.3.1
 
 # The following adds the Cupertino Icons font to your application.
 # Use with the CupertinoIcons class for iOS style icons.
