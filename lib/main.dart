@@ -338,6 +338,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                   _tabs[_currentIndex].url = 'about:blank';
                 }
               });
+              // 在页面开始加载时就应用夜间模式
               if (_isDarkMode) {
                 _applyDarkMode(true);
               }
@@ -376,6 +377,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
               }
             },
             onNavigationRequest: (NavigationRequest request) {
+              // 如果正在执行脚本，阻止所有导航
+              if (_isExecuting) {
+                _showTemporaryTip('脚本运行期间不能进行此操作');
+                return NavigationDecision.prevent;
+              }
               // 处理导航请求
               String url = request.url;
               if (!url.startsWith('http://') && !url.startsWith('https://')) {
@@ -894,9 +900,14 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
               icon: CupertinoIcons.refresh,
               title: '刷新页面',
               onTap: () {
+                if (_isExecuting) {
+                  _showTemporaryTip('脚本运行期间不能进行此操作');
+                  return;
+                }
                 _tabs[_currentIndex].controller.reload();
                 setState(() => _showMenuPanel = false);
               },
+              child: const Text('刷新'),
             ),
             _buildMenuItem(
               icon: CupertinoIcons.settings,
@@ -915,6 +926,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     required IconData icon,
     required String title,
     required VoidCallback onTap,
+    Widget? child,
   }) {
     return CupertinoButton(
       padding: EdgeInsets.zero,
@@ -932,6 +944,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 fontSize: 16,
               ),
             ),
+            if (child != null) child,
           ],
         ),
       ),
@@ -1173,6 +1186,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
             CupertinoButton(
               padding: const EdgeInsets.symmetric(horizontal: 8),
               onPressed: () {
+                if (_isExecuting) {
+                  _showTemporaryTip('脚本运行期间不能进行此操作');
+                  return;
+                }
                 if (_tabs.isNotEmpty && _tabs[_currentIndex].url != 'about:blank') {
                   _tabs[_currentIndex].controller.reload();
                 }
@@ -1227,6 +1244,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                       CupertinoButton(
                         padding: EdgeInsets.zero,
                         onPressed: () async {
+                          if (_isExecuting) {
+                            _showTemporaryTip('脚本运行期间不能进行此操作');
+                            return;
+                          }
                           if (await _canGoBack()) {
                             await _tabs[_currentIndex].controller.goBack();
                           }
@@ -1240,6 +1261,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                       CupertinoButton(
                         padding: EdgeInsets.zero,
                         onPressed: () async {
+                          if (_isExecuting) {
+                            _showTemporaryTip('脚本运行期间不能进行此操作');
+                            return;
+                          }
                           if (await _canGoForward()) {
                             await _tabs[_currentIndex].controller.goForward();
                           }
@@ -1342,6 +1367,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                       CupertinoButton(
                         padding: EdgeInsets.zero,
                         onPressed: () async {
+                          if (_isExecuting) {
+                            _showTemporaryTip('脚本运行期间不能进行此操作');
+                            return;
+                          }
                           if (_tabs.isNotEmpty && _currentIndex >= 0) {
                             await _tabs[_currentIndex].controller.loadFlutterAsset('assets/welcome.html');
                             setState(() {
@@ -2759,7 +2788,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
             ),
             const SizedBox(height: 16),
             const Text(
-              'Auok浏览器是一个iOS端手机浏览器自动化的软件，你可以用它实现在wap页面游戏中实现自动化功能。',
+              'Auok浏览器是一款iOS端脚本自动化的浏览器，你可以用它实现在wap游戏页面中的自动化功能。',
               style: TextStyle(fontSize: 14),
               textAlign: TextAlign.center,
             ),
@@ -2781,64 +2810,35 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     
     _tabs[_currentIndex].controller.runJavaScript('''
       (function() {
-        // 移除已有的样式
-        const existingStyle = document.getElementById('dark-mode-style');
-        if (existingStyle) {
-          existingStyle.remove();
-        }
+        let darkStyle = document.getElementById('dark-mode-style');
         
         if ($isDark) {
-          // 创建并立即添加样式
-          const style = document.createElement('style');
-          style.id = 'dark-mode-style';
-          style.textContent = `
-            html, body {
-              background-color: #121212 !important;
-              color: #FFFFFF !important;
-              transition: none !important;
-            }
-            
-            /* 处理文本和链接 */
-            p, span, div, h1, h2, h3, h4, h5, h6, a {
-              color: #FFFFFF !important;
-              transition: none !important;
-            }
-            
-            /* 处理输入框和文本框 */
-            input, textarea, select {
-              background-color: #1C1C1E !important;
-              color: #FFFFFF !important;
-              border-color: #333333 !important;
-              transition: none !important;
-            }
-            
-            /* 处理按钮 */
-            button {
-              background-color: #1C1C1E !important;
-              color: #FFFFFF !important;
-              border-color: #333333 !important;
-              transition: none !important;
-            }
-            
-            /* 处理表格 */
-            table, th, td {
-              border-color: #333333 !important;
-              transition: none !important;
-            }
-            
-            /* 处理图片和媒体亮度 */
-            img, video {
-              filter: brightness(0.8);
-              transition: none !important;
-            }
-            
-            /* 处理背景图片 */
-            [style*="background-image"] {
-              filter: brightness(0.8);
-              transition: none !important;
-            }
-          `;
-          document.head.appendChild(style);
+          if (!darkStyle) {
+            darkStyle = document.createElement('style');
+            darkStyle.id = 'dark-mode-style';
+            darkStyle.textContent = `
+              html, body, div, span, p, h1, h2, h3, h4, h5, h6 {
+                background-color: #121212 !important;
+                color: #FFFFFF !important;
+              }
+              
+              * {
+                border-color: #333333 !important;
+              }
+              
+              input, textarea, select, button {
+                background-color: #1C1C1E !important;
+                color: #FFFFFF !important;
+              }
+              
+              img, video {
+                opacity: 0.8;
+              }
+            `;
+            document.documentElement.appendChild(darkStyle);
+          }
+        } else if (darkStyle) {
+          darkStyle.remove();
         }
       })();
     ''');
@@ -2906,5 +2906,35 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       _currentScriptIndex = 0;
     });
     return _successCount > 0;
+  }
+
+  // 添加显示临时提示的方法
+  void _showTemporaryTip(String message) {
+    if (!mounted) return;
+    
+    final overlay = Navigator.of(context).overlay;
+    if (overlay == null) return;
+    
+    final entry = OverlayEntry(
+      builder: (context) => Center(
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 20),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: CupertinoColors.black.withAlpha(230),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            message,
+            style: const TextStyle(color: CupertinoColors.white),
+          ),
+        ),
+      ),
+    );
+    
+    overlay.insert(entry);
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) entry.remove();
+    });
   }
 }
