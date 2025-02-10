@@ -104,13 +104,13 @@ class Script {
   String type;
   Map<String, dynamic> params;
   bool isEnabled;
-  ScriptMode mode;
+  ScriptMode mode;  // 添加模式属性
 
   Script({
     required this.type,
     this.params = const {},
     this.isEnabled = true,
-    this.mode = ScriptMode.simple,
+    this.mode = ScriptMode.simple,  // 默认简易模式
   });
 
   factory Script.fromJson(String jsonStr) {
@@ -1956,7 +1956,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
 
         final lines = content.split('\n').where((line) => line.trim().isNotEmpty).toList();
         if (lines.isEmpty) throw Exception('文件为空');
-
+        
         setState(() {
           _scripts.clear();
           for (var line in lines) {
@@ -1974,7 +1974,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 // 转换延迟值
                 _executionDelay *= _delayTimeUnit.multiplier;
                 _originalLoopCount = data['循环次数'] ?? 1;
-                _remainingLoopCount = _originalLoopCount;
+            _remainingLoopCount = _originalLoopCount;
               } else {
                 _scripts.add(Script.fromJson(line));
               }
@@ -3082,7 +3082,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
           setState(() {
             if (success) {_successCount++;} else {_failureCount++;}
           });
-        } catch (e) {
+    } catch (e) {
           setState(() => _failureCount++);
           debugPrint('Execute script error: $e');
         }
