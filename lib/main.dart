@@ -387,6 +387,12 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       controller = WebViewController()
         ..setJavaScriptMode(JavaScriptMode.unrestricted)
         ..setBackgroundColor(const Color(0x00000000))
+        ..addJavaScriptChannel(  // 添加这个 JavaScript 通道
+          'ScriptRecorder',
+          onMessageReceived: (JavaScriptMessage message) {
+            _handleScriptRecording(message.message);
+          },
+        )
         ..setNavigationDelegate(
           NavigationDelegate(
             onPageStarted: (url) {
@@ -2901,6 +2907,15 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
             CupertinoDialogAction(
               child: const Text('确定'),
               onPressed: () {
+                // 验证必填参数
+                if (type == "点击文字") {
+                  final clickText = params['点击文字']?.toString().trim() ?? '';
+                  if (clickText.isEmpty) {
+                    // 如果点击文字为空，允许添加脚本
+                    params['点击文字'] = '';  // 确保参数存在
+                  }
+                }
+                
                 final newScript = Script(
                   type: type,
                   params: params,
@@ -2929,8 +2944,13 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   Widget _buildSimpleClickParams(Map<String, dynamic> params, Function(String, dynamic) onChanged) {
     return CupertinoTextField(
       placeholder: '点击文字',
-      controller: TextEditingController(text: params['点击文字'] ?? ''),
+      controller: TextEditingController(text: params['点击文字'] ?? '')..selection = TextSelection.fromPosition(
+        TextPosition(offset: (params['点击文字'] ?? '').length),  // 保持光标在文本末尾
+      ),
       onChanged: (value) => onChanged('点击文字', value),
+      autocorrect: false,  // 禁用自动更正
+      enableSuggestions: false,  // 禁用输入建议
+      keyboardAppearance: Brightness.dark,  // 使用深色键盘
     );
   }
 
@@ -3135,5 +3155,33 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         ),
       ],
     );
+  }
+
+  // 修改录制点击事件的处理
+  void _handleScriptRecording(String message) {
+    if (!mounted || !_isRecording) return;
+
+    final parts = message.split('|');
+    if (parts.length != 2) return;
+
+    final type = parts[0];
+    final data = parts[1];
+
+    setState(() {
+      if (type == '点击文字') {
+        _scripts.add(Script(
+          type: "点击文字",
+          mode: ScriptMode.normal,  // 默认使用普通模式
+          params: {
+            '点击文字': data,
+            '完全匹配': true,  // 默认开启完全匹配
+            '执行延迟': _executionDelay ~/ _delayTimeUnit.multiplier,  // 使用全局延迟设置
+            '时间单位': _delayTimeUnit.label,  // 使用全局时间单位
+          },
+        ));
+      } else if (type == '输入框提交') {
+        // ... 其他录制逻辑保持不变
+      }
+    });
   }
 }
