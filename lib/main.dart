@@ -2785,8 +2785,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       _currentScriptIndex = 0;
     });
     
-    _resetInactivityTimer();  // 开始执行时重置计时器
-    
     while (_originalLoopCount == 0 || _remainingLoopCount > 0) {
       if (!_isExecuting) break;
       
@@ -2814,7 +2812,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
           debugPrint('Execute script error: $e');
         }
         
-        _resetInactivityTimer();  // 每个脚本执行完后重置计时器
       }
       
       if (_originalLoopCount > 0) {
@@ -2827,7 +2824,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       _currentScriptIndex = 0;
     });
     
-    _resetInactivityTimer();  // 执行结束后重置计时器
     return _successCount > 0;
   }
 
