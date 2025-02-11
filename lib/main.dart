@@ -2310,9 +2310,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
 
   Widget _buildScriptItem(Script script, int index) {
     return GestureDetector(
-      onTap: () => _showAddOrEditScript(script: script),  // 添加短按编辑功能
+      onTap: () => _showAddOrEditScript(script: script),  // 短按编辑
       onLongPress: () {
-        // 保持原有的长按菜单功能
+        // 长按菜单保持不变
         showCupertinoModalPopup(
           context: context,
           builder: (context) => CupertinoActionSheet(
@@ -2320,9 +2320,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
               CupertinoActionSheetAction(
                 onPressed: () {
                   Navigator.pop(context);
-                  setState(() {
-                    _scripts.removeAt(index);
-                  });
+                  setState(() => _scripts.removeAt(index));
                 },
                 isDestructiveAction: true,
                 child: const Text('删除'),
@@ -2371,44 +2369,65 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         );
       },
       child: Container(
-        // 保持原有的脚本项UI不变
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: CupertinoColors.white.withAlpha(200),
-            ),
-          ),
+          color: script.isEnabled 
+            ? CupertinoColors.systemGrey6.withAlpha(30)
+            : CupertinoColors.systemRed.withAlpha(30),
+          borderRadius: BorderRadius.circular(6),
         ),
-        child: Row(
+        child: Stack(
           children: [
-            CupertinoSwitch(
-              value: script.isEnabled,
-              onChanged: (value) {
-                setState(() => script.isEnabled = value);
-              },
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
+            Row(
+              children: [
+                // 左侧脚本类型
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: CupertinoColors.systemBlue.withAlpha(50),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
                     script.type,
                     style: const TextStyle(
                       color: CupertinoColors.white,
-                      fontSize: 16,
+                      fontSize: 12,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${script.mode.label} - ${_getScriptDescription(script)}',
+                ),
+                const SizedBox(width: 8),
+                // 脚本内容
+                Expanded(
+                  child: Text(
+                    _getScriptDescription(script),
                     style: TextStyle(
-                      color: CupertinoColors.white.withAlpha(200),
-                      fontSize: 14,
+                      color: script.isEnabled ? CupertinoColors.white : CupertinoColors.systemGrey,
+                      fontSize: 12,
                     ),
                   ),
-                ],
+                ),
+              ],
+            ),
+            // 右上角角标
+            Positioned(
+              top: 0,
+              right: 0,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(
+                  color: CupertinoColors.systemGrey.withAlpha(100),
+                  borderRadius: const BorderRadius.only(
+                    topRight: Radius.circular(6),
+                    bottomLeft: Radius.circular(6),
+                  ),
+                ),
+                child: Text(
+                  '${index + 1}',
+                  style: const TextStyle(
+                    color: CupertinoColors.white,
+                    fontSize: 10,
+                  ),
+                ),
               ),
             ),
           ],
