@@ -2783,13 +2783,15 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       _successCount = 0;
       _failureCount = 0;
       _currentScriptIndex = 0;
+      _remainingLoopCount = _originalLoopCount;  // 重置剩余循环次数
     });
+    
+    _resetInactivityTimer();
     
     while (_originalLoopCount == 0 || _remainingLoopCount > 0) {
       if (!_isExecuting) break;
       
       for (var i = 0; i < _scripts.length && _isExecuting; i++) {
-        // 在每个脚本执行前添加延迟
         await Future.delayed(Duration(milliseconds: _executionDelay));
         
         setState(() => _currentScriptIndex = i);
@@ -2811,11 +2813,12 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
           setState(() => _failureCount++);
           debugPrint('Execute script error: $e');
         }
-        
       }
       
       if (_originalLoopCount > 0) {
-        _remainingLoopCount--;
+        setState(() {
+          _remainingLoopCount--;
+        });
       }
     }
     
@@ -2824,6 +2827,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       _currentScriptIndex = 0;
     });
     
+    _resetInactivityTimer();
     return _successCount > 0;
   }
 
@@ -3049,8 +3053,13 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         const SizedBox(height: 4),
         CupertinoTextField(
           placeholder: placeholder,
-          controller: TextEditingController(text: value),
+          controller: TextEditingController(text: value)..selection = TextSelection.fromPosition(
+            TextPosition(offset: value.length),  // 保持光标在文本末尾
+          ),
           onChanged: (newValue) => onChanged(label, newValue),
+          autocorrect: false,  // 禁用自动更正
+          enableSuggestions: false,  // 禁用输入建议
+          keyboardAppearance: Brightness.dark,  // 使用深色键盘
         ),
       ],
     );
@@ -3083,8 +3092,13 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 keyboardType: TextInputType.number,
                 controller: TextEditingController(
                   text: (params['执行延迟'] ?? 0).toString(),
+                )..selection = TextSelection.fromPosition(
+                  TextPosition(offset: (params['执行延迟'] ?? 0).toString().length),
                 ),
                 onChanged: (value) => onChanged('执行延迟', int.tryParse(value) ?? 0),
+                autocorrect: false,
+                enableSuggestions: false,
+                keyboardAppearance: Brightness.dark,
               ),
             ],
           ),
