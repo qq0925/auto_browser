@@ -230,8 +230,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   // 重置不活动计时器
   void _resetInactivityTimer() {
     _inactivityTimer?.cancel();
-    if (_autoLeaveMode && !_showLeaveModeOverlay && !_isExecuting) {
-      // 只在非执行状态下重置计时器
+    if (_autoLeaveMode && !_showLeaveModeOverlay) {  // 移除 !_isExecuting 条件
       _inactivityTimer = Timer(const Duration(minutes: 3), () {
         if (mounted && _autoLeaveMode) {
           _showLeaveMode();
@@ -2786,8 +2785,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       _currentScriptIndex = 0;
     });
     
-    DateTime lastInteraction = DateTime.now();
-    _remainingLoopCount = _originalLoopCount;
+    _resetInactivityTimer();  // 开始执行时重置计时器
     
     while (_originalLoopCount == 0 || _remainingLoopCount > 0) {
       if (!_isExecuting) break;
@@ -2806,22 +2804,17 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
           });
         }
         
-        // 检查是否需要进入离开模式
-        if (_autoLeaveMode && 
-            DateTime.now().difference(lastInteraction).inMinutes >= 3 && 
-            !_showLeaveModeOverlay) {
-          _showLeaveMode();
-        }
-        
         try {
           final success = await executeScript(_scripts[i]);
           setState(() {
             if (success) {_successCount++;} else {_failureCount++;}
           });
-    } catch (e) {
+        } catch (e) {
           setState(() => _failureCount++);
           debugPrint('Execute script error: $e');
         }
+        
+        _resetInactivityTimer();  // 每个脚本执行完后重置计时器
       }
       
       if (_originalLoopCount > 0) {
@@ -2834,7 +2827,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       _currentScriptIndex = 0;
     });
     
-    _resetInactivityTimer();
+    _resetInactivityTimer();  // 执行结束后重置计时器
     return _successCount > 0;
   }
 
