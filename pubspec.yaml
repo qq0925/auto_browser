@@ -98,3 +98,6 @@ flutter:
 
   assets:
     - assets/welcome.html
+
+dependency_overrides:
+  webview_flutter_wkwebview: ^3.18.3  # 稳定版本

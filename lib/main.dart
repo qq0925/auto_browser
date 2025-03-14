@@ -197,7 +197,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   bool _isPaused = false;  // 暂停状态
   int _successCount = 0;   // 成功次数
   int _failureCount = 0;   // 失败次数
-  int _currentScriptIndex = 0;  // 添加当前执行位次
+  int _currentScriptIndex = 0;  // 当前执行位次
   bool _isFullScreen = false;
   bool _isDarkMode = false;
   bool _keepScreenOn = false;
@@ -207,6 +207,47 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   Timer? _inactivityTimer;
   // 添加时间单位状态
   TimeUnit _delayTimeUnit = TimeUnit.milliseconds;
+  
+  // 获取当前标签，如果不存在则返回null
+  BrowserTab? get currentTab => _tabs.isNotEmpty && _currentIndex >= 0 && _currentIndex < _tabs.length 
+      ? _tabs[_currentIndex] 
+      : null;
+      
+  // 安全获取脚本
+  Script? getCurrentScript() {
+    if (_scripts.isEmpty || _currentScriptIndex < 0 || _currentScriptIndex >= _scripts.length) {
+      return null;
+    }
+    return _scripts[_currentScriptIndex];
+  }
+  
+  // 安全设置当前标签索引
+  void setCurrentIndex(int index) {
+    if (index >= 0 && index < _tabs.length) {
+      setState(() {
+        _currentIndex = index;
+      });
+    }
+  }
+  
+  // 确保循环计数不为负
+  void decrementLoopCount() {
+    if (_remainingLoopCount > 0) {
+      setState(() {
+        _remainingLoopCount--;
+      });
+    }
+  }
+  
+  // 重置脚本执行状态
+  void resetExecutionState() {
+    setState(() {
+      _isExecuting = false;
+      _isPaused = false;
+      _currentScriptIndex = 0;
+      _remainingLoopCount = _originalLoopCount;
+    });
+  }
 
   @override
   void initState() {
