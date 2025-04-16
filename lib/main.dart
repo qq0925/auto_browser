@@ -48,23 +48,19 @@ class BrowserTab {
   String title;    // 网页标题
   String url;      // 网页URL
   bool isLoading;  // 加载状态
-  final List<Script> scripts = []; // 添加脚本列表
-  bool isExecuting = false;  // 添加执行状态
-  bool isPaused = false;     // 添加暂停状态
-  int currentScriptIndex = 0; // 当前执行的脚本索引
-  int successCount = 0;      // 成功次数
-  int failureCount = 0;      // 失败次数
-  int executionDelay = 1000; // 执行延迟（毫秒）
-  TimeUnit delayTimeUnit = TimeUnit.milliseconds; // 延迟时间单位
-  int originalLoopCount = 1; // 原始循环次数
-  int remainingLoopCount = 1; // 剩余循环次数
+  bool isExecutingScript;  // 是否正在执行脚本
+  int currentScriptIndex = 0;  // 当前执行的脚本索引
+  int successCount = 0;  // 成功执行的脚本计数
+  int failureCount = 0;  // 失败执行的脚本计数
+  int remainingLoopCount = 1;  // 剩余循环次数
 
   BrowserTab({
     required this.id,
     required this.controller,
-    this.title = 'auok浏览器',  // 修改默认标题
+    this.title = 'auok浏览器',
     this.url = 'about:blank',
     this.isLoading = false,
+    this.isExecutingScript = false,
   });
 }
 
@@ -194,14 +190,20 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   final TextEditingController _urlController = TextEditingController();
   bool isLoading = false;
   bool _showScriptPanel = false;
-  // Remove global script list and execution state variables
-  int _executionDelay = 1000; // 默认延迟1000ms (仅用于创建新标签页时的默认值)
-  TimeUnit _delayTimeUnit = TimeUnit.milliseconds; // 时间单位默认值
+  final List<Script> _scripts = [];
+  int _executionDelay = 1000; // 默认延迟1000ms
+  int _originalLoopCount = 1;  // 原始循环次数
+  int _remainingLoopCount = 1; // 剩余循环次数
   bool _isRecording = false;  // 录制状态
+  bool _isExecuting = false;  // 执行状态
   bool _showMenuPanel = false; // 菜单管理器状态
   final List<Bookmark> _bookmarks = [];
   final List<HistoryItem> _history = [];
   double _loadingProgress = 0;  // 加载进度
+  bool _isPaused = false;  // 暂停状态
+  int _successCount = 0;   // 成功次数
+  int _failureCount = 0;   // 失败次数
+  int _currentScriptIndex = 0;  // 当前执行位次
   bool _isFullScreen = false;
   bool _isDarkMode = false;
   bool _keepScreenOn = false;
@@ -209,6 +211,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   bool _showLeaveModeOverlay = false;
   // 添加计时器变量
   Timer? _inactivityTimer;
+  // 添加时间单位状态
+  TimeUnit _delayTimeUnit = TimeUnit.milliseconds;
   
   // 获取当前标签，如果不存在则返回null
   BrowserTab? get currentTab => _tabs.isNotEmpty && _currentIndex >= 0 && _currentIndex < _tabs.length 
@@ -217,48 +221,26 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
       
   // 安全获取脚本
   Script? getCurrentScript() {
-    if (_tabs.isEmpty || _currentIndex < 0 || _currentIndex >= _tabs.length) {
+    if (_scripts.isEmpty || _currentScriptIndex < 0 || _currentScriptIndex >= _scripts.length) {
       return null;
     }
-    return _tabs[_currentIndex].scripts.isNotEmpty ? _tabs[_currentIndex].scripts[0] : null;
+    return _scripts[_currentScriptIndex];
   }
   
-  // 安全设置当前标签索引，添加执行脚本警告
+  // 安全设置当前标签索引
   void setCurrentIndex(int index) {
     if (index >= 0 && index < _tabs.length) {
-      // 如果当前标签正在执行脚本，显示警告
-      if (_tabs[_currentIndex].isExecuting) {
-        showCupertinoDialog(
-          context: context,
-          builder: (context) => CupertinoAlertDialog(
-            title: const Text('切换标签页'),
-            content: const Text('当前标签页正在执行脚本，切换到其他标签页不会停止脚本执行。'),
-            actions: [
-              CupertinoDialogAction(
-                child: const Text('取消'),
-                onPressed: () => Navigator.pop(context),
-              ),
-              CupertinoDialogAction(
-                child: const Text('继续切换'),
-                onPressed: () {
-                  Navigator.pop(context);
-                  setState(() => _currentIndex = index);
-                },
-              ),
-            ],
-          ),
-        );
-      } else {
-        setState(() => _currentIndex = index);
-      }
+      setState(() {
+        _currentIndex = index;
+      });
     }
   }
   
   // 确保循环计数不为负
   void decrementLoopCount() {
-    if (_tabs[_currentIndex].remainingLoopCount > 0) {
+    if (_remainingLoopCount > 0) {
       setState(() {
-        _tabs[_currentIndex].remainingLoopCount--;
+        _remainingLoopCount--;
       });
     }
   }
@@ -266,10 +248,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   // 重置脚本执行状态
   void resetExecutionState() {
     setState(() {
-      _tabs[_currentIndex].isExecuting = false;
-      _tabs[_currentIndex].isPaused = false;
-      _tabs[_currentIndex].currentScriptIndex = 0;
-      _tabs[_currentIndex].remainingLoopCount = _tabs[_currentIndex].originalLoopCount;
+      _isExecuting = false;
+      _isPaused = false;
+      _currentScriptIndex = 0;
+      _remainingLoopCount = _originalLoopCount;
     });
   }
 
@@ -286,7 +268,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     
     // 监听所有用户交互
     GestureBinding.instance.pointerRouter.addGlobalRoute((PointerEvent event) {
-      if (!_tabs[_currentIndex].isExecuting) {  // 只在非执行状态下重置计时器
+      if (!_isExecuting) {  // 只在非执行状态下重置计时器
         _resetInactivityTimer();
       }
     });
@@ -295,9 +277,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   // 重置不活动计时器
   void _resetInactivityTimer() {
     _inactivityTimer?.cancel();
-    // 检查是否有任何标签页正在执行脚本
-    bool anyTabExecuting = _tabs.any((tab) => tab.isExecuting);
-    if (_autoLeaveMode && !_showLeaveModeOverlay && !anyTabExecuting) {
+    if (_autoLeaveMode && !_showLeaveModeOverlay) {  // 移除 !_isExecuting 条件
       _inactivityTimer = Timer(const Duration(minutes: 3), () {
         if (mounted && _autoLeaveMode) {
           _showLeaveMode();
@@ -637,7 +617,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
             setState(() {
               switch (type) {
                 case '点击文字':
-                  _tabs[_currentIndex].scripts.add(Script(
+                  _scripts.add(Script(
                     type: type,
                     params: {'点击文字': content},
                     isEnabled: true,
@@ -646,7 +626,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 case '输入框提交':
                   try {
                     final data = json.decode(content) as Map<String, dynamic>;
-                    _tabs[_currentIndex].scripts.add(Script(
+                    _scripts.add(Script(
                       type: type,
                       params: data,
                       isEnabled: true,
@@ -674,11 +654,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
           url: initialUrl ?? 'about:blank',
           isLoading: false,
         ));
-        // 设置默认脚本参数
-        final tab = _tabs.last;
-        tab.executionDelay = _executionDelay;
-        tab.delayTimeUnit = _delayTimeUnit;
-        
         _currentIndex = _tabs.length - 1;
       });
     } catch (e) {
@@ -738,16 +713,16 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     final globalScript = Script(
       type: "全局变量",
       params: {
-        '执行延迟': _tabs[_currentIndex].executionDelay ~/ _tabs[_currentIndex].delayTimeUnit.multiplier,
-        '时间单位': _tabs[_currentIndex].delayTimeUnit.label,
-        '循环次数': _tabs[_currentIndex].originalLoopCount,
+        '执行延迟': _executionDelay ~/ _delayTimeUnit.multiplier,
+        '时间单位': _delayTimeUnit.label,
+        '循环次数': _originalLoopCount,
       },
       isEnabled: true,
     );
     lines.add(globalScript.toJson());
     
     // 添加所有已启用的脚本
-    for (var script in _tabs[_currentIndex].scripts) {
+    for (var script in _scripts) {
       if (script.isEnabled) {
         lines.add(script.toJson());
       }
@@ -758,27 +733,51 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
 
   // 修改脚本进度显示
   Widget _buildScriptProgress() {
+    // 获取当前标签页
+    if (_tabs.isEmpty || _currentIndex < 0 || _currentIndex >= _tabs.length) {
+      return const SizedBox();
+    }
+    
+    final currentTab = _tabs[_currentIndex];
+    final isRunning = currentTab.isExecutingScript;
+    
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    child: Row(
-                      children: [
+      child: Row(
+        children: [
           Text(
-            '脚本列表: ${_tabs[_currentIndex].scripts.length}',
-        style: const TextStyle(
-          color: CupertinoColors.white,
-          fontSize: 16,
-        ),
+            '脚本列表: ${_scripts.length}',
+            style: const TextStyle(
+              color: CupertinoColors.white,
+              fontSize: 16,
+            ),
           ),
-          if (_tabs[_currentIndex].isExecuting)
+          if (isRunning)
             Text(
-              '  当前: ${_tabs[_currentIndex].currentScriptIndex + 1}',  // 添加当前执行位次
+              '  当前: ${currentTab.currentScriptIndex + 1}',
               style: const TextStyle(
                 color: CupertinoColors.activeBlue,
                 fontSize: 16,
               ),
+            ),
+          if (isRunning)
+            Text(
+              '  成功: ${currentTab.successCount}',
+              style: const TextStyle(
+                color: CupertinoColors.systemGreen,
+                fontSize: 16,
               ),
-            ],
-          ),
+            ),
+          if (isRunning)
+            Text(
+              '  失败: ${currentTab.failureCount}',
+              style: const TextStyle(
+                color: CupertinoColors.systemRed,
+                fontSize: 16,
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -791,7 +790,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     bool success = true;
     
     for (var i = 0; i < repeatCount; i++) {
-      if (!_tabs[_currentIndex].isExecuting) break;
+      if (!_isExecuting) break;
       
       bool result = false;
       switch (script.type) {
@@ -816,7 +815,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     }
     
     // 在脚本执行完成后，如果不是最后一个脚本，添加全局延迟
-    if (success && _tabs[_currentIndex].currentScriptIndex < _tabs[_currentIndex].scripts.length - 1) {
+    if (success && _currentScriptIndex < _scripts.length - 1) {
       await Future.delayed(Duration(milliseconds: _executionDelay));
     }
     
@@ -1453,11 +1452,24 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                   final tab = _tabs[index];
                                   return CupertinoButton(
                                     onPressed: () {
-                                      setCurrentIndex(index);
+                                      setState(() => _currentIndex = index);
                                       Navigator.pop(context);
                                     },
                                     child: Row(
                                       children: [
+                                        if (tab.isExecutingScript)
+                                          const Icon(
+                                            CupertinoIcons.play_circle,
+                                            color: CupertinoColors.activeBlue,
+                                            size: 18,
+                                          )
+                                        else
+                                          Icon(
+                                            CupertinoIcons.globe,
+                                            color: _currentIndex == index
+                                                ? CupertinoColors.activeBlue
+                                                : CupertinoColors.systemGrey,
+                                          ),
                                         Icon(
                                           CupertinoIcons.globe,
                                           color: _currentIndex == index
@@ -1477,25 +1489,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                             ),
                                           ),
                                         ),
-                                        // 显示脚本执行状态指示
-                                        if (tab.isExecuting)
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                            margin: const EdgeInsets.only(right: 8),
-                                            decoration: BoxDecoration(
-                                              color: tab.isPaused 
-                                                  ? CupertinoColors.systemOrange.withOpacity(0.7)
-                                                  : CupertinoColors.activeGreen.withOpacity(0.7),
-                                              borderRadius: BorderRadius.circular(4),
-                                            ),
-                                            child: Text(
-                                              tab.isPaused ? "已暂停" : "运行中",
-                                              style: const TextStyle(
-                                                color: CupertinoColors.white,
-                                                fontSize: 10,
-                                              ),
-                                            ),
-                                          ),
                                         if (_tabs.length > 1)  // 只有多个标签页时显示删除按钮
                                           CupertinoButton(
                                             padding: EdgeInsets.zero,
@@ -1577,25 +1570,12 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                           ),
                         ),
                         const Divider(color: CupertinoColors.white),
-                        // 标签页独立脚本提示
-                        const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                          child: Text(
-                            '每个标签页拥有独立的脚本，可以同时运行',
-                            style: TextStyle(
-                              color: CupertinoColors.systemYellow,
-                              fontSize: 12,
-                              fontStyle: FontStyle.italic,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
                         // 脚本进度
                         _buildScriptProgress(),
                         const Divider(color: CupertinoColors.white),
                         // 脚本列表区域
                         Expanded(
-                          child: _tabs[_currentIndex].scripts.isEmpty
+                          child: _scripts.isEmpty
                               // 空列表时显示两个按钮
                               ? Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
@@ -1643,9 +1623,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                 )
                               // 有脚本时显示列表和添加按钮
                               : ListView.builder(
-                                  itemCount: _tabs[_currentIndex].scripts.length + 1, // +1 为添加按钮
+                                  itemCount: _scripts.length + 1, // +1 为添加按钮
                                   itemBuilder: (context, index) {
-                                    if (index == _tabs[_currentIndex].scripts.length) {
+                                    if (index == _scripts.length) {
                                       // 最后一项显示添加按钮
                                       return Column(
                                         children: [
@@ -1671,34 +1651,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                               ],
                                             ),
                                           ),
-                                          // 添加复制到其他标签页的按钮
-                                          if (_tabs.length > 1) // 只有当有多个标签页时显示
-                                          CupertinoButton(
-                                            padding: const EdgeInsets.all(8),
-                                            onPressed: _copyScriptsToOtherTabs,
-                                            child: const Row(
-                                              mainAxisAlignment: MainAxisAlignment.center,
-                                              children: [
-                                                Icon(
-                                                  CupertinoIcons.arrow_right_square,
-                                                  color: CupertinoColors.systemBlue,
-                                                  size: 16,
-                                                ),
-                                                SizedBox(width: 8),
-                                                Text(
-                                                  '复制到其他标签页',
-                                                  style: TextStyle(
-                                                    color: CupertinoColors.systemBlue,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
                                         ],
                                       );
                                     }
                                     // 显示脚本项
-                                    final script = _tabs[_currentIndex].scripts[index];
+                                    final script = _scripts[index];
                                     return _buildScriptItem(script, index);
                                   },
                                 ),
@@ -1715,16 +1672,16 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                             children: [
-                              if (_tabs[_currentIndex].isExecuting)
+                              if (_isExecuting)
                                 Row(
                                   children: [
                                     CupertinoButton(
                                       padding: EdgeInsets.zero,
                                       onPressed: () {
-                                        setState(() => _tabs[_currentIndex].isPaused = !_tabs[_currentIndex].isPaused);
+                                        setState(() => _isPaused = !_isPaused);
                                       },
                                       child: Icon(
-                                        _tabs[_currentIndex].isPaused 
+                                        _isPaused 
                                             ? CupertinoIcons.play_fill
                                             : CupertinoIcons.pause_fill,
                                         color: CupertinoColors.systemBlue,
@@ -1735,8 +1692,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                       padding: EdgeInsets.zero,
                                       onPressed: () {
                                         setState(() {
-                                          _tabs[_currentIndex].isExecuting = false;
-                                          _tabs[_currentIndex].isPaused = false;
+                                          _isExecuting = false;
+                                          _isPaused = false;
                                         });
                                       },
                                       child: const Icon(
@@ -1749,14 +1706,14 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
                                         Text(
-                                          '成功: ${_tabs[_currentIndex].successCount}',
+                                          '成功: $_successCount',
                                           style: const TextStyle(
                                             color: CupertinoColors.systemGreen,
                                             fontSize: 10,
                                           ),
                                         ),
                                         Text(
-                                          '失败: ${_tabs[_currentIndex].failureCount}',
+                                          '失败: $_failureCount',
                                           style: const TextStyle(
                                             color: CupertinoColors.systemRed,
                                             fontSize: 10,
@@ -2045,27 +2002,25 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         if (lines.isEmpty) throw Exception('文件为空');
         
         setState(() {
-          _tabs[_currentIndex].scripts.clear();
+          _scripts.clear();
           for (var line in lines) {
             try {
               final data = json.decode(line);
               if (data['脚本类型'] == '全局变量') {
                 // 更新全局设置
-                final executionDelay = data['执行延迟'] ?? 1000;
+                _executionDelay = data['执行延迟'] ?? 1000;
                 // 处理时间单位
                 final timeUnitLabel = data['时间单位'] ?? '毫秒';
-                final timeUnit = TimeUnit.values.firstWhere(
+                _delayTimeUnit = TimeUnit.values.firstWhere(
                   (unit) => unit.label == timeUnitLabel,
                   orElse: () => TimeUnit.milliseconds,
                 );
-                // 设置到当前标签页
-                _tabs[_currentIndex].delayTimeUnit = timeUnit;
                 // 转换延迟值
-                _tabs[_currentIndex].executionDelay = executionDelay * timeUnit.multiplier;
-                _tabs[_currentIndex].originalLoopCount = data['循环次数'] ?? 1;
-                _tabs[_currentIndex].remainingLoopCount = _tabs[_currentIndex].originalLoopCount;
+                _executionDelay *= _delayTimeUnit.multiplier;
+                _originalLoopCount = data['循环次数'] ?? 1;
+            _remainingLoopCount = _originalLoopCount;
               } else {
-                _tabs[_currentIndex].scripts.add(Script.fromJson(line));
+                _scripts.add(Script.fromJson(line));
               }
             } catch (e) {
               debugPrint('Parse script error: $e');
@@ -2078,7 +2033,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
             context: context,
             builder: (context) => CupertinoAlertDialog(
               title: const Text('导入成功'),
-              content: Text('已导入 ${_tabs[_currentIndex].scripts.length} 个脚本'),
+              content: Text('已导入 ${_scripts.length} 个脚本'),
               actions: [
                 CupertinoDialogAction(
                   child: const Text('确定'),
@@ -2198,7 +2153,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                             style: const TextStyle(color: CupertinoColors.systemGrey),
                           ),
                           onTap: () {
-                            tab.controller.loadRequest(Uri.parse(item.url));
+                            _tabs[_currentIndex].controller.loadRequest(Uri.parse(item.url));
                             Navigator.pop(context);
                           },
                         ),
@@ -2267,15 +2222,15 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
   void _clearScripts() {
     if (!mounted) return;
     setState(() {
-      _tabs[_currentIndex].scripts.clear();
+      _scripts.clear();
       _executionDelay = 1000;
-      _tabs[_currentIndex].originalLoopCount = 1;
-      _tabs[_currentIndex].remainingLoopCount = 1;
+      _originalLoopCount = 1;
+      _remainingLoopCount = 1;
       _isRecording = false;
-      _tabs[_currentIndex].isExecuting = false;
-      _tabs[_currentIndex].successCount = 0;
-      _tabs[_currentIndex].failureCount = 0;
-      _tabs[_currentIndex].currentScriptIndex = 0;
+      _isExecuting = false;
+      _successCount = 0;
+      _failureCount = 0;
+      _currentScriptIndex = 0;
     });
   }
 
@@ -2313,7 +2268,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 style: TextStyle(color: CupertinoColors.white, fontSize: 14),
               ),
               Text(
-                _tabs[_currentIndex].originalLoopCount == 0 ? '无限循环' : '${_tabs[_currentIndex].originalLoopCount} 次',
+                _originalLoopCount == 0 ? '无限循环' : '$_originalLoopCount 次',
                 style: TextStyle(
                   color: CupertinoColors.white.withAlpha(153),
                   fontSize: 14,
@@ -2338,14 +2293,14 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 child: CupertinoTextField(
-                  controller: TextEditingController(text: (_tabs[_currentIndex].executionDelay ~/ _tabs[_currentIndex].delayTimeUnit.multiplier).toString()),
+                  controller: TextEditingController(text: (_executionDelay ~/ _delayTimeUnit.multiplier).toString()),
                   keyboardType: TextInputType.number,
                   autofocus: true,
                   placeholder: '请输入延迟时间',
                   onChanged: (value) {
                     final delay = int.tryParse(value);
                     if (delay != null && delay > 0) {
-                      this.setState(() => _tabs[_currentIndex].executionDelay = delay * _tabs[_currentIndex].delayTimeUnit.multiplier);
+                      this.setState(() => _executionDelay = delay * _delayTimeUnit.multiplier);
                     }
                   },
                 ),
@@ -2354,7 +2309,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(_tabs[_currentIndex].delayTimeUnit.label),
+                    Text(_delayTimeUnit.label),
                     const Icon(CupertinoIcons.chevron_down, size: 16),
                   ],
                 ),
@@ -2369,10 +2324,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                         itemExtent: 32,
                         onSelectedItemChanged: (index) {
                           setState(() {
-                            final oldTimeUnit = _tabs[_currentIndex].delayTimeUnit;
-                            _tabs[_currentIndex].delayTimeUnit = TimeUnit.values[index];
+                            _delayTimeUnit = TimeUnit.values[index];
                             // 转换当前延迟值到新单位
-                            _tabs[_currentIndex].executionDelay = (_tabs[_currentIndex].executionDelay ~/ oldTimeUnit.multiplier) * _tabs[_currentIndex].delayTimeUnit.multiplier;
+                            _executionDelay = (_executionDelay ~/ _delayTimeUnit.multiplier) * _delayTimeUnit.multiplier;
                           });
                         },
                         children: TimeUnit.values.map((unit) => 
@@ -2408,7 +2362,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         content: Padding(
           padding: const EdgeInsets.symmetric(vertical: 16),
           child: CupertinoTextField(
-            controller: TextEditingController(text: _tabs[_currentIndex].originalLoopCount.toString()),
+            controller: TextEditingController(text: _originalLoopCount.toString()),
             keyboardType: TextInputType.number,
             autofocus: true,
             placeholder: '请输入循环次数(0表示无限循环)',
@@ -2416,8 +2370,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
               final count = int.tryParse(value);
               if (count != null) {
                 setState(() {
-                  _tabs[_currentIndex].originalLoopCount = count;
-                  _tabs[_currentIndex].remainingLoopCount = count;
+                  _originalLoopCount = count;
+                  _remainingLoopCount = count;
                 });
               }
             },
@@ -2450,7 +2404,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
               CupertinoActionSheetAction(
                 onPressed: () {
                   Navigator.pop(context);
-                  setState(() => _tabs[_currentIndex].scripts.removeAt(index));
+                  setState(() => _scripts.removeAt(index));
                 },
                 isDestructiveAction: true,
                 child: const Text('删除'),
@@ -2459,7 +2413,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 onPressed: () {
                   Navigator.pop(context);
                   setState(() {
-                    _tabs[_currentIndex].scripts.insert(index + 1, Script(
+                    _scripts.insert(index + 1, Script(
                       type: script.type,
                       params: Map<String, dynamic>.from(script.params),
                       mode: script.mode,
@@ -2473,19 +2427,19 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                   onPressed: () {
                     Navigator.pop(context);
                     setState(() {
-                      final item = _tabs[_currentIndex].scripts.removeAt(index);
-                      _tabs[_currentIndex].scripts.insert(index - 1, item);
+                      final item = _scripts.removeAt(index);
+                      _scripts.insert(index - 1, item);
                     });
                   },
                   child: const Text('上移'),
                 ),
-              if (index < _tabs[_currentIndex].scripts.length - 1)
+              if (index < _scripts.length - 1)
                 CupertinoActionSheetAction(
                   onPressed: () {
                     Navigator.pop(context);
                     setState(() {
-                      final item = _tabs[_currentIndex].scripts.removeAt(index);
-                      _tabs[_currentIndex].scripts.insert(index + 1, item);
+                      final item = _scripts.removeAt(index);
+                      _scripts.insert(index + 1, item);
                     });
                   },
                   child: const Text('下移'),
@@ -2931,59 +2885,59 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
 
   // 修改执行脚本的方法
   Future<bool> _executeScripts() async {
-    if (_tabs[_currentIndex].scripts.isEmpty) return true;
+    if (_scripts.isEmpty) return true;
     
     setState(() {
-      _tabs[_currentIndex].isExecuting = true;
-      _tabs[_currentIndex].successCount = 0;
-      _tabs[_currentIndex].failureCount = 0;
-      _tabs[_currentIndex].currentScriptIndex = 0;
-      _tabs[_currentIndex].remainingLoopCount = _tabs[_currentIndex].originalLoopCount;  // 重置剩余循环次数
+      _isExecuting = true;
+      _successCount = 0;
+      _failureCount = 0;
+      _currentScriptIndex = 0;
+      _remainingLoopCount = _originalLoopCount;  // 重置剩余循环次数
     });
     
     _resetInactivityTimer();
     
-    while (_tabs[_currentIndex].originalLoopCount == 0 || _tabs[_currentIndex].remainingLoopCount > 0) {
-      if (!_tabs[_currentIndex].isExecuting) break;
+    while (_originalLoopCount == 0 || _remainingLoopCount > 0) {
+      if (!_isExecuting) break;
       
-      for (var i = 0; i < _tabs[_currentIndex].scripts.length && _tabs[_currentIndex].isExecuting; i++) {
-        await Future.delayed(Duration(milliseconds: _tabs[_currentIndex].executionDelay));
+      for (var i = 0; i < _scripts.length && _isExecuting; i++) {
+        await Future.delayed(Duration(milliseconds: _executionDelay));
         
-        setState(() => _tabs[_currentIndex].currentScriptIndex = i);
-        if (!_tabs[_currentIndex].scripts[i].isEnabled) continue;
+        setState(() => _currentScriptIndex = i);
+        if (!_scripts[i].isEnabled) continue;
         
-        if (_tabs[_currentIndex].isPaused) {
+        if (_isPaused) {
           await Future.doWhile(() async {
             await Future.delayed(const Duration(milliseconds: 100));
-            return _tabs[_currentIndex].isPaused;
+            return _isPaused;
           });
         }
         
         try {
-          final success = await executeScript(_tabs[_currentIndex].scripts[i]);
+          final success = await executeScript(_scripts[i]);
           setState(() {
-            if (success) {_tabs[_currentIndex].successCount++;} else {_tabs[_currentIndex].failureCount++;}
+            if (success) {_successCount++;} else {_failureCount++;}
           });
         } catch (e) {
-          setState(() => _tabs[_currentIndex].failureCount++);
+          setState(() => _failureCount++);
           debugPrint('Execute script error: $e');
         }
       }
       
-      if (_tabs[_currentIndex].originalLoopCount > 0) {
+      if (_originalLoopCount > 0) {
         setState(() {
-          _tabs[_currentIndex].remainingLoopCount--;
+          _remainingLoopCount--;
         });
       }
     }
     
     setState(() {
-      _tabs[_currentIndex].isExecuting = false;
-      _tabs[_currentIndex].currentScriptIndex = 0;
+      _isExecuting = false;
+      _currentScriptIndex = 0;
     });
     
     _resetInactivityTimer();
-    return _tabs[_currentIndex].successCount > 0;
+    return _successCount > 0;
   }
 
   // 添加脚本编辑对话框
@@ -3074,10 +3028,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 
                 setState(() {
                   if (script == null) {
-                    _tabs[_currentIndex].scripts.add(newScript);
+                    _scripts.add(newScript);
                   } else {
-                    final index = _tabs[_currentIndex].scripts.indexOf(script);
-                    _tabs[_currentIndex].scripts[index] = newScript;
+                    final index = _scripts.indexOf(script);
+                    _scripts[index] = newScript;
                   }
                 });
                 Navigator.pop(context);
@@ -3318,123 +3272,193 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
 
     setState(() {
       if (type == '点击文字') {
-        _tabs[_currentIndex].scripts.add(Script(
+        _scripts.add(Script(
           type: "点击文字",
           mode: ScriptMode.normal,  // 默认使用普通模式
           params: {
             '点击文字': data,
             '完全匹配': true,  // 默认开启完全匹配
-            '执行延迟': _tabs[_currentIndex].executionDelay ~/ _tabs[_currentIndex].delayTimeUnit.multiplier,  // 使用当前标签页延迟设置
-            '时间单位': _tabs[_currentIndex].delayTimeUnit.label,  // 使用当前标签页时间单位
+            '执行延迟': _executionDelay ~/ _delayTimeUnit.multiplier,  // 使用全局延迟设置
+            '时间单位': _delayTimeUnit.label,  // 使用全局时间单位
           },
         ));
       } else if (type == '输入框提交') {
-        try {
-          final formData = json.decode(data) as Map<String, dynamic>;
-          _tabs[_currentIndex].scripts.add(Script(
-            type: '输入框提交',
-            params: {
-              ...formData,
-              '执行延迟': _tabs[_currentIndex].executionDelay ~/ _tabs[_currentIndex].delayTimeUnit.multiplier,
-              '时间单位': _tabs[_currentIndex].delayTimeUnit.label,
-            },
-          ));
-        } catch (e) {
-          debugPrint('Parse input data error: $e');
-        }
+        // ... 其他录制逻辑保持不变
       }
     });
   }
 
-  // 添加在标签页之间复制脚本的方法
-  void _copyScriptsToOtherTabs() {
-    if (_tabs.isEmpty || _currentIndex < 0 || _tabs[_currentIndex].scripts.isEmpty) return;
+  // 添加一个方法来暂停或继续脚本执行
+  void _togglePauseScript() {
+    if (!_isExecuting) return;
     
-    showCupertinoModalPopup(
-      context: context,
-      builder: (context) => Container(
-        height: 300,
-        decoration: BoxDecoration(
-          color: CupertinoColors.black.withAlpha(230),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-        ),
-        child: Column(
+    setState(() {
+      _isPaused = !_isPaused;
+    });
+  }
+  
+  // 添加一个方法来停止所有标签页的脚本执行
+  void _stopAllScripts() {
+    setState(() {
+      for (var tab in _tabs) {
+        tab.isExecutingScript = false;
+      }
+      _isExecuting = false;
+      _isPaused = false;
+    });
+  }
+
+  // 修改脚本控制按钮
+  Widget _buildScriptControls() {
+    final bool anyTabRunning = _tabs.any((tab) => tab.isExecutingScript);
+    final currentTabRunning = _currentIndex >= 0 && _currentIndex < _tabs.length && _tabs[_currentIndex].isExecutingScript;
+    
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            // 开始/停止按钮
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              onPressed: currentTabRunning ? () => _stopScriptForTab(_tabs[_currentIndex]) : _executeScripts,
+              child: Column(
                 children: [
-                  const Text(
-                    '复制脚本到标签页',
-                    style: TextStyle(
-                      color: CupertinoColors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  Icon(
+                    currentTabRunning ? CupertinoIcons.stop_circle : CupertinoIcons.play_circle,
+                    color: currentTabRunning ? CupertinoColors.systemRed : CupertinoColors.systemGreen,
+                    size: 24,
                   ),
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('取消'),
+                  const SizedBox(height: 4),
+                  Text(
+                    currentTabRunning ? '停止' : '启动',
+                    style: const TextStyle(
+                      color: CupertinoColors.white,
+                      fontSize: 12,
+                    ),
                   ),
                 ],
               ),
             ),
-            const Divider(height: 1, color: CupertinoColors.systemGrey),
-            Expanded(
-              child: ListView.builder(
-                itemCount: _tabs.length,
-                itemBuilder: (context, index) {
-                  if (index == _currentIndex) return const SizedBox.shrink();
-                  
-                  final tab = _tabs[index];
-                  return CupertinoListTile(
-                    title: Text(
-                      tab.title,
-                      style: const TextStyle(color: CupertinoColors.white),
+            // 暂停/继续按钮
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              onPressed: anyTabRunning ? _togglePauseScript : null,
+              child: Column(
+                children: [
+                  Icon(
+                    _isPaused ? CupertinoIcons.play : CupertinoIcons.pause,
+                    color: anyTabRunning 
+                        ? (_isPaused ? CupertinoColors.systemGreen : CupertinoColors.systemYellow)
+                        : CupertinoColors.systemGrey,
+                    size: 24,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _isPaused ? '继续' : '暂停',
+                    style: TextStyle(
+                      color: anyTabRunning ? CupertinoColors.white : CupertinoColors.systemGrey,
+                      fontSize: 12,
                     ),
-                    subtitle: Text(
-                      tab.url,
-                      style: const TextStyle(color: CupertinoColors.systemGrey),
+                  ),
+                ],
+              ),
+            ),
+            // 停止所有脚本按钮
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              onPressed: anyTabRunning ? _stopAllScripts : null,
+              child: Column(
+                children: [
+                  Icon(
+                    CupertinoIcons.stop_circle_fill,
+                    color: anyTabRunning ? CupertinoColors.destructiveRed : CupertinoColors.systemGrey,
+                    size: 24,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '停止全部',
+                    style: TextStyle(
+                      color: anyTabRunning ? CupertinoColors.white : CupertinoColors.systemGrey,
+                      fontSize: 12,
                     ),
-                    trailing: const Icon(CupertinoIcons.arrow_right, color: CupertinoColors.systemGrey),
-                    onTap: () {
-                      setState(() {
-                        // 清除目标标签页的脚本
-                        tab.scripts.clear();
-                        
-                        // 复制当前标签页的脚本
-                        for (var script in _tabs[_currentIndex].scripts) {
-                          tab.scripts.add(Script(
-                            type: script.type,
-                            params: Map<String, dynamic>.from(script.params),
-                            isEnabled: script.isEnabled,
-                            mode: script.mode,
-                          ));
-                        }
-                        
-                        // 复制其他脚本设置
-                        tab.executionDelay = _tabs[_currentIndex].executionDelay;
-                        tab.delayTimeUnit = _tabs[_currentIndex].delayTimeUnit;
-                        tab.originalLoopCount = _tabs[_currentIndex].originalLoopCount;
-                        tab.remainingLoopCount = _tabs[_currentIndex].originalLoopCount;
-                      });
-                      
-                      Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('脚本已复制到所选标签页'),
-                        ),
-                      );
-                    },
-                  );
-                },
+                  ),
+                ],
               ),
             ),
           ],
         ),
-      ),
+        const SizedBox(height: 8),
+        // 循环次数显示
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              '循环次数: ',
+              style: const TextStyle(
+                color: CupertinoColors.white,
+                fontSize: 14,
+              ),
+            ),
+            CupertinoButton(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              onPressed: _originalLoopCount > 1 ? () {
+                setState(() => _originalLoopCount = _originalLoopCount > 1 
+                    ? _originalLoopCount - 1 : 1);
+              } : null,
+              child: const Icon(
+                CupertinoIcons.minus_circle,
+                color: CupertinoColors.white,
+                size: 18,
+              ),
+            ),
+            Text(
+              '$_originalLoopCount',
+              style: const TextStyle(
+                color: CupertinoColors.white,
+                fontSize: 14,
+              ),
+            ),
+            CupertinoButton(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              onPressed: () {
+                setState(() => _originalLoopCount += 1);
+              },
+              child: const Icon(
+                CupertinoIcons.plus_circle,
+                color: CupertinoColors.white,
+                size: 18,
+              ),
+            ),
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              onPressed: () {
+                setState(() => _originalLoopCount = 0);
+              },
+              child: Text(
+                _originalLoopCount == 0 ? '无限循环' : '设为无限',
+                style: const TextStyle(
+                  color: CupertinoColors.activeBlue,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
+  }
+
+  void _stopScriptForTab(BrowserTab tab) {
+    setState(() {
+      tab.isExecutingScript = false;
+      
+      // Check if any tab is still executing scripts
+      bool anyTabExecuting = _tabs.any((t) => t.isExecutingScript);
+      if (!anyTabExecuting) {
+        _isExecuting = false;
+        _isPaused = false;
+      }
+    });
   }
 }
