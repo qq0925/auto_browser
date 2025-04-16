@@ -53,6 +53,7 @@ class BrowserTab {
   int successCount = 0;  // 成功执行的脚本计数
   int failureCount = 0;  // 失败执行的脚本计数
   int remainingLoopCount = 1;  // 剩余循环次数
+  List<Script> scripts = []; // 添加每个标签页自己的脚本列表
 
   BrowserTab({
     required this.id,
@@ -2885,7 +2886,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
 
   // 修改执行脚本的方法
   Future<bool> _executeScripts() async {
-    if (_scripts.isEmpty) return true;
+    if (_tabs.isEmpty || _currentIndex < 0) return false;
+    
+    final currentTab = _tabs[_currentIndex];
+    if (currentTab.scripts.isEmpty) return true;
     
     setState(() {
       _isExecuting = true;
@@ -2900,11 +2904,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
     while (_originalLoopCount == 0 || _remainingLoopCount > 0) {
       if (!_isExecuting) break;
       
-      for (var i = 0; i < _scripts.length && _isExecuting; i++) {
+      for (var i = 0; i < currentTab.scripts.length && _isExecuting; i++) {
         await Future.delayed(Duration(milliseconds: _executionDelay));
         
         setState(() => _currentScriptIndex = i);
-        if (!_scripts[i].isEnabled) continue;
+        if (!currentTab.scripts[i].isEnabled) continue;
         
         if (_isPaused) {
           await Future.doWhile(() async {
@@ -2914,7 +2918,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
         }
         
         try {
-          final success = await executeScript(_scripts[i]);
+          final success = await executeScript(currentTab.scripts[i]);
           setState(() {
             if (success) {_successCount++;} else {_failureCount++;}
           });
@@ -2942,6 +2946,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
 
   // 添加脚本编辑对话框
   void _showAddOrEditScript({Script? script}) {
+    if (_tabs.isEmpty || _currentIndex < 0 || _currentIndex >= _tabs.length) return;
+    final currentTab = _tabs[_currentIndex]; // Get a non-null reference
+    
     String type = script?.type ?? "点击文字";
     ScriptMode mode = script?.mode ?? ScriptMode.simple;
     Map<String, dynamic> params = script?.params ?? {};
@@ -3028,10 +3035,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> with WidgetsBindingOb
                 
                 setState(() {
                   if (script == null) {
-                    _scripts.add(newScript);
+                    currentTab.scripts.add(newScript);
                   } else {
-                    final index = _scripts.indexOf(script);
-                    _scripts[index] = newScript;
+                    final index = currentTab.scripts.indexOf(script);
+                    currentTab.scripts[index] = newScript;
                   }
                 });
                 Navigator.pop(context);
