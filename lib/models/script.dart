@@ -1,90 +1,87 @@
 import 'dart:convert';
 
-// 添加脚本模式枚举
 enum ScriptMode {
-  simple('简单'),
-  normal('普通'),
-  expert('专家');
-
-  final String label;
-  const ScriptMode(this.label);
+  simple, // 简单模式：只记录点击和输入
+  normal, // 普通模式：记录更多交互
+  expert, // 专家模式：允许自定义JS
 }
 
-// 添加时间单位枚举
 enum TimeUnit {
-  milliseconds('毫秒', 1),
-  seconds('秒', 1000),
-  minutes('分钟', 60000);
+  milliseconds,
+  seconds,
+  minutes;
 
-  final String label;
-  final int multiplier;
-  const TimeUnit(this.label, this.multiplier);
+  String get label {
+    switch (this) {
+      case TimeUnit.milliseconds:
+        return '毫秒';
+      case TimeUnit.seconds:
+        return '秒';
+      case TimeUnit.minutes:
+        return '分钟';
+    }
+  }
+
+  int get multiplier {
+    switch (this) {
+      case TimeUnit.milliseconds:
+        return 1;
+      case TimeUnit.seconds:
+        return 1000;
+      case TimeUnit.minutes:
+        return 60000;
+    }
+  }
 }
 
-// 修改 Script 类，添加模式属性
 class Script {
-  final String type;
-  final Map<String, dynamic> params;
+  String type; // '点击文字', '输入框提交', '自定义JS', '全局变量'
+  Map<String, dynamic> params;
   bool isEnabled;
-  ScriptMode mode;  // 添加模式属性
 
   Script({
     required this.type,
     required this.params,
     this.isEnabled = true,
-    this.mode = ScriptMode.simple,  // 默认简单模式
   });
 
-  // 修改 fromJson 和 toJson 方法以包含模式
-  factory Script.fromJson(String json) {
-    final data = jsonDecode(json);
+  Map<String, dynamic> getClickParams() {
+    return params;
+  }
+
+  ScriptMode get mode {
+    if (params.containsKey('mode')) {
+      final modeStr = params['mode'];
+      if (modeStr == 'expert') return ScriptMode.expert;
+      if (modeStr == 'normal') return ScriptMode.normal;
+    }
+    // Fallback based on params presence
+    if (params.containsKey('出现文字') || params.containsKey('在此之后')) {
+      return ScriptMode.expert;
+    }
+    if (params.containsKey('出现文字')) {
+      return ScriptMode.normal;
+    }
+    return ScriptMode.simple;
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'type': type,
+      'params': params,
+      'isEnabled': isEnabled,
+    };
+  }
+
+  factory Script.fromMap(Map<String, dynamic> map) {
     return Script(
-      type: data['脚本类型'],
-      params: Map<String, dynamic>.from(data['参数']),
-      isEnabled: data['启用'] ?? true,
-      mode: ScriptMode.values.firstWhere(
-        (m) => m.label == (data['模式'] ?? '简单'),
-        orElse: () => ScriptMode.simple,
-      ),
+      type: map['type'],
+      params: Map<String, dynamic>.from(map['params']),
+      isEnabled: map['isEnabled'] ?? true,
     );
   }
 
-  String toJson() {
-    return jsonEncode({
-      '脚本类型': type,
-      '参数': params,
-      '启用': isEnabled,
-      '模式': mode.label,
-    });
-  }
+  String toJson() => json.encode(toMap());
 
-  Map<String, dynamic> getClickParams() {
-    if (type != "点击文字") return {};
-    
-    switch (mode) {
-      case ScriptMode.simple:
-        return {
-          '点击文字': params['点击文字'] ?? '',
-        };
-      case ScriptMode.normal:
-        return {
-          '执行延迟': params['执行延迟'] ?? 0,
-          '时间单位': params['时间单位'] ?? '毫秒',
-          '出现文字': params['出现文字'] ?? '',
-          '点击文字': params['点击文字'] ?? '',
-          '完全匹配': params['完全匹配'] ?? false,
-        };
-      case ScriptMode.expert:
-        return {
-          '执行延迟': params['执行延迟'] ?? 0,
-          '时间单位': params['时间单位'] ?? '毫秒',
-          '出现文字': params['出现文字'] ?? '',
-          '在此之后': params['在此之后'] ?? '',
-          '在此之前': params['在此之前'] ?? '',
-          '点击文字': params['点击文字'] ?? '',
-          '完全匹配': params['完全匹配'] ?? false,
-          '多个筛选': params['多个筛选'] ?? 1,
-        };
-    }
-  }
+  factory Script.fromJson(String source) => Script.fromMap(json.decode(source));
 }

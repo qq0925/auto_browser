@@ -7,6 +7,8 @@ import '../providers/script_provider.dart';
 import '../widgets/browser_view.dart';
 import '../widgets/script_panel.dart';
 import 'dart:async';
+import 'dart:io';
+import 'package:permission_handler/permission_handler.dart';
 
 class BrowserHomePage extends StatefulWidget {
   const BrowserHomePage({super.key});
@@ -24,8 +26,18 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
     super.initState();
     // Initial setup if needed
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _requestPermissions();
       _initTabs();
     });
+  }
+
+  Future<void> _requestPermissions() async {
+    if (Platform.isIOS) {
+      await [
+        Permission.photos,
+        Permission.mediaLibrary,
+      ].request();
+    }
   }
 
   Future<void> _initTabs() async {

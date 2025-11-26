@@ -638,7 +638,7 @@ packages:
     source: hosted
     version: "2.10.0"
   webview_flutter_wkwebview:
-    dependency: "direct overridden"
+    dependency: transitive
     description:
       name: webview_flutter_wkwebview
       sha256: c49a98510080378b1525132f407a92c3dcd3b7145bef04fb8137724aadcf1cf0

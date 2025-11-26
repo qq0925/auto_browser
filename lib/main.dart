@@ -1,6 +1,4 @@
 import 'package:flutter/cupertino.dart';
-import 'dart:io';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'screens/home_screen.dart';
 import 'providers/browser_provider.dart';
@@ -8,12 +6,6 @@ import 'providers/script_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // 请求网络权限
-  if (Platform.isIOS) {
-    await Permission.photos.request();
-    await Permission.mediaLibrary.request();
-  }
 
   runApp(
     MultiProvider(

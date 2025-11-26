@@ -42,7 +42,15 @@
 #### [MODIFY] [main.dart](file:///e:/auto_browser/auto_browser/lib/main.dart)
 - 保留 `main()` 函数和 `MyApp` 类
 - 导入 `lib/screens/home_screen.dart`
+- 保留 `main()` 函数和 `MyApp` 类
+- 导入 `lib/screens/home_screen.dart`
 - 移除所有已提取的类定义
+- **[FIX]** 移除 `main()` 中的阻塞性权限请求，移动到 `BrowserHomePage` 的 `initState` 中处理。
+
+### 5. 修复配置 (Configuration)
+
+#### [MODIFY] [pubspec.yaml](file:///e:/auto_browser/auto_browser/pubspec.yaml)
+- 移除 `dependency_overrides`，允许 `webview_flutter` 使用兼容的依赖版本。
 
 ## 验证计划
 
