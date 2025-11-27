@@ -123,7 +123,14 @@ class _PageInfoDialogState extends State<PageInfoDialog> {
             const SizedBox(height: 16),
 
             // Address Row
-            _buildInfoRow('地址', widget.url, true),
+            _buildInfoRow(
+              '地址',
+              (widget.url.endsWith('welcome.html') ||
+                      widget.url.startsWith('file://'))
+                  ? 'welcome.html'
+                  : widget.url,
+              true,
+            ),
             const SizedBox(height: 16),
 
             // Source Header Row
@@ -160,6 +167,7 @@ class _PageInfoDialogState extends State<PageInfoDialog> {
                         style: const TextStyle(
                           fontFamily: 'monospace',
                           fontSize: 12,
+                          color: Colors.black87, // Darker text color
                         ),
                         decoration: const InputDecoration(
                           border: InputBorder.none,

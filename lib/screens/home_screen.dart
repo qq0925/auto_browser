@@ -16,10 +16,9 @@ import '../widgets/page_info_dialog.dart';
 import '../widgets/bottom_grid_menu.dart';
 import '../widgets/bookmarks_history_dialog.dart';
 import '../widgets/auto_refresh_dialog.dart';
-import 'dart:ui' as ui;
-import 'package:flutter/rendering.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:screenshot/screenshot.dart';
 
 class BrowserHomePage extends StatefulWidget {
   const BrowserHomePage({super.key});
@@ -30,7 +29,7 @@ class BrowserHomePage extends StatefulWidget {
 
 class _BrowserHomePageState extends State<BrowserHomePage> {
   final TextEditingController _urlController = TextEditingController();
-  final GlobalKey _globalKey = GlobalKey();
+  final ScreenshotController _screenshotController = ScreenshotController();
   bool _canGoBack = false;
   bool _canGoForward = false;
 
@@ -163,18 +162,17 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
 
   Future<void> _captureAndShareScreenshot() async {
     try {
-      RenderRepaintBoundary boundary = _globalKey.currentContext!
-          .findRenderObject() as RenderRepaintBoundary;
-      ui.Image image = await boundary.toImage(pixelRatio: 3.0);
-      ByteData? byteData =
-          await image.toByteData(format: ui.ImageByteFormat.png);
-      Uint8List pngBytes = byteData!.buffer.asUint8List();
+      final Uint8List? pngBytes = await _screenshotController.capture();
 
-      final tempDir = await getTemporaryDirectory();
-      final file = await File('${tempDir.path}/screenshot.png').create();
-      await file.writeAsBytes(pngBytes);
+      if (pngBytes != null) {
+        final tempDir = await getTemporaryDirectory();
+        final file = await File('${tempDir.path}/screenshot.png').create();
+        await file.writeAsBytes(pngBytes);
 
-      await Share.shareXFiles([XFile(file.path)], text: '来自 Auok浏览器的截图');
+        await Share.shareXFiles([XFile(file.path)], text: '来自 Auok浏览器的截图');
+      } else {
+        throw Exception('截图生成失败');
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -398,11 +396,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                         }
                       } else if (value == 'screenshot') {
                         _captureAndShareScreenshot();
-                      } else if (value == 'settings') {
-                        showDialog(
-                          context: context,
-                          builder: (context) => const GlobalSettingsDialog(),
-                        );
                       } else if (value == 'about') {
                         showAboutDialog(
                           context: context,
@@ -434,17 +427,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                                 color: Colors.black87, size: 20),
                             SizedBox(width: 12),
                             Text('截屏'),
-                          ],
-                        ),
-                      ),
-                      const PopupMenuItem(
-                        value: 'settings',
-                        child: Row(
-                          children: [
-                            Icon(Icons.settings_outlined,
-                                color: Colors.black87, size: 20),
-                            SizedBox(width: 12),
-                            Text('设置'),
                           ],
                         ),
                       ),
@@ -482,8 +464,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
             ),
             actions: [], // Empty actions as menu is moved to title
           ),
-          body: RepaintBoundary(
-            key: _globalKey,
+          body: Screenshot(
+            controller: _screenshotController,
             child: Stack(
               children: [
                 // WebView 区域 - 全屏，不挤压
@@ -677,8 +659,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                   },
                   onSettings: () {
                     Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('功能开发中')),
+                    showDialog(
+                      context: context,
+                      builder: (context) => const GlobalSettingsDialog(),
                     );
                   },
                 ),
