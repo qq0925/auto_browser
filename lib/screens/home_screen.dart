@@ -20,6 +20,8 @@ class BrowserHomePage extends StatefulWidget {
 class _BrowserHomePageState extends State<BrowserHomePage> {
   final TextEditingController _urlController = TextEditingController();
   bool _showScriptPanel = false;
+  bool _canGoBack = false;
+  bool _canGoForward = false;
 
   @override
   void initState() {
@@ -92,6 +94,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
               browserProvider.addToHistory(url, title);
             }
 
+            // Update navigation state
+            if (!mounted) return;
+            _updateNavigationState();
+
             // Inject script recording listener
             await controller.runJavaScript('''
                 document.addEventListener('click', function(e) {
@@ -159,6 +165,28 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
         initialUrl: initialUrl,
         initialTitle: initialTitle,
         controller: controller);
+  }
+
+  Future<void> _updateNavigationState() async {
+    final browserProvider = context.read<BrowserProvider>();
+    if (browserProvider.currentTab != null) {
+      final canBack = await browserProvider.currentTab!.controller.canGoBack();
+      final canForward =
+          await browserProvider.currentTab!.controller.canGoForward();
+      if (mounted) {
+        setState(() {
+          _canGoBack = canBack;
+          _canGoForward = canForward;
+        });
+      }
+    } else {
+      if (mounted) {
+        setState(() {
+          _canGoBack = false;
+          _canGoForward = false;
+        });
+      }
+    }
   }
 
   @override
@@ -272,22 +300,20 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
         children: [
           CupertinoButton(
             padding: EdgeInsets.zero,
-            onPressed: browser.currentTab != null
+            onPressed: browser.currentTab != null && _canGoBack
                 ? () async {
-                    if (await browser.currentTab!.controller.canGoBack()) {
-                      browser.currentTab!.controller.goBack();
-                    }
+                    await browser.currentTab!.controller.goBack();
+                    _updateNavigationState();
                   }
                 : null,
             child: const Icon(CupertinoIcons.back),
           ),
           CupertinoButton(
             padding: EdgeInsets.zero,
-            onPressed: browser.currentTab != null
+            onPressed: browser.currentTab != null && _canGoForward
                 ? () async {
-                    if (await browser.currentTab!.controller.canGoForward()) {
-                      browser.currentTab!.controller.goForward();
-                    }
+                    await browser.currentTab!.controller.goForward();
+                    _updateNavigationState();
                   }
                 : null,
             child: const Icon(CupertinoIcons.forward),
@@ -308,13 +334,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
               _showTabsList(context, browser);
             },
             child: const Icon(CupertinoIcons.square_on_square),
-          ),
-          CupertinoButton(
-            padding: EdgeInsets.zero,
-            onPressed: () {
-              // Show settings
-            },
-            child: const Icon(CupertinoIcons.settings),
           ),
         ],
       ),

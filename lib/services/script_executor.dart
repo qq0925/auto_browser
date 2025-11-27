@@ -174,67 +174,78 @@ class ScriptExecutor {
             if (!hasText) return false;
           }
           
-          let content = document.body.innerHTML;
+          // Get all links in the document
+          const allLinks = Array.from(document.querySelectorAll('a'));
+          
+          // Filter by position constraints if specified
           const afterText = "${params['在此之后'] ?? ''}".trim();
           const beforeText = "${params['在此之前'] ?? ''}".trim();
           
-          if (afterText) {
-            const afterIndex = content.indexOf(afterText);
-            if (afterIndex === -1) return false;
-            content = content.substring(afterIndex + afterText.length);
+          let candidateLinks = allLinks;
+          
+          if (afterText || beforeText) {
+            candidateLinks = allLinks.filter(link => {
+              const linkHTML = link.outerHTML;
+              const bodyHTML = document.body.innerHTML;
+              const linkPosition = bodyHTML.indexOf(linkHTML);
+              
+              if (linkPosition === -1) return false;
+              
+              // Check "在此之后" constraint
+              if (afterText) {
+                const afterPosition = bodyHTML.indexOf(afterText);
+                if (afterPosition === -1 || linkPosition <= afterPosition) {
+                  return false;
+                }
+              }
+              
+              // Check "在此之前" constraint
+              if (beforeText) {
+                const beforePosition = bodyHTML.lastIndexOf(beforeText, linkPosition);
+                if (beforePosition === -1) {
+                  // If beforeText not found before this link, check if it exists after
+                  const beforePositionAfter = bodyHTML.indexOf(beforeText, linkPosition);
+                  if (beforePositionAfter === -1 || beforePositionAfter <= linkPosition) {
+                    return false;
+                  }
+                }
+              }
+              
+              return true;
+            });
           }
           
-          if (beforeText) {
-            const beforeIndex = content.indexOf(beforeText);
-            if (beforeIndex === -1) return false;
-            content = content.substring(0, beforeIndex);
-          }
-          
-          const temp = document.createElement('div');
-          temp.innerHTML = content;
-          
+          // Filter by click text
           const clickTexts = "${params['点击文字']}".split(';').filter(t => t.trim());
           const isExactMatch = ${params['完全匹配'] ? 'true' : 'false'};
-          const selectionIndex = ${params['多个筛选'] ?? 1};
           
           for (const text of clickTexts) {
-            const links = Array.from(temp.querySelectorAll('a')).filter(a => {
+            const matchedLinks = candidateLinks.filter(a => {
               const linkText = a.textContent.trim();
               return isExactMatch ? linkText === text.trim() : linkText.includes(text.trim());
             });
             
-            if (links.length > 0) {
+            if (matchedLinks.length > 0) {
+              // Apply selection index
+              const selectionIndex = ${params['多个筛选'] ?? 1};
               let targetIndex = 0;
+              
               if (selectionIndex === 0) {
-                targetIndex = Math.floor(Math.random() * links.length);
+                // Random selection
+                targetIndex = Math.floor(Math.random() * matchedLinks.length);
               } else if (selectionIndex > 0) {
-                targetIndex = Math.min(selectionIndex - 1, links.length - 1);
+                // Positive index (1-based)
+                targetIndex = Math.min(selectionIndex - 1, matchedLinks.length - 1);
               } else {
-                targetIndex = Math.max(0, links.length + selectionIndex);
+                // Negative index (-1 means last)
+                targetIndex = Math.max(0, matchedLinks.length + selectionIndex);
               }
               
-              // Find the actual element in the real DOM
-              // This is tricky because we are working on a substring.
-              // For simplicity in this refactor, we will try to find the element again in the main document
-              // using a more specific selector or just by text content if possible.
-              // NOTE: This logic is simplified from the original for robustness.
-              // In a real expert mode, we might need XPath or more complex logic.
-              
-              // Fallback to clicking the first match in the filtered list for now to maintain behavior
-              // or try to match by text content again.
-               const foundLink = links[targetIndex];
-               if(foundLink) {
-                 // We need to find this element in the real document.
-                 // Since 'temp' is detached, we can't click it.
-                 // We will search for 'a' tags in the document that match the text.
-                 const realLinks = Array.from(document.querySelectorAll('a')).filter(a => a.textContent.trim() === foundLink.textContent.trim());
-                 if(realLinks.length > 0) {
-                    realLinks[0].click();
-                    return true;
-                 }
-               }
+              matchedLinks[targetIndex].click();
+              return true;
             }
           }
+          
           return false;
         ''';
     }
