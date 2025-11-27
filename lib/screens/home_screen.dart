@@ -63,6 +63,21 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
             // Reset progress to 0 when page starts loading
             browserProvider.updateTabProgress(0.0);
             browserProvider.currentTab?.isLoading = true;
+
+            // Try to get title from history for instant display
+            if (url != 'about:blank' && !url.endsWith('welcome.html')) {
+              final historyItem = browserProvider.history.firstWhere(
+                (item) => item.url == url,
+                orElse: () => HistoryItem(
+                  title: '加载中...',
+                  url: url,
+                  visitedAt: DateTime.now(),
+                ),
+              );
+              browserProvider.currentTab?.title = historyItem.title;
+              browserProvider.currentTab?.url = url;
+            }
+
             if (url.startsWith('http')) {
               browserProvider.currentTab?.url = url;
               if (!FocusScope.of(context).hasFocus) {
@@ -74,6 +89,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
           onPageFinished: (String url) async {
             // Set progress to 100% when page finishes
             browserProvider.updateTabProgress(1.0);
+            browserProvider.currentTab?.isLoading = false;
 
             final title = await webViewController!.getTitle() ?? url;
             browserProvider.currentTab?.title = title;
@@ -327,16 +343,41 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                   bottom: 0,
                   left: 0,
                   right: 0,
-                  child: browserProvider.currentTab != null &&
-                          browserProvider.currentTab!.progress < 1.0
-                      ? SizedBox(
-                          height: 3.0,
-                          child: LinearProgressIndicator(
-                            value: browserProvider.currentTab!.progress,
-                            backgroundColor: Colors.grey[800],
-                            valueColor: const AlwaysStoppedAnimation<Color>(
-                                Color(0xFF4CAF50)),
-                          ),
+                  child: browserProvider.currentTab != null
+                      ? Stack(
+                          children: [
+                            // Progress bar
+                            if (browserProvider.currentTab!.progress < 1.0)
+                              SizedBox(
+                                height: 3.0,
+                                child: LinearProgressIndicator(
+                                  value: browserProvider.currentTab!.progress,
+                                  backgroundColor: Colors.grey[800],
+                                  valueColor:
+                                      const AlwaysStoppedAnimation<Color>(
+                                          Color(0xFF4CAF50)),
+                                ),
+                              )
+                            else
+                              const SizedBox(height: 3.0),
+                            // Fallback: spinning indicator if isLoading
+                            if (browserProvider.currentTab!.isLoading &&
+                                browserProvider.currentTab!.progress == 0.0)
+                              Positioned(
+                                right: 8,
+                                top: -10,
+                                child: SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor:
+                                        const AlwaysStoppedAnimation<Color>(
+                                            Colors.white),
+                                  ),
+                                ),
+                              ),
+                          ],
                         )
                       : const SizedBox(height: 3.0),
                 ),
