@@ -150,134 +150,166 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
           appBar: AppBar(
             backgroundColor: Colors.grey[800],
             elevation: 0,
-            leading: IconButton(
-              icon: Icon(
-                browserProvider.currentTab != null &&
-                        browserProvider
-                            .isBookmarked(browserProvider.currentTab!.url)
-                    ? Icons.star
-                    : Icons.star_border,
-                color: browserProvider.currentTab != null &&
-                        browserProvider
-                            .isBookmarked(browserProvider.currentTab!.url)
-                    ? Colors.amber
-                    : Colors.white,
-              ),
-              onPressed: browserProvider.currentTab != null &&
-                      !browserProvider.currentTab!.url
-                          .endsWith('welcome.html') &&
-                      !browserProvider.currentTab!.url.startsWith('file://')
-                  ? () {
-                      browserProvider.toggleBookmark(
-                        browserProvider.currentTab!.url,
-                        browserProvider.currentTab!.title,
-                      );
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(browserProvider
-                                  .isBookmarked(browserProvider.currentTab!.url)
-                              ? '已添加书签'
-                              : '已移除书签'),
-                          duration: const Duration(seconds: 1),
+            toolbarHeight:
+                70, // Increased height for framed container with spacing
+            title: Stack(
+              children: [
+                // Framed container for controls
+                Container(
+                  margin: const EdgeInsets.only(top: 8, bottom: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[700],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: Colors.grey[600]!,
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      // Bookmark button
+                      IconButton(
+                        icon: Icon(
+                          browserProvider.currentTab != null &&
+                                  browserProvider.isBookmarked(
+                                      browserProvider.currentTab!.url)
+                              ? Icons.star
+                              : Icons.star_border,
+                          color: browserProvider.currentTab != null &&
+                                  browserProvider.isBookmarked(
+                                      browserProvider.currentTab!.url)
+                              ? Colors.amber
+                              : Colors.white,
+                          size: 22,
                         ),
-                      );
-                    }
-                  : null, // Disable for welcome page or file urls
-            ),
-            title: GestureDetector(
-              onTap: () {
-                if (browserProvider.currentTab != null) {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => UrlSearchOverlay(
-                        initialUrl:
-                            browserProvider.currentTab!.url == 'about:blank' ||
-                                    browserProvider.currentTab!.url
-                                        .endsWith('welcome.html')
-                                ? ''
-                                : browserProvider.currentTab!.url,
-                        onSubmitted: (value) async {
-                          if (value.trim().isNotEmpty) {
-                            String url = value.trim();
-                            if (url == 'welcome.html') {
-                              // Handle welcome.html specifically
-                              await browserProvider.currentTab!.controller
-                                  .loadFlutterAsset('assets/welcome.html');
-                            } else {
-                              if (!url.startsWith('http://') &&
-                                  !url.startsWith('https://') &&
-                                  !url.startsWith('file://')) {
-                                url = 'http://$url'; // Default to http
+                        onPressed: browserProvider.currentTab != null &&
+                                !browserProvider.currentTab!.url
+                                    .endsWith('welcome.html') &&
+                                !browserProvider.currentTab!.url
+                                    .startsWith('file://')
+                            ? () {
+                                browserProvider.toggleBookmark(
+                                  browserProvider.currentTab!.url,
+                                  browserProvider.currentTab!.title,
+                                );
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(browserProvider.isBookmarked(
+                                            browserProvider.currentTab!.url)
+                                        ? '已添加书签'
+                                        : '已移除书签'),
+                                    duration: const Duration(seconds: 1),
+                                  ),
+                                );
                               }
-                              await browserProvider.currentTab!.controller
-                                  .loadRequest(Uri.parse(url));
+                            : null,
+                      ),
+                      // URL GestureDetector
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () {
+                            if (browserProvider.currentTab != null) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => UrlSearchOverlay(
+                                    initialUrl:
+                                        browserProvider.currentTab!.url ==
+                                                    'about:blank' ||
+                                                browserProvider.currentTab!.url
+                                                    .endsWith('welcome.html')
+                                            ? ''
+                                            : browserProvider.currentTab!.url,
+                                    onSubmitted: (value) async {
+                                      if (value.trim().isNotEmpty) {
+                                        String url = value.trim();
+                                        if (url == 'welcome.html') {
+                                          await browserProvider
+                                              .currentTab!.controller
+                                              .loadFlutterAsset(
+                                                  'assets/welcome.html');
+                                        } else {
+                                          if (!url.startsWith('http://') &&
+                                              !url.startsWith('https://') &&
+                                              !url.startsWith('file://')) {
+                                            url = 'http://$url';
+                                          }
+                                          await browserProvider
+                                              .currentTab!.controller
+                                              .loadRequest(Uri.parse(url));
+                                        }
+                                        Future.delayed(
+                                            const Duration(milliseconds: 500),
+                                            () {
+                                          if (mounted) {
+                                            _updateNavigationState();
+                                          }
+                                        });
+                                      }
+                                    },
+                                  ),
+                                ),
+                              );
                             }
-
-                            // Update navigation state after a delay
-                            Future.delayed(const Duration(milliseconds: 500),
-                                () {
-                              if (mounted) {
-                                _updateNavigationState();
-                              }
-                            });
-                          }
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 8, horizontal: 12),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              _urlController.text.isEmpty
+                                  ? 'Auok浏览器'
+                                  : (_urlController.text
+                                          .endsWith('welcome.html')
+                                      ? 'welcome.html'
+                                      : _urlController.text),
+                              style: TextStyle(
+                                color: _urlController.text.isEmpty
+                                    ? Colors.white70
+                                    : Colors.white,
+                                fontSize: 15,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                      ),
+                      // Refresh button
+                      IconButton(
+                        icon: const Icon(Icons.refresh,
+                            color: Colors.white, size: 22),
+                        onPressed: () {
+                          browserProvider.currentTab?.controller.reload();
                         },
                       ),
-                    ),
-                  );
-                }
-              },
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(4),
+                    ],
+                  ),
                 ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _urlController.text.isEmpty
-                            ? 'Auok浏览器'
-                            : (_urlController.text.endsWith('welcome.html')
-                                ? 'welcome.html'
-                                : _urlController.text),
-                        style: TextStyle(
-                          color: _urlController.text.isEmpty
-                              ? Colors.white70
-                              : Colors.white,
-                          fontSize: 16,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
+                // Progress bar positioned at the bottom of the framed container area
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: browserProvider.currentTab != null &&
+                          browserProvider.currentTab!.progress < 1.0
+                      ? LinearProgressIndicator(
+                          value: browserProvider.currentTab!.progress,
+                          backgroundColor: Colors.transparent,
+                          valueColor:
+                              const AlwaysStoppedAnimation<Color>(Colors.blue),
+                          minHeight: 3.0,
+                        )
+                      : const SizedBox(height: 3.0),
                 ),
-              ),
-            ),
-            bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(2.0),
-              child: browserProvider.currentTab != null &&
-                      browserProvider.currentTab!.progress < 1.0
-                  ? LinearProgressIndicator(
-                      value: browserProvider.currentTab!.progress,
-                      backgroundColor: Colors.transparent,
-                      valueColor:
-                          const AlwaysStoppedAnimation<Color>(Colors.blue),
-                      minHeight: 3.0, // Slightly thicker for better visibility
-                    )
-                  : const SizedBox(height: 2.0),
+              ],
             ),
             actions: [
-              IconButton(
-                icon: const Icon(Icons.refresh, color: Colors.white),
-                onPressed: () {
-                  browserProvider.currentTab?.controller.reload();
-                },
-              ),
               PopupMenuButton<String>(
                 icon: const Icon(Icons.more_vert, color: Colors.white),
                 onSelected: (value) {
