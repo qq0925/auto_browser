@@ -150,18 +150,18 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
           appBar: AppBar(
             backgroundColor: Colors.grey[800],
             elevation: 0,
-            toolbarHeight:
-                70, // Increased height for framed container with spacing
+            toolbarHeight: 60, // Flatter toolbar
             title: Stack(
               children: [
                 // Framed container for controls
                 Container(
-                  margin: const EdgeInsets.only(top: 8, bottom: 8),
+                  margin: const EdgeInsets.only(top: 6, bottom: 6),
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                   decoration: BoxDecoration(
                     color: Colors.grey[700],
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius:
+                        BorderRadius.circular(4), // Slightly smaller radius
                     border: Border.all(
                       color: Colors.grey[600]!,
                       width: 1,
@@ -182,7 +182,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                                       browserProvider.currentTab!.url)
                               ? Colors.amber
                               : Colors.white,
-                          size: 22,
+                          size: 28, // Larger star icon
                         ),
                         onPressed: browserProvider.currentTab != null &&
                                 !browserProvider.currentTab!.url
@@ -206,6 +206,15 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                               }
                             : null,
                       ),
+
+                      // Vertical Divider
+                      Container(
+                        height: 24,
+                        width: 1,
+                        color: Colors.white38,
+                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                      ),
+
                       // URL GestureDetector
                       Expanded(
                         child: GestureDetector(
@@ -256,11 +265,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                           },
                           child: Container(
                             padding: const EdgeInsets.symmetric(
-                                vertical: 8, horizontal: 12),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
+                                vertical: 8, horizontal: 8),
+                            // Removed decoration to match screenshot (no inner box)
                             child: Text(
                               _urlController.text.isEmpty
                                   ? 'Auok浏览器'
@@ -272,7 +278,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                                 color: _urlController.text.isEmpty
                                     ? Colors.white70
                                     : Colors.white,
-                                fontSize: 15,
+                                fontSize: 16, // Slightly larger font
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -283,7 +289,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                       // Refresh button
                       IconButton(
                         icon: const Icon(Icons.refresh,
-                            color: Colors.white, size: 22),
+                            color: Colors.white, size: 24),
                         onPressed: () {
                           browserProvider.currentTab?.controller.reload();
                         },
