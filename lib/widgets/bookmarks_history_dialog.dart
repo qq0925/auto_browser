@@ -95,9 +95,14 @@ class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
             final bookmark = provider.bookmarks[index];
             return ListTile(
               title: Text(bookmark.title,
-                  maxLines: 1, overflow: TextOverflow.ellipsis),
+                  style: const TextStyle(
+                      color: Colors.black87, fontWeight: FontWeight.bold),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
               subtitle: Text(bookmark.url,
-                  maxLines: 1, overflow: TextOverflow.ellipsis),
+                  style: const TextStyle(color: Colors.black54),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
               onTap: () {
                 provider.currentTab?.controller
                     .loadRequest(Uri.parse(bookmark.url));
@@ -129,9 +134,13 @@ class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
             final item = provider.history[index];
             return ListTile(
               title: Text(item.title,
-                  maxLines: 1, overflow: TextOverflow.ellipsis),
+                  style: const TextStyle(
+                      color: Colors.black87, fontWeight: FontWeight.bold),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
               subtitle: Text(
                 '${item.url}\n${item.visitedAt.year}-${item.visitedAt.month.toString().padLeft(2, '0')}-${item.visitedAt.day.toString().padLeft(2, '0')} ${item.visitedAt.hour.toString().padLeft(2, '0')}:${item.visitedAt.minute.toString().padLeft(2, '0')}',
+                style: const TextStyle(color: Colors.black54),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),

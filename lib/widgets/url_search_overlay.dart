@@ -45,51 +45,56 @@ class _UrlSearchOverlayState extends State<UrlSearchOverlay> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: Colors.grey[800],
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.close, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: TextField(
-          controller: _controller,
-          focusNode: _focusNode,
-          style: const TextStyle(color: Colors.black),
-          keyboardType: TextInputType.url,
-          textInputAction: TextInputAction.go,
-          autocorrect: false,
-          enableSuggestions: false,
-          decoration: const InputDecoration(
-            hintText: '输入网址或搜索...',
-            border: InputBorder.none,
+        automaticallyImplyLeading: false,
+        title: Container(
+          decoration: BoxDecoration(
+            color: Colors.grey[700],
+            borderRadius: BorderRadius.circular(8),
           ),
-          onSubmitted: (value) {
-            String finalValue = value;
-            if (value.trim().isNotEmpty) {
-              if (value == 'welcome.html') {
-                // Keep as is
-              } else if (!value.startsWith('http://') &&
-                  !value.startsWith('https://') &&
-                  !value.startsWith('file://')) {
-                finalValue = 'http://$value';
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: TextField(
+            controller: _controller,
+            focusNode: _focusNode,
+            style: const TextStyle(color: Colors.white),
+            keyboardType: TextInputType.url,
+            textInputAction: TextInputAction.go,
+            autocorrect: false,
+            enableSuggestions: false,
+            decoration: const InputDecoration(
+              hintText: '输入网址或搜索...',
+              hintStyle: TextStyle(color: Colors.white54),
+              border: InputBorder.none,
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(vertical: 10),
+            ),
+            onSubmitted: (value) {
+              String finalValue = value;
+              if (value.trim().isNotEmpty) {
+                if (value == 'welcome.html') {
+                  // Keep as is
+                } else if (!value.startsWith('http://') &&
+                    !value.startsWith('https://') &&
+                    !value.startsWith('file://')) {
+                  finalValue = 'http://$value';
+                }
               }
-            }
-            widget.onSubmitted(finalValue);
-            Navigator.pop(context);
-          },
+              widget.onSubmitted(finalValue);
+              Navigator.pop(context);
+            },
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () {
-              if (_controller.text.isNotEmpty) {
-                widget.onSubmitted(_controller.text);
-                Navigator.pop(context);
-              }
+              Navigator.pop(context);
             },
             child: const Text(
-              '前往',
+              '取消',
               style: TextStyle(
-                color: Colors.blue,
+                color: Colors.white,
+                fontSize: 16, // Slightly larger than default
                 fontWeight: FontWeight.bold,
               ),
             ),

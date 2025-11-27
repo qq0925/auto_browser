@@ -9,16 +9,15 @@ import '../widgets/global_settings_dialog.dart';
 import '../models/browser_data.dart';
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
+
 import 'package:permission_handler/permission_handler.dart';
 import '../widgets/url_search_overlay.dart';
 import '../widgets/page_info_dialog.dart';
 import '../widgets/bottom_grid_menu.dart';
 import '../widgets/bookmarks_history_dialog.dart';
 import '../widgets/auto_refresh_dialog.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:screenshot/screenshot.dart';
+import 'package:native_screenshot/native_screenshot.dart';
 
 class BrowserHomePage extends StatefulWidget {
   const BrowserHomePage({super.key});
@@ -29,7 +28,6 @@ class BrowserHomePage extends StatefulWidget {
 
 class _BrowserHomePageState extends State<BrowserHomePage> {
   final TextEditingController _urlController = TextEditingController();
-  final ScreenshotController _screenshotController = ScreenshotController();
   bool _canGoBack = false;
   bool _canGoForward = false;
 
@@ -162,14 +160,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
 
   Future<void> _captureAndShareScreenshot() async {
     try {
-      final Uint8List? pngBytes = await _screenshotController.capture();
+      String? path = await NativeScreenshot.takeScreenshot();
 
-      if (pngBytes != null) {
-        final tempDir = await getTemporaryDirectory();
-        final file = await File('${tempDir.path}/screenshot.png').create();
-        await file.writeAsBytes(pngBytes);
-
-        await Share.shareXFiles([XFile(file.path)], text: '来自 Auok浏览器的截图');
+      if (path != null) {
+        await Share.shareXFiles([XFile(path)], text: '来自 Auok浏览器的截图');
       } else {
         throw Exception('截图生成失败');
       }
@@ -283,8 +277,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                               if (browserProvider.currentTab != null) {
                                 Navigator.push(
                                   context,
-                                  MaterialPageRoute(
-                                    builder: (context) => UrlSearchOverlay(
+                                  PageRouteBuilder(
+                                    pageBuilder: (context, animation,
+                                            secondaryAnimation) =>
+                                        UrlSearchOverlay(
                                       initialUrl: browserProvider
                                                       .currentTab!.url ==
                                                   'about:blank' ||
@@ -320,6 +316,15 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                                         }
                                       },
                                     ),
+                                    transitionsBuilder: (context, animation,
+                                        secondaryAnimation, child) {
+                                      return FadeTransition(
+                                        opacity: animation,
+                                        child: child,
+                                      );
+                                    },
+                                    transitionDuration:
+                                        const Duration(milliseconds: 200),
                                   ),
                                 );
                               }
@@ -397,13 +402,60 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                       } else if (value == 'screenshot') {
                         _captureAndShareScreenshot();
                       } else if (value == 'about') {
-                        showAboutDialog(
+                        showDialog(
                           context: context,
-                          applicationName: 'Auok浏览器',
-                          applicationVersion: '1.0.0',
-                          children: [
-                            const Text('一个支持自动化的iOS浏览器'),
-                          ],
+                          barrierDismissible: true,
+                          builder: (context) => GestureDetector(
+                            onTap: () => Navigator.pop(context),
+                            child: Dialog(
+                              backgroundColor: Colors.transparent,
+                              insetPadding: const EdgeInsets.all(24),
+                              child: GestureDetector(
+                                onTap: () => Navigator.pop(context),
+                                child: Container(
+                                  padding: const EdgeInsets.all(24),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.public,
+                                          size: 48, color: Colors.blue),
+                                      const SizedBox(height: 16),
+                                      const Text(
+                                        'Auok浏览器',
+                                        style: TextStyle(
+                                          fontSize: 20,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.black87,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      const Text(
+                                        'Version 1.0.0',
+                                        style: TextStyle(
+                                          color: Colors.grey,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 24),
+                                      const Text(
+                                        '一个支持自动化的iOS浏览器\nBy Lin.',
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(
+                                          color: Colors.black87,
+                                          fontSize: 16,
+                                          height: 1.5,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
                         );
                       }
                     },
@@ -464,125 +516,122 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
             ),
             actions: [], // Empty actions as menu is moved to title
           ),
-          body: Screenshot(
-            controller: _screenshotController,
-            child: Stack(
-              children: [
-                // WebView 区域 - 全屏，不挤压
-                browserProvider.tabs.isEmpty
-                    ? const Center(child: CircularProgressIndicator())
-                    : IndexedStack(
-                        index: browserProvider.currentIndex,
-                        children: browserProvider.tabs
-                            .map((tab) =>
-                                WebViewWidget(controller: tab.controller))
-                            .toList(),
-                      ),
+          body: Stack(
+            children: [
+              // WebView 区域 - 全屏，不挤压
+              browserProvider.tabs.isEmpty
+                  ? const Center(child: CircularProgressIndicator())
+                  : IndexedStack(
+                      index: browserProvider.currentIndex,
+                      children: browserProvider.tabs
+                          .map((tab) =>
+                              WebViewWidget(controller: tab.controller))
+                          .toList(),
+                    ),
 
-                // 右侧脚本面板（可折叠）- 浮在WebView上方
-                AnimatedPositioned(
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeInOut,
-                  right: browserProvider.isScriptPanelExpanded
-                      ? 0
-                      : -(MediaQuery.of(context).size.width * 0.5),
-                  top: 50, // Margin from top
-                  bottom: 50, // Margin from bottom
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // 脚本面板切换按钮 - 和面板一体
-                      GestureDetector(
-                        onTap: () {
-                          browserProvider.toggleScriptPanel();
-                        },
-                        child: Container(
-                          width: 24,
-                          height: 60,
-                          margin: EdgeInsets.only(
-                            top: MediaQuery.of(context).size.height / 2 - 80,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.grey[800],
-                            borderRadius: const BorderRadius.only(
-                              topLeft: Radius.circular(12),
-                              bottomLeft: Radius.circular(12),
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.3),
-                                blurRadius: 4,
-                                offset: const Offset(-2, 0),
-                              ),
-                            ],
-                          ),
-                          child: Icon(
-                            browserProvider.isScriptPanelExpanded
-                                ? Icons.chevron_right
-                                : Icons.chevron_left,
-                            color: Colors.white,
-                            size: 20,
-                          ),
+              // 右侧脚本面板（可折叠）- 浮在WebView上方
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeInOut,
+                right: browserProvider.isScriptPanelExpanded
+                    ? 0
+                    : -(MediaQuery.of(context).size.width * 0.5),
+                top: 50, // Margin from top
+                bottom: 50, // Margin from bottom
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // 脚本面板切换按钮 - 和面板一体
+                    GestureDetector(
+                      onTap: () {
+                        browserProvider.toggleScriptPanel();
+                      },
+                      child: Container(
+                        width: 24,
+                        height: 60,
+                        margin: EdgeInsets.only(
+                          top: MediaQuery.of(context).size.height / 2 - 80,
                         ),
-                      ),
-                      // 脚本面板
-                      Container(
-                        width: MediaQuery.of(context).size.width * 0.5,
-                        decoration: const BoxDecoration(
-                          color: Colors.white, // Ensure background is white
-                          borderRadius: BorderRadius.only(
-                            topLeft: Radius.circular(20),
-                            bottomLeft: Radius.circular(20),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[800],
+                          borderRadius: const BorderRadius.only(
+                            topLeft: Radius.circular(12),
+                            bottomLeft: Radius.circular(12),
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black26,
-                              blurRadius: 10,
-                              offset: Offset(-2, 0),
+                              color: Colors.black.withValues(alpha: 0.3),
+                              blurRadius: 4,
+                              offset: const Offset(-2, 0),
                             ),
                           ],
                         ),
-                        child: ClipRRect(
-                          borderRadius: const BorderRadius.only(
-                            topLeft: Radius.circular(20),
-                            bottomLeft: Radius.circular(20),
-                          ),
-                          child: RightScriptPanel(
-                            onAddScript: () {
-                              showDialog(
-                                context: context,
-                                builder: (context) => const AddScriptDialog(),
-                              );
-                            },
-                            onGlobalSettings: () {
-                              showDialog(
-                                context: context,
-                                builder: (context) =>
-                                    const GlobalSettingsDialog(),
-                              );
-                            },
-                            onExecute: () {
-                              if (scriptProvider.isExecuting) {
-                                scriptProvider.stopExecution();
-                              } else {
-                                if (browserProvider.currentTab != null) {
-                                  scriptProvider.startExecution(
-                                    browserProvider.currentTab!.controller,
-                                  );
-                                }
-                              }
-                            },
-                            onLoad: () {
-                              _showLoadScriptDialog(context, scriptProvider);
-                            },
-                          ),
+                        child: Icon(
+                          browserProvider.isScriptPanelExpanded
+                              ? Icons.chevron_right
+                              : Icons.chevron_left,
+                          color: Colors.white,
+                          size: 20,
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                    // 脚本面板
+                    Container(
+                      width: MediaQuery.of(context).size.width * 0.5,
+                      decoration: const BoxDecoration(
+                        color: Colors.white, // Ensure background is white
+                        borderRadius: BorderRadius.only(
+                          topLeft: Radius.circular(20),
+                          bottomLeft: Radius.circular(20),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black26,
+                            blurRadius: 10,
+                            offset: Offset(-2, 0),
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(20),
+                          bottomLeft: Radius.circular(20),
+                        ),
+                        child: RightScriptPanel(
+                          onAddScript: () {
+                            showDialog(
+                              context: context,
+                              builder: (context) => const AddScriptDialog(),
+                            );
+                          },
+                          onGlobalSettings: () {
+                            showDialog(
+                              context: context,
+                              builder: (context) =>
+                                  const GlobalSettingsDialog(),
+                            );
+                          },
+                          onExecute: () {
+                            if (scriptProvider.isExecuting) {
+                              scriptProvider.stopExecution();
+                            } else {
+                              if (browserProvider.currentTab != null) {
+                                scriptProvider.startExecution(
+                                  browserProvider.currentTab!.controller,
+                                );
+                              }
+                            }
+                          },
+                          onLoad: () {
+                            _showLoadScriptDialog(context, scriptProvider);
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
           bottomNavigationBar: _buildBottomBar(context, browserProvider),
         );

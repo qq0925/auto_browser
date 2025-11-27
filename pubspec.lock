@@ -232,6 +232,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.0.0"
+  native_screenshot:
+    dependency: "direct main"
+    description:
+      name: native_screenshot
+      sha256: dcdf119136be2ad3e52fafb38bad12f30e2acdbbe25b683e29e9129d52b44100
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.0"
   nested:
     dependency: transitive
     description:
@@ -392,14 +400,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "6.1.5+1"
-  screenshot:
-    dependency: "direct main"
-    description:
-      name: screenshot
-      sha256: "63817697a7835e6ce82add4228e15d233b74d42975c143ad8cfe07009fab866b"
-      url: "https://pub.dev"
-    source: hosted
-    version: "3.0.0"
   share_plus:
     dependency: "direct main"
     description:
