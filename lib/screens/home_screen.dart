@@ -62,6 +62,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
           onPageStarted: (String url) {
             // Reset progress to 0 when page starts loading
             browserProvider.updateTabProgress(0.0);
+            browserProvider.currentTab?.isLoading = true;
             if (url.startsWith('http')) {
               browserProvider.currentTab?.url = url;
               if (!FocusScope.of(context).hasFocus) {
@@ -276,21 +277,36 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                             padding: const EdgeInsets.symmetric(
                                 vertical: 8, horizontal: 8),
                             // Removed decoration to match screenshot (no inner box)
-                            child: Text(
-                              _urlController.text.isEmpty
-                                  ? 'Auok浏览器'
-                                  : (_urlController.text
-                                          .endsWith('welcome.html')
-                                      ? 'welcome.html'
-                                      : _urlController.text),
-                              style: TextStyle(
-                                color: _urlController.text.isEmpty
-                                    ? Colors.white70
-                                    : Colors.white,
-                                fontSize: 16, // Slightly larger font
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                            child: Consumer<BrowserProvider>(
+                              builder: (context, provider, child) {
+                                final currentTab = provider.currentTab;
+                                String displayText;
+
+                                if (currentTab == null) {
+                                  displayText = 'Auok浏览器';
+                                } else if (currentTab.url == 'about:blank' ||
+                                    currentTab.url.endsWith('welcome.html')) {
+                                  displayText = 'Auok浏览器';
+                                } else if (currentTab.title == 'New Tab' ||
+                                    currentTab.title.isEmpty ||
+                                    currentTab.title == currentTab.url) {
+                                  displayText = '无标题';
+                                } else {
+                                  displayText = currentTab.title;
+                                }
+
+                                return Text(
+                                  displayText,
+                                  style: TextStyle(
+                                    color: displayText == 'Auok浏览器'
+                                        ? Colors.white70
+                                        : Colors.white,
+                                    fontSize: 16,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                );
+                              },
                             ),
                           ),
                         ),
@@ -311,20 +327,18 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                   bottom: 0,
                   left: 0,
                   right: 0,
-                  child: browserProvider.currentTab != null
-                      ? AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          height: browserProvider.currentTab!.progress < 1.0
-                              ? 3.0
-                              : 0.0,
+                  child: browserProvider.currentTab != null &&
+                          browserProvider.currentTab!.progress < 1.0
+                      ? SizedBox(
+                          height: 3.0,
                           child: LinearProgressIndicator(
                             value: browserProvider.currentTab!.progress,
-                            backgroundColor: Colors.transparent,
+                            backgroundColor: Colors.grey[800],
                             valueColor: const AlwaysStoppedAnimation<Color>(
-                                Colors.blue),
+                                Color(0xFF4CAF50)),
                           ),
                         )
-                      : const SizedBox.shrink(),
+                      : const SizedBox(height: 3.0),
                 ),
               ],
             ),
@@ -549,10 +563,15 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                       tab.title,
                       style: const TextStyle(color: Colors.white),
                     ),
-                    subtitle: Text(
-                      tab.url,
-                      style: const TextStyle(color: Colors.grey),
-                    ),
+                    subtitle: (tab.url == 'about:blank' ||
+                            tab.url.endsWith('welcome.html'))
+                        ? null
+                        : Text(
+                            tab.url,
+                            style: const TextStyle(color: Colors.grey),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                     selected: isSelected,
                     onTap: () {
                       browser.setCurrentIndex(index);
