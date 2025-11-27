@@ -9,6 +9,7 @@ import '../widgets/script_panel.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:permission_handler/permission_handler.dart';
+import 'menu_page.dart';
 
 class BrowserHomePage extends StatefulWidget {
   const BrowserHomePage({super.key});
@@ -162,7 +163,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
     }
 
     await browserProvider.addTab(
-        initialUrl: initialUrl,
+        initialUrl: initialUrl ?? '', // Use empty string instead of about:blank
         initialTitle: initialTitle,
         controller: controller);
   }
@@ -194,11 +195,13 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
     return Consumer2<BrowserProvider, ScriptProvider>(
       builder: (context, browserProvider, scriptProvider, child) {
         // Update URL controller if needed
-        if (browserProvider.currentTab != null &&
-            _urlController.text != browserProvider.currentTab!.url) {
-          // Only update if not focused? For now simple update
-          if (!FocusScope.of(context).hasFocus) {
-            _urlController.text = browserProvider.currentTab!.url;
+        if (browserProvider.currentTab != null) {
+          final currentUrl = browserProvider.currentTab!.url;
+          // Don't show file:// URLs in the address bar
+          final displayUrl = currentUrl.startsWith('file://') ? '' : currentUrl;
+          if (_urlController.text != displayUrl &&
+              !FocusScope.of(context).hasFocus) {
+            _urlController.text = displayUrl;
           }
         }
 
@@ -207,17 +210,27 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
             middle: CupertinoTextField(
               controller: _urlController,
               placeholder: 'Search or enter website name',
-              onSubmitted: (value) {
-                if (browserProvider.currentTab != null) {
-                  String url = value;
-                  if (!url.startsWith('http')) {
+              onSubmitted: (value) async {
+                if (browserProvider.currentTab != null &&
+                    value.trim().isNotEmpty) {
+                  String url = value.trim();
+                  if (!url.startsWith('http://') &&
+                      !url.startsWith('https://')) {
                     url = 'https://$url';
                   }
-                  browserProvider.currentTab!.controller
+
+                  // Unfocus the text field first
+                  FocusScope.of(context).unfocus();
+
+                  // Load the URL
+                  await browserProvider.currentTab!.controller
                       .loadRequest(Uri.parse(url));
-                  // Update navigation state after loading
+
+                  // Update navigation state after a short delay
                   Future.delayed(const Duration(milliseconds: 500), () {
-                    _updateNavigationState();
+                    if (mounted) {
+                      _updateNavigationState();
+                    }
                   });
                 }
               },
@@ -334,6 +347,26 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
               _showTabsList(context, browser);
             },
             child: const Icon(CupertinoIcons.square_on_square),
+          ),
+          CupertinoButton(
+            padding: EdgeInsets.zero,
+            onPressed: () async {
+              final url = await Navigator.push<String>(
+                context,
+                CupertinoPageRoute(
+                  builder: (context) => MenuPage(browserProvider: browser),
+                ),
+              );
+              if (url != null && browser.currentTab != null) {
+                browser.currentTab!.controller.loadRequest(Uri.parse(url));
+                Future.delayed(const Duration(milliseconds: 500), () {
+                  if (mounted) {
+                    _updateNavigationState();
+                  }
+                });
+              }
+            },
+            child: const Icon(CupertinoIcons.ellipsis),
           ),
         ],
       ),

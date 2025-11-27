@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/script_provider.dart';
 import '../providers/browser_provider.dart';
@@ -8,6 +9,90 @@ class ScriptPanel extends StatelessWidget {
   final VoidCallback onClose;
 
   const ScriptPanel({super.key, required this.onClose});
+
+  void _showImportDialog(
+      BuildContext context, ScriptProvider scriptProvider, bool isDark) {
+    final TextEditingController controller = TextEditingController();
+
+    showCupertinoDialog(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('导入脚本'),
+        content: Column(
+          children: [
+            const SizedBox(height: 16),
+            const Text('粘贴脚本内容：'),
+            const SizedBox(height: 8),
+            CupertinoTextField(
+              controller: controller,
+              placeholder: '粘贴脚本...',
+              maxLines: 10,
+            ),
+          ],
+        ),
+        actions: [
+          CupertinoDialogAction(
+            child: const Text('取消'),
+            onPressed: () => Navigator.pop(context),
+          ),
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            child: const Text('导入'),
+            onPressed: () {
+              scriptProvider.importScript(controller.text);
+              Navigator.pop(context);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showExportDialog(
+      BuildContext context, ScriptProvider scriptProvider, bool isDark) {
+    final exported = scriptProvider.exportScript();
+
+    showCupertinoDialog(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('导出脚本'),
+        content: Column(
+          children: [
+            const SizedBox(height: 16),
+            const Text('复制以下内容：'),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? CupertinoColors.darkBackgroundGray
+                    : CupertinoColors.lightBackgroundGray,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: SelectableText(
+                exported,
+                style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          CupertinoDialogAction(
+            child: const Text('关闭'),
+            onPressed: () => Navigator.pop(context),
+          ),
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            child: const Text('复制'),
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: exported));
+              Navigator.pop(context);
+            },
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -91,6 +176,29 @@ class ScriptPanel extends StatelessWidget {
                           }
                         },
                       ),
+                    // Import/Export buttons
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      child: Icon(
+                        CupertinoIcons.arrow_down_doc,
+                        color: isDark
+                            ? CupertinoColors.white
+                            : CupertinoColors.black,
+                      ),
+                      onPressed: () =>
+                          _showImportDialog(context, scriptProvider, isDark),
+                    ),
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      child: Icon(
+                        CupertinoIcons.arrow_up_doc,
+                        color: isDark
+                            ? CupertinoColors.white
+                            : CupertinoColors.black,
+                      ),
+                      onPressed: () =>
+                          _showExportDialog(context, scriptProvider, isDark),
+                    ),
                     CupertinoButton(
                       padding: EdgeInsets.zero,
                       child: Icon(
