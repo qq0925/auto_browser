@@ -1,8 +1,8 @@
-import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'screens/home_screen.dart';
 import 'providers/browser_provider.dart';
 import 'providers/script_provider.dart';
+import 'screens/home_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,14 +25,14 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<BrowserProvider>(
       builder: (context, browserProvider, child) {
-        return CupertinoApp(
+        return MaterialApp(
           title: 'Auok浏览器',
-          theme: CupertinoThemeData(
-            primaryColor: CupertinoColors.systemBlue,
-            brightness:
-                browserProvider.isDarkMode ? Brightness.dark : Brightness.light,
+          theme: ThemeData(
+            brightness: Brightness.dark,
+            primarySwatch: Colors.blue,
           ),
           home: const BrowserHomePage(),
+          debugShowCheckedModeBanner: false,
         );
       },
     );
