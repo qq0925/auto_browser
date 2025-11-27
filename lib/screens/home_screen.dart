@@ -163,34 +163,26 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                     ? Colors.amber
                     : Colors.white,
               ),
-              onPressed: () {
-                if (browserProvider.currentTab != null) {
-                  final currentUrl = browserProvider.currentTab!.url;
-                  final currentTitle = browserProvider.currentTab!.title;
-
-                  // Skip bookmark for special URLs
-                  if (currentUrl.startsWith('file://') ||
-                      currentUrl == 'about:blank' ||
-                      currentUrl.isEmpty) {
-                    return;
-                  }
-
-                  final wasBookmarked =
-                      browserProvider.isBookmarked(currentUrl);
-                  browserProvider.toggleBookmark(currentUrl, currentTitle);
-
-                  // Show feedback
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        wasBookmarked ? '书签已移除' : '书签已添加',
-                      ),
-                      duration: const Duration(seconds: 1),
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                }
-              },
+              onPressed: browserProvider.currentTab != null &&
+                      !browserProvider.currentTab!.url
+                          .endsWith('welcome.html') &&
+                      !browserProvider.currentTab!.url.startsWith('file://')
+                  ? () {
+                      browserProvider.toggleBookmark(
+                        browserProvider.currentTab!.url,
+                        browserProvider.currentTab!.title,
+                      );
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(browserProvider
+                                  .isBookmarked(browserProvider.currentTab!.url)
+                              ? '已添加书签'
+                              : '已移除书签'),
+                          duration: const Duration(seconds: 1),
+                        ),
+                      );
+                    }
+                  : null, // Disable for welcome page or file urls
             ),
             title: GestureDetector(
               onTap: () {
@@ -200,18 +192,27 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                     MaterialPageRoute(
                       builder: (context) => UrlSearchOverlay(
                         initialUrl:
-                            browserProvider.currentTab!.url == 'about:blank'
+                            browserProvider.currentTab!.url == 'about:blank' ||
+                                    browserProvider.currentTab!.url
+                                        .endsWith('welcome.html')
                                 ? ''
                                 : browserProvider.currentTab!.url,
                         onSubmitted: (value) async {
                           if (value.trim().isNotEmpty) {
                             String url = value.trim();
-                            if (!url.startsWith('http://') &&
-                                !url.startsWith('https://')) {
-                              url = 'https://$url';
+                            if (url == 'welcome.html') {
+                              // Handle welcome.html specifically
+                              await browserProvider.currentTab!.controller
+                                  .loadFlutterAsset('assets/welcome.html');
+                            } else {
+                              if (!url.startsWith('http://') &&
+                                  !url.startsWith('https://') &&
+                                  !url.startsWith('file://')) {
+                                url = 'http://$url'; // Default to http
+                              }
+                              await browserProvider.currentTab!.controller
+                                  .loadRequest(Uri.parse(url));
                             }
-                            await browserProvider.currentTab!.controller
-                                .loadRequest(Uri.parse(url));
 
                             // Update navigation state after a delay
                             Future.delayed(const Duration(milliseconds: 500),
@@ -240,7 +241,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                       child: Text(
                         _urlController.text.isEmpty
                             ? 'Auok浏览器'
-                            : _urlController.text,
+                            : (_urlController.text.endsWith('welcome.html')
+                                ? 'welcome.html'
+                                : _urlController.text),
                         style: TextStyle(
                           color: _urlController.text.isEmpty
                               ? Colors.white70
@@ -290,28 +293,23 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
           body: Stack(
             children: [
               // WebView 区域 - 全屏，不挤压
-              Padding(
-                padding: EdgeInsets.only(
-                  right: browserProvider.isScriptPanelExpanded ? 150 : 0,
-                ),
-                child: browserProvider.tabs.isEmpty
-                    ? const Center(child: CircularProgressIndicator())
-                    : IndexedStack(
-                        index: browserProvider.currentIndex,
-                        children: browserProvider.tabs
-                            .map((tab) =>
-                                WebViewWidget(controller: tab.controller))
-                            .toList(),
-                      ),
-              ),
+              browserProvider.tabs.isEmpty
+                  ? const Center(child: CircularProgressIndicator())
+                  : IndexedStack(
+                      index: browserProvider.currentIndex,
+                      children: browserProvider.tabs
+                          .map((tab) =>
+                              WebViewWidget(controller: tab.controller))
+                          .toList(),
+                    ),
 
               // 右侧脚本面板（可折叠）- 浮在WebView上方
               AnimatedPositioned(
                 duration: const Duration(milliseconds: 300),
                 curve: Curves.easeInOut,
                 right: browserProvider.isScriptPanelExpanded ? 0 : -150,
-                top: 0,
-                bottom: 0, // Full height
+                top: 50, // Margin from top
+                bottom: 50, // Margin from bottom
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [

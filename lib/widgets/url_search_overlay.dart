@@ -64,7 +64,17 @@ class _UrlSearchOverlayState extends State<UrlSearchOverlay> {
             border: InputBorder.none,
           ),
           onSubmitted: (value) {
-            widget.onSubmitted(value);
+            String finalValue = value;
+            if (value.trim().isNotEmpty) {
+              if (value == 'welcome.html') {
+                // Keep as is
+              } else if (!value.startsWith('http://') &&
+                  !value.startsWith('https://') &&
+                  !value.startsWith('file://')) {
+                finalValue = 'http://$value';
+              }
+            }
+            widget.onSubmitted(finalValue);
             Navigator.pop(context);
           },
         ),
