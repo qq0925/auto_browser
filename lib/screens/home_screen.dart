@@ -267,7 +267,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                       backgroundColor: Colors.transparent,
                       valueColor:
                           const AlwaysStoppedAnimation<Color>(Colors.blue),
-                      minHeight: 2.0,
+                      minHeight: 3.0, // Slightly thicker for better visibility
                     )
                   : const SizedBox(height: 2.0),
             ),
@@ -307,7 +307,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
               AnimatedPositioned(
                 duration: const Duration(milliseconds: 300),
                 curve: Curves.easeInOut,
-                right: browserProvider.isScriptPanelExpanded ? 0 : -150,
+                right: browserProvider.isScriptPanelExpanded
+                    ? 0
+                    : -(MediaQuery.of(context).size.width * 0.5),
                 top: 50, // Margin from top
                 bottom: 50, // Margin from bottom
                 child: Row(
@@ -348,35 +350,56 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                       ),
                     ),
                     // 脚本面板
-                    SizedBox(
-                      width: 150,
-                      child: RightScriptPanel(
-                        onAddScript: () {
-                          showDialog(
-                            context: context,
-                            builder: (context) => const AddScriptDialog(),
-                          );
-                        },
-                        onGlobalSettings: () {
-                          showDialog(
-                            context: context,
-                            builder: (context) => const GlobalSettingsDialog(),
-                          );
-                        },
-                        onExecute: () {
-                          if (scriptProvider.isExecuting) {
-                            scriptProvider.stopExecution();
-                          } else {
-                            if (browserProvider.currentTab != null) {
-                              scriptProvider.startExecution(
-                                browserProvider.currentTab!.controller,
-                              );
+                    Container(
+                      width: MediaQuery.of(context).size.width * 0.5,
+                      decoration: const BoxDecoration(
+                        color: Colors.white, // Ensure background is white
+                        borderRadius: BorderRadius.only(
+                          topLeft: Radius.circular(20),
+                          bottomLeft: Radius.circular(20),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black26,
+                            blurRadius: 10,
+                            offset: Offset(-2, 0),
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(20),
+                          bottomLeft: Radius.circular(20),
+                        ),
+                        child: RightScriptPanel(
+                          onAddScript: () {
+                            showDialog(
+                              context: context,
+                              builder: (context) => const AddScriptDialog(),
+                            );
+                          },
+                          onGlobalSettings: () {
+                            showDialog(
+                              context: context,
+                              builder: (context) =>
+                                  const GlobalSettingsDialog(),
+                            );
+                          },
+                          onExecute: () {
+                            if (scriptProvider.isExecuting) {
+                              scriptProvider.stopExecution();
+                            } else {
+                              if (browserProvider.currentTab != null) {
+                                scriptProvider.startExecution(
+                                  browserProvider.currentTab!.controller,
+                                );
+                              }
                             }
-                          }
-                        },
-                        onLoad: () {
-                          _showLoadScriptDialog(context, scriptProvider);
-                        },
+                          },
+                          onLoad: () {
+                            _showLoadScriptDialog(context, scriptProvider);
+                          },
+                        ),
                       ),
                     ),
                   ],
