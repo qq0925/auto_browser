@@ -5,6 +5,7 @@ class BottomGridMenu extends StatelessWidget {
   final VoidCallback onAutoRefresh;
   final VoidCallback onRecordScript;
   final VoidCallback onSettings;
+  final bool isAutoRefreshActive;
 
   const BottomGridMenu({
     super.key,
@@ -12,6 +13,7 @@ class BottomGridMenu extends StatelessWidget {
     required this.onAutoRefresh,
     required this.onRecordScript,
     required this.onSettings,
+    this.isAutoRefreshActive = false,
   });
 
   @override
@@ -36,7 +38,13 @@ class BottomGridMenu extends StatelessWidget {
             children: [
               _buildMenuItem(
                   Icons.bookmarks_outlined, '书签/历史', onBookmarksHistory),
-              _buildMenuItem(Icons.autorenew, '自动刷新', onAutoRefresh),
+              _buildMenuItem(
+                isAutoRefreshActive
+                    ? Icons.cancel_presentation
+                    : Icons.autorenew,
+                isAutoRefreshActive ? '取消刷新' : '自动刷新',
+                onAutoRefresh,
+              ),
               _buildMenuItem(
                   Icons.fiber_manual_record_outlined, '录制脚本', onRecordScript),
               _buildMenuItem(Icons.settings_outlined, '设置', onSettings),

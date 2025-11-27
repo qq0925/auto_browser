@@ -16,6 +16,8 @@ import '../widgets/page_info_dialog.dart';
 import '../widgets/bottom_grid_menu.dart';
 import '../widgets/bookmarks_history_dialog.dart';
 import '../widgets/auto_refresh_dialog.dart';
+import '../widgets/browser_settings_dialog.dart';
+import '../widgets/script_recording_overlay.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:native_screenshot/native_screenshot.dart';
 
@@ -421,8 +423,14 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                                   child: Column(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      const Icon(Icons.public,
-                                          size: 48, color: Colors.blue),
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(12),
+                                        child: Image.asset(
+                                          'assets/app_icon.png',
+                                          width: 72,
+                                          height: 72,
+                                        ),
+                                      ),
                                       const SizedBox(height: 16),
                                       const Text(
                                         'Auok浏览器',
@@ -631,15 +639,20 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                   ],
                 ),
               ),
+
+              // 脚本录制浮窗
+              const ScriptRecordingOverlay(),
             ],
           ),
-          bottomNavigationBar: _buildBottomBar(context, browserProvider),
+          bottomNavigationBar:
+              _buildBottomBar(context, browserProvider, scriptProvider),
         );
       },
     );
   }
 
-  Widget _buildBottomBar(BuildContext context, BrowserProvider browser) {
+  Widget _buildBottomBar(BuildContext context, BrowserProvider browser,
+      ScriptProvider scriptProvider) {
     return Container(
       height: 50,
       color: Colors.grey[850],
@@ -671,6 +684,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                 context: context,
                 backgroundColor: Colors.transparent,
                 builder: (context) => BottomGridMenu(
+                  isAutoRefreshActive:
+                      browser.currentTab?.isAutoRefreshActive ?? false,
                   onBookmarksHistory: () {
                     Navigator.pop(context);
                     Navigator.push(
@@ -682,35 +697,85 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                   },
                   onAutoRefresh: () {
                     Navigator.pop(context);
-                    showDialog(
-                      context: context,
-                      builder: (context) => AutoRefreshDialog(
-                        onConfirm: (interval, count) {
-                          if (browser.currentTab != null) {
-                            browser.currentTab!
-                                .startAutoRefresh(interval, count);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                    '已开启自动刷新: $interval秒, ${count == 0 ? "无限" : count}次'),
-                              ),
-                            );
-                          }
-                        },
-                      ),
-                    );
+                    if (browser.currentTab != null) {
+                      if (browser.currentTab!.isAutoRefreshActive) {
+                        browser.currentTab!.stopAutoRefresh();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('已取消自动刷新')),
+                        );
+                      } else {
+                        showDialog(
+                          context: context,
+                          builder: (context) => AutoRefreshDialog(
+                            onConfirm: (interval, count) {
+                              browser.currentTab!
+                                  .startAutoRefresh(interval, count);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                      '已开启自动刷新: $interval秒, ${count == 0 ? "无限" : count}次'),
+                                ),
+                              );
+                            },
+                          ),
+                        );
+                      }
+                    }
                   },
-                  onRecordScript: () {
+                  onRecordScript: () async {
                     Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('功能开发中')),
-                    );
+                    if (browser.currentTab != null) {
+                      scriptProvider.startRecording();
+                      // Inject script immediately
+                      await browser.currentTab!.controller.runJavaScript('''
+                        (function() {
+                          if (window._auokRecorderInjected) return;
+                          window._auokRecorderInjected = true;
+
+                          document.addEventListener('click', function(e) {
+                            let target = e.target;
+                            let text = target.innerText || target.textContent;
+                            if (!text || text.trim() === '') {
+                              let parent = target.parentElement;
+                              if (parent) {
+                                text = parent.innerText || parent.textContent;
+                              }
+                            }
+                            
+                            if (text && text.trim().length > 0) {
+                              text = text.trim().substring(0, 50);
+                              ScriptRunner.postMessage('点击文字|' + text);
+                            }
+                          }, true);
+
+                          document.addEventListener('change', function(e) {
+                            let target = e.target;
+                            if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+                              let data = {
+                                'xpath': '',
+                                'value': target.value
+                              };
+                              ScriptRunner.postMessage('输入框提交|' + JSON.stringify(data));
+                            }
+                          }, true);
+                        })();
+                      ''');
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('开始录制脚本...')),
+                        );
+                      }
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('请先打开一个网页')),
+                      );
+                    }
                   },
                   onSettings: () {
                     Navigator.pop(context);
                     showDialog(
                       context: context,
-                      builder: (context) => const GlobalSettingsDialog(),
+                      builder: (context) => const BrowserSettingsDialog(),
                     );
                   },
                 ),

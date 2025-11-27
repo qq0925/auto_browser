@@ -296,6 +296,34 @@ class BrowserProvider extends ChangeNotifier {
     }
   }
 
+  // User Agent
+  String _userAgent = 'Mobile'; // Default to Mobile
+  String get userAgent => _userAgent;
+
+  final Map<String, String> _uaMap = {
+    'Mobile':
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1',
+    'Tablet':
+        'Mozilla/5.0 (iPad; CPU OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1',
+    'Desktop':
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36',
+  };
+
+  void setUserAgent(String type) {
+    if (_uaMap.containsKey(type)) {
+      _userAgent = type;
+      notifyListeners();
+      _saveTabsState();
+      // Apply to current tab if exists
+      if (currentTab != null) {
+        currentTab!.controller.setUserAgent(_uaMap[type]);
+        currentTab!.controller.reload();
+      }
+    }
+  }
+
+  String get currentUserAgentString => _uaMap[_userAgent]!;
+
   List<Map<String, dynamic>>? _restoredTabsData;
   int? _restoredIndex;
 
