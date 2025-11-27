@@ -55,7 +55,13 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
       ..setBackgroundColor(Colors.white)
       ..setNavigationDelegate(
         NavigationDelegate(
+          onProgress: (int progress) {
+            // Update progress bar (progress is 0-100, convert to 0.0-1.0)
+            browserProvider.updateTabProgress(progress / 100.0);
+          },
           onPageStarted: (String url) {
+            // Reset progress to 0 when page starts loading
+            browserProvider.updateTabProgress(0.0);
             if (url.startsWith('http')) {
               browserProvider.currentTab?.url = url;
               if (!FocusScope.of(context).hasFocus) {
@@ -65,6 +71,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
             }
           },
           onPageFinished: (String url) async {
+            // Set progress to 100% when page finishes
+            browserProvider.updateTabProgress(1.0);
+
             final title = await webViewController!.getTitle() ?? url;
             browserProvider.currentTab?.title = title;
             browserProvider.currentTab?.url = url;
