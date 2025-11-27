@@ -246,96 +246,94 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
           ),
           body: Stack(
             children: [
-              // WebView 区域
-              Padding(
-                padding: EdgeInsets.only(
-                  right: browserProvider.isScriptPanelExpanded ? 100 : 0,
-                ),
-                child: browserProvider.tabs.isEmpty
-                    ? const Center(child: CircularProgressIndicator())
-                    : IndexedStack(
-                        index: browserProvider.currentIndex,
-                        children: browserProvider.tabs
-                            .map((tab) =>
-                                WebViewWidget(controller: tab.controller))
-                            .toList(),
-                      ),
-              ),
+              // WebView 区域 - 全屏，不挤压
+              browserProvider.tabs.isEmpty
+                  ? const Center(child: CircularProgressIndicator())
+                  : IndexedStack(
+                      index: browserProvider.currentIndex,
+                      children: browserProvider.tabs
+                          .map((tab) =>
+                              WebViewWidget(controller: tab.controller))
+                          .toList(),
+                    ),
 
-              // 右侧脚本面板（可折叠）
+              // 右侧脚本面板（可折叠）- 浮在WebView上方
               AnimatedPositioned(
                 duration: const Duration(milliseconds: 300),
                 curve: Curves.easeInOut,
                 right: browserProvider.isScriptPanelExpanded ? 0 : -100,
                 top: 0,
                 bottom: 50, // Leave space for bottom bar
-                width: 100,
-                child: RightScriptPanel(
-                  onAddScript: () {
-                    showDialog(
-                      context: context,
-                      builder: (context) => const AddScriptDialog(),
-                    );
-                  },
-                  onGlobalSettings: () {
-                    showDialog(
-                      context: context,
-                      builder: (context) => const GlobalSettingsDialog(),
-                    );
-                  },
-                  onExecute: () {
-                    if (scriptProvider.isExecuting) {
-                      scriptProvider.stopExecution();
-                    } else {
-                      if (browserProvider.currentTab != null) {
-                        scriptProvider.startExecution(
-                          browserProvider.currentTab!.controller,
-                        );
-                      }
-                    }
-                  },
-                  onLoad: () {
-                    _showLoadScriptDialog(context, scriptProvider);
-                  },
-                ),
-              ),
-
-              // 脚本面板切换按钮
-              Positioned(
-                right: browserProvider.isScriptPanelExpanded ? 100 : 0,
-                top: MediaQuery.of(context).size.height / 2 - 80,
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: () {
-                      browserProvider.toggleScriptPanel();
-                    },
-                    child: Container(
-                      width: 24,
-                      height: 60,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[800],
-                        borderRadius: const BorderRadius.only(
-                          topLeft: Radius.circular(12),
-                          bottomLeft: Radius.circular(12),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // 脚本面板切换按钮 - 和面板一体
+                    GestureDetector(
+                      onTap: () {
+                        browserProvider.toggleScriptPanel();
+                      },
+                      child: Container(
+                        width: 24,
+                        height: 60,
+                        margin: EdgeInsets.only(
+                          top: MediaQuery.of(context).size.height / 2 - 80,
                         ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.3),
-                            blurRadius: 4,
-                            offset: const Offset(-2, 0),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[800],
+                          borderRadius: const BorderRadius.only(
+                            topLeft: Radius.circular(12),
+                            bottomLeft: Radius.circular(12),
                           ),
-                        ],
-                      ),
-                      child: Icon(
-                        browserProvider.isScriptPanelExpanded
-                            ? Icons.chevron_right
-                            : Icons.chevron_left,
-                        color: Colors.white,
-                        size: 20,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.3),
+                              blurRadius: 4,
+                              offset: const Offset(-2, 0),
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          browserProvider.isScriptPanelExpanded
+                              ? Icons.chevron_right
+                              : Icons.chevron_left,
+                          color: Colors.white,
+                          size: 20,
+                        ),
                       ),
                     ),
-                  ),
+                    // 脚本面板
+                    SizedBox(
+                      width: 100,
+                      child: RightScriptPanel(
+                        onAddScript: () {
+                          showDialog(
+                            context: context,
+                            builder: (context) => const AddScriptDialog(),
+                          );
+                        },
+                        onGlobalSettings: () {
+                          showDialog(
+                            context: context,
+                            builder: (context) => const GlobalSettingsDialog(),
+                          );
+                        },
+                        onExecute: () {
+                          if (scriptProvider.isExecuting) {
+                            scriptProvider.stopExecution();
+                          } else {
+                            if (browserProvider.currentTab != null) {
+                              scriptProvider.startExecution(
+                                browserProvider.currentTab!.controller,
+                              );
+                            }
+                          }
+                        },
+                        onLoad: () {
+                          _showLoadScriptDialog(context, scriptProvider);
+                        },
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -385,10 +383,14 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
           ),
           TextButton(
             onPressed: () {
-              // ZD按钮功能
+              // AU按钮功能 - 回到初始页面
+              if (browser.currentTab != null) {
+                browser.currentTab!.controller
+                    .loadFlutterAsset('assets/welcome.html');
+              }
             },
             child: const Text(
-              'ZD',
+              'AU',
               style:
                   TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
             ),
