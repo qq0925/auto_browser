@@ -10,6 +10,7 @@ import '../models/browser_data.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:permission_handler/permission_handler.dart';
+import '../widgets/url_search_overlay.dart';
 
 class BrowserHomePage extends StatefulWidget {
   const BrowserHomePage({super.key});
@@ -191,39 +192,81 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                 }
               },
             ),
-            title: TextField(
-              controller: _urlController,
-              style: const TextStyle(color: Colors.white),
-              keyboardType: TextInputType.url,
-              textInputAction: TextInputAction.go,
-              autocorrect: false,
-              enableSuggestions: false,
-              decoration: const InputDecoration(
-                hintText: '仙侣情缘',
-                hintStyle: TextStyle(color: Colors.white70),
-                border: InputBorder.none,
-              ),
-              onSubmitted: (value) async {
-                if (browserProvider.currentTab != null &&
-                    value.trim().isNotEmpty) {
-                  String url = value.trim();
-                  if (!url.startsWith('http://') &&
-                      !url.startsWith('https://')) {
-                    url = 'https://$url';
-                  }
+            title: GestureDetector(
+              onTap: () {
+                if (browserProvider.currentTab != null) {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => UrlSearchOverlay(
+                        initialUrl:
+                            browserProvider.currentTab!.url == 'about:blank'
+                                ? ''
+                                : browserProvider.currentTab!.url,
+                        onSubmitted: (value) async {
+                          if (value.trim().isNotEmpty) {
+                            String url = value.trim();
+                            if (!url.startsWith('http://') &&
+                                !url.startsWith('https://')) {
+                              url = 'https://$url';
+                            }
+                            await browserProvider.currentTab!.controller
+                                .loadRequest(Uri.parse(url));
 
-                  FocusScope.of(context).unfocus();
-
-                  await browserProvider.currentTab!.controller
-                      .loadRequest(Uri.parse(url));
-
-                  Future.delayed(const Duration(milliseconds: 500), () {
-                    if (mounted) {
-                      _updateNavigationState();
-                    }
-                  });
+                            // Update navigation state after a delay
+                            Future.delayed(const Duration(milliseconds: 500),
+                                () {
+                              if (mounted) {
+                                _updateNavigationState();
+                              }
+                            });
+                          }
+                        },
+                      ),
+                    ),
+                  );
                 }
               },
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _urlController.text.isEmpty
+                            ? 'Auok浏览器'
+                            : _urlController.text,
+                        style: TextStyle(
+                          color: _urlController.text.isEmpty
+                              ? Colors.white70
+                              : Colors.white,
+                          fontSize: 16,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            bottom: PreferredSize(
+              preferredSize: const Size.fromHeight(2.0),
+              child: browserProvider.currentTab != null &&
+                      browserProvider.currentTab!.progress < 1.0
+                  ? LinearProgressIndicator(
+                      value: browserProvider.currentTab!.progress,
+                      backgroundColor: Colors.transparent,
+                      valueColor:
+                          const AlwaysStoppedAnimation<Color>(Colors.blue),
+                      minHeight: 2.0,
+                    )
+                  : const SizedBox(height: 2.0),
             ),
             actions: [
               IconButton(
@@ -247,23 +290,28 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
           body: Stack(
             children: [
               // WebView 区域 - 全屏，不挤压
-              browserProvider.tabs.isEmpty
-                  ? const Center(child: CircularProgressIndicator())
-                  : IndexedStack(
-                      index: browserProvider.currentIndex,
-                      children: browserProvider.tabs
-                          .map((tab) =>
-                              WebViewWidget(controller: tab.controller))
-                          .toList(),
-                    ),
+              Padding(
+                padding: EdgeInsets.only(
+                  right: browserProvider.isScriptPanelExpanded ? 150 : 0,
+                ),
+                child: browserProvider.tabs.isEmpty
+                    ? const Center(child: CircularProgressIndicator())
+                    : IndexedStack(
+                        index: browserProvider.currentIndex,
+                        children: browserProvider.tabs
+                            .map((tab) =>
+                                WebViewWidget(controller: tab.controller))
+                            .toList(),
+                      ),
+              ),
 
               // 右侧脚本面板（可折叠）- 浮在WebView上方
               AnimatedPositioned(
                 duration: const Duration(milliseconds: 300),
                 curve: Curves.easeInOut,
-                right: browserProvider.isScriptPanelExpanded ? 0 : -100,
+                right: browserProvider.isScriptPanelExpanded ? 0 : -150,
                 top: 0,
-                bottom: 50, // Leave space for bottom bar
+                bottom: 0, // Full height
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -303,7 +351,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                     ),
                     // 脚本面板
                     SizedBox(
-                      width: 100,
+                      width: 150,
                       child: RightScriptPanel(
                         onAddScript: () {
                           showDialog(

@@ -13,13 +13,15 @@ class BrowserTab {
   int failureCount = 0; // 失败执行的脚本计数
   int remainingLoopCount = 1; // 剩余循环次数
   List<Script> scripts = []; // 添加每个标签页自己的脚本列表
+  double progress; // 网页加载进度
 
   BrowserTab({
     required this.id,
     required this.controller,
-    this.title = 'auok浏览器',
+    this.title = 'New Tab',
     this.url = 'about:blank',
     this.isLoading = false,
     this.isExecutingScript = false,
+    this.progress = 0.0,
   });
 }

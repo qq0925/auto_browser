@@ -110,6 +110,13 @@ class BrowserProvider extends ChangeNotifier {
     }
   }
 
+  void updateTabProgress(double progress) {
+    if (_currentIndex >= 0 && _currentIndex < _tabs.length) {
+      _tabs[_currentIndex].progress = progress;
+      notifyListeners();
+    }
+  }
+
   void addToHistory(String url, String title) {
     if (url.startsWith('file:///') || url == 'about:blank') return;
 
