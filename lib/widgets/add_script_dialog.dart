@@ -11,30 +11,14 @@ class AddScriptDialog extends StatefulWidget {
 }
 
 class _AddScriptDialogState extends State<AddScriptDialog> {
-  // Script types list
+  // Script types list (focused on implemented types)
   static const List<String> scriptTypes = [
-    '点击图片',
+    '全局设置',
     '点击文字',
-    '回陆时间',
-    '脚本替换',
-    '脚本停止',
-    '脚本查询',
+    '点击图片',
+    '间隔时间',
     '进入网址',
-    '控制脚本开关',
-    '逻辑脚本-出现文字',
-    '逻辑脚本-时间对比',
-    '逻辑脚本-数值对比',
     '输入框提交',
-    '数字运算',
-    '数值对比-点击文字',
-    '刷新网页',
-    '跳转脚本',
-    '网页后退',
-    '网页前进',
-    '新建标签页并执行脚本',
-    '延时脚本',
-    '执行本地脚本集',
-    '重查限制次数',
   ];
 
   String _selectedScriptType = '点击文字';
@@ -45,13 +29,27 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
   // Common fields
   final TextEditingController _delayController = TextEditingController();
-  final TextEditingController _delayBeforeController = TextEditingController();
   final TextEditingController _appearTextController = TextEditingController();
   final TextEditingController _clickTextController = TextEditingController();
-  final TextEditingController _afterTextController = TextEditingController();
-  final TextEditingController _beforeTextController = TextEditingController();
-  final TextEditingController _multipleFilterController =
+  final TextEditingController _afterSearchController = TextEditingController();
+  final TextEditingController _beforeSearchController = TextEditingController();
+
+  // 间隔时间 fields
+  final TextEditingController _intervalHoursController =
       TextEditingController();
+  final TextEditingController _intervalMinutesController =
+      TextEditingController();
+  final TextEditingController _intervalSecondsController =
+      TextEditingController();
+
+  // 输入框提交 fields
+  final TextEditingController _submitButtonTextController =
+      TextEditingController();
+  final TextEditingController _inputValueController = TextEditingController();
+
+  // 进入网址 field
+  final TextEditingController _urlController = TextEditingController();
+
   bool _exactMatch = false;
 
   @override
@@ -59,12 +57,16 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     _repeatCountController.dispose();
     _loopCountController.dispose();
     _delayController.dispose();
-    _delayBeforeController.dispose();
     _appearTextController.dispose();
     _clickTextController.dispose();
-    _afterTextController.dispose();
-    _beforeTextController.dispose();
-    _multipleFilterController.dispose();
+    _afterSearchController.dispose();
+    _beforeSearchController.dispose();
+    _intervalHoursController.dispose();
+    _intervalMinutesController.dispose();
+    _intervalSecondsController.dispose();
+    _submitButtonTextController.dispose();
+    _inputValueController.dispose();
+    _urlController.dispose();
     super.dispose();
   }
 
@@ -119,7 +121,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   children: [
-                    // Top row: Script Type and Counters
+                    // Top row: Script Type and Repeat Count
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -164,40 +166,43 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                           ),
                         ),
                         const SizedBox(width: 12),
-                        // Repeat Count
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _buildLabel('重复次数'),
-                              const SizedBox(height: 4),
-                              _buildTextField(_repeatCountController, '1'),
-                            ],
+                        // Repeat Count (not visible for 全局设置)
+                        if (_selectedScriptType != '全局设置')
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _buildLabel('重复次数'),
+                                const SizedBox(height: 4),
+                                _buildTextField(_repeatCountController, '1'),
+                              ],
+                            ),
                           ),
-                        ),
                       ],
                     ),
 
                     const SizedBox(height: 12),
 
-                    // Loop Count row
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _buildLabel('循环次数'),
-                              const SizedBox(height: 4),
-                              _buildTextField(_loopCountController, '0'),
-                            ],
+                    // Loop Count row (not visible for 全局设置)
+                    if (_selectedScriptType != '全局设置')
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _buildLabel('循环次数'),
+                                const SizedBox(height: 4),
+                                _buildTextField(_loopCountController, '0'),
+                              ],
+                            ),
                           ),
-                        ),
-                        const Expanded(child: SizedBox()),
-                      ],
-                    ),
+                          const Expanded(child: SizedBox()),
+                        ],
+                      ),
 
-                    const SizedBox(height: 16),
+                    if (_selectedScriptType != '全局设置')
+                      const SizedBox(height: 16),
 
                     // Dynamic fields based on script type
                     ..._buildDynamicFields(),
@@ -236,43 +241,49 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   }
 
   List<Widget> _buildDynamicFields() {
-    // Return different fields based on selected script type
     switch (_selectedScriptType) {
+      case '全局设置':
+        return [
+          _buildFieldRow('执行延迟', _delayController, '',
+              hint: '毫秒', required: true),
+        ];
       case '点击文字':
         return [
-          _buildFieldRow('执行延迟', _delayController, ''),
-          _buildFieldRow('执行前执行', _delayBeforeController, ''),
+          _buildFieldRow('执行延迟', _delayController, '', hint: '毫秒'),
           _buildFieldRow('出现文字', _appearTextController, ''),
-          _buildFieldRow('点击文字', _clickTextController, '', required: true),
-          _buildFieldRow('在...之后', _afterTextController, ''),
-          _buildFieldRow('在...之前', _beforeTextController, ''),
-          _buildFieldRow('多个筛选', _multipleFilterController, ''),
+          _buildFieldRow('点击文本', _clickTextController, '', required: true),
+          _buildFieldRow('在...之后搜索', _afterSearchController, ''),
+          _buildFieldRow('在...之前搜索', _beforeSearchController, ''),
           _buildCheckboxRow('完全匹配', _exactMatch, (value) {
             setState(() => _exactMatch = value ?? false);
           }),
         ];
       case '点击图片':
         return [
-          _buildFieldRow('执行延迟', _delayController, ''),
-          _buildFieldRow('图片识别', _clickTextController, '', required: true),
+          _buildFieldRow('执行延迟', _delayController, '', hint: '毫秒'),
+          _buildFieldRow('在...之后搜索', _afterSearchController, ''),
+          _buildFieldRow('在...之前搜索', _beforeSearchController, ''),
         ];
-      case '输入框提交':
+      case '间隔时间':
         return [
-          _buildFieldRow('执行延迟', _delayController, ''),
-          _buildFieldRow('输入内容', _clickTextController, '', required: true),
+          _buildFieldRow('执行延迟', _delayController, '', hint: '毫秒'),
+          _buildFieldRow('时间间隔-小时', _intervalHoursController, ''),
+          _buildFieldRow('时间间隔-分钟', _intervalMinutesController, ''),
+          _buildFieldRow('时间间隔-秒', _intervalSecondsController, ''),
         ];
       case '进入网址':
         return [
-          _buildFieldRow('网址', _clickTextController, '', required: true),
+          _buildFieldRow('执行延迟', _delayController, '', hint: '毫秒'),
+          _buildFieldRow('网址', _urlController, '', required: true),
         ];
-      case '延时脚本':
+      case '输入框提交':
         return [
-          _buildFieldRow('延时时长(毫秒)', _delayController, '', required: true),
+          _buildFieldRow('执行延迟', _delayController, '', hint: '毫秒'),
+          _buildFieldRow('提交按钮文字', _submitButtonTextController, ''),
+          _buildFieldRow('输入框值', _inputValueController, ''),
         ];
       default:
-        return [
-          _buildFieldRow('参数', _clickTextController, ''),
-        ];
+        return [];
     }
   }
 
@@ -286,7 +297,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     );
   }
 
-  Widget _buildTextField(TextEditingController controller, String hint) {
+  Widget _buildTextField(TextEditingController controller, String placeholder) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -295,7 +306,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       child: TextField(
         controller: controller,
         decoration: InputDecoration(
-          hintText: hint,
+          hintText: placeholder,
           hintStyle: const TextStyle(color: Colors.grey, fontSize: 14),
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -307,14 +318,14 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   }
 
   Widget _buildFieldRow(
-      String label, TextEditingController controller, String hint,
-      {bool required = false}) {
+      String label, TextEditingController controller, String placeholder,
+      {bool required = false, String? hint}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         children: [
           SizedBox(
-            width: 100,
+            width: 120,
             child: Row(
               children: [
                 Text(
@@ -330,7 +341,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
             ),
           ),
           Expanded(
-            child: _buildTextField(controller, hint),
+            child: _buildTextField(controller, hint ?? placeholder),
           ),
         ],
       ),
@@ -344,7 +355,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       child: Row(
         children: [
           SizedBox(
-            width: 100,
+            width: 120,
             child: Text(
               label,
               style: const TextStyle(color: Colors.white, fontSize: 13),
@@ -361,41 +372,84 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   }
 
   void _handleSubmit() {
-    // Validate required fields based on script type
-    if (_selectedScriptType == '点击文字' && _clickTextController.text.isEmpty) {
-      // Show error
-      return;
-    }
-
     final scriptProvider = context.read<ScriptProvider>();
 
     // Build params based on script type
-    final params = <String, dynamic>{
-      'type': _selectedScriptType,
-      'repeatCount': int.tryParse(_repeatCountController.text) ?? 1,
-      'loopCount': int.tryParse(_loopCountController.text) ?? 0,
-    };
+    final params = <String, dynamic>{};
 
-    // Add type-specific params
-    if (_delayController.text.isNotEmpty) {
-      params['执行延迟'] = _delayController.text;
+    // Add type-specific params based on JSON structure
+    switch (_selectedScriptType) {
+      case '全局设置':
+        if (_delayController.text.isEmpty) return;
+        params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+        break;
+
+      case '点击文字':
+        if (_clickTextController.text.isEmpty) return;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+        }
+        if (_appearTextController.text.isNotEmpty) {
+          params['出现文字'] = _appearTextController.text;
+        }
+        params['点击文本'] = _clickTextController.text;
+        if (_afterSearchController.text.isNotEmpty) {
+          params['在...之后搜索'] = _afterSearchController.text;
+        }
+        if (_beforeSearchController.text.isNotEmpty) {
+          params['在...之前搜索'] = _beforeSearchController.text;
+        }
+        params['完全匹配'] = _exactMatch;
+        break;
+
+      case '点击图片':
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+        }
+        if (_afterSearchController.text.isNotEmpty) {
+          params['在...之后搜索'] = _afterSearchController.text;
+        }
+        if (_beforeSearchController.text.isNotEmpty) {
+          params['在...之前搜索'] = _beforeSearchController.text;
+        }
+        break;
+
+      case '间隔时间':
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+        }
+        if (_intervalHoursController.text.isNotEmpty) {
+          params['时间间隔-小时'] = int.tryParse(_intervalHoursController.text) ?? 0;
+        }
+        if (_intervalMinutesController.text.isNotEmpty) {
+          params['时间间隔-分钟'] =
+              int.tryParse(_intervalMinutesController.text) ?? 0;
+        }
+        if (_intervalSecondsController.text.isNotEmpty) {
+          params['时间间隔-秒'] = int.tryParse(_intervalSecondsController.text) ?? 0;
+        }
+        break;
+
+      case '进入网址':
+        if (_urlController.text.isEmpty) return;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+        }
+        params['网址'] = _urlController.text;
+        break;
+
+      case '输入框提交':
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+        }
+        if (_submitButtonTextController.text.isNotEmpty) {
+          params['提交按钮文字'] = _submitButtonTextController.text;
+        }
+        if (_inputValueController.text.isNotEmpty) {
+          params['输入框值'] = _inputValueController.text;
+        }
+        break;
     }
-    if (_clickTextController.text.isNotEmpty) {
-      params['content'] = _clickTextController.text;
-    }
-    if (_appearTextController.text.isNotEmpty) {
-      params['出现文字'] = _appearTextController.text;
-    }
-    if (_afterTextController.text.isNotEmpty) {
-      params['在...之后'] = _afterTextController.text;
-    }
-    if (_beforeTextController.text.isNotEmpty) {
-      params['在...之前'] = _beforeTextController.text;
-    }
-    if (_multipleFilterController.text.isNotEmpty) {
-      params['多个筛选'] = _multipleFilterController.text;
-    }
-    params['完全匹配'] = _exactMatch;
 
     scriptProvider.addScript(Script(
       type: _selectedScriptType,
