@@ -18,8 +18,6 @@ import '../widgets/bookmarks_history_dialog.dart';
 import '../widgets/auto_refresh_dialog.dart';
 import '../widgets/browser_settings_dialog.dart';
 import '../widgets/script_recording_overlay.dart';
-import 'package:share_plus/share_plus.dart';
-import 'package:native_screenshot/native_screenshot.dart';
 
 class BrowserHomePage extends StatefulWidget {
   const BrowserHomePage({super.key});
@@ -127,7 +125,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
         ),
       )
       ..addJavaScriptChannel(
-        'ScriptRecorder',
+        'ScriptRunner',
         onMessageReceived: (JavaScriptMessage message) {
           scriptProvider.handleScriptMessage(message.message);
         },
@@ -160,24 +158,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
     }
   }
 
-  Future<void> _captureAndShareScreenshot() async {
-    try {
-      String? path = await NativeScreenshot.takeScreenshot();
-
-      if (path != null) {
-        await Share.shareXFiles([XFile(path)], text: '来自 Auok浏览器的截图');
-      } else {
-        throw Exception('截图生成失败');
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('截屏失败: $e')),
-        );
-      }
-    }
-  }
-
   @override
   void dispose() {
     _urlController.dispose();
@@ -199,9 +179,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
         }
 
         return Scaffold(
-          backgroundColor: Colors.white,
+          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
           appBar: AppBar(
-            backgroundColor: Colors.grey[800],
+            backgroundColor: Theme.of(context).appBarTheme.backgroundColor,
             elevation: 0,
             toolbarHeight: 60, // Flatter toolbar
             titleSpacing:
@@ -401,8 +381,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                             ),
                           );
                         }
-                      } else if (value == 'screenshot') {
-                        _captureAndShareScreenshot();
+                      } else if (value == 'night_mode') {
+                        browserProvider
+                            .toggleDarkMode(!browserProvider.isDarkMode);
                       } else if (value == 'about') {
                         showDialog(
                           context: context,
@@ -479,14 +460,19 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                           ],
                         ),
                       ),
-                      const PopupMenuItem(
-                        value: 'screenshot',
+                      PopupMenuItem(
+                        value: 'night_mode',
                         child: Row(
                           children: [
-                            Icon(Icons.camera_alt_outlined,
-                                color: Colors.black87, size: 20),
-                            SizedBox(width: 12),
-                            Text('截屏'),
+                            Icon(
+                                browserProvider.isDarkMode
+                                    ? Icons.light_mode
+                                    : Icons.dark_mode,
+                                color: Theme.of(context).iconTheme.color ??
+                                    Colors.black87,
+                                size: 20),
+                            const SizedBox(width: 12),
+                            Text(browserProvider.isDarkMode ? '日间模式' : '夜间模式'),
                           ],
                         ),
                       ),
@@ -586,8 +572,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                     // 脚本面板
                     Container(
                       width: MediaQuery.of(context).size.width * 0.5,
-                      decoration: const BoxDecoration(
-                        color: Colors.white, // Ensure background is white
+                      decoration: BoxDecoration(
+                        color: browserProvider.isDarkMode
+                            ? Colors.grey[900]
+                            : Colors.white,
                         borderRadius: BorderRadius.only(
                           topLeft: Radius.circular(20),
                           bottomLeft: Radius.circular(20),

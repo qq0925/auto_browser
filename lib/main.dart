@@ -28,8 +28,16 @@ class MyApp extends StatelessWidget {
         return MaterialApp(
           title: 'Auok浏览器',
           theme: ThemeData(
-            brightness: Brightness.dark,
+            brightness:
+                browserProvider.isDarkMode ? Brightness.dark : Brightness.light,
             primarySwatch: Colors.blue,
+            scaffoldBackgroundColor:
+                browserProvider.isDarkMode ? Colors.black : Colors.white,
+            appBarTheme: AppBarTheme(
+              backgroundColor:
+                  browserProvider.isDarkMode ? Colors.grey[900] : Colors.blue,
+              foregroundColor: Colors.white,
+            ),
           ),
           home: const BrowserHomePage(),
           debugShowCheckedModeBanner: false,
