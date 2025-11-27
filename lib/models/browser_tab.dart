@@ -1,5 +1,6 @@
 import 'package:webview_flutter/webview_flutter.dart';
 import 'script.dart';
+import 'dart:async';
 
 class BrowserTab {
   final String id;
@@ -15,6 +16,13 @@ class BrowserTab {
   List<Script> scripts = []; // 添加每个标签页自己的脚本列表
   double progress; // 网页加载进度
 
+  // Auto Refresh
+  Timer? _autoRefreshTimer;
+  bool isAutoRefreshActive = false;
+  int autoRefreshInterval = 0; // in seconds
+  int autoRefreshCount = 0; // 0 means infinite
+  int _currentRefreshCount = 0;
+
   BrowserTab({
     required this.id,
     required this.controller,
@@ -24,4 +32,28 @@ class BrowserTab {
     this.isExecutingScript = false,
     this.progress = 0.0,
   });
+
+  void startAutoRefresh(int intervalSeconds, int count) {
+    stopAutoRefresh();
+    autoRefreshInterval = intervalSeconds;
+    autoRefreshCount = count;
+    _currentRefreshCount = 0;
+    isAutoRefreshActive = true;
+
+    _autoRefreshTimer =
+        Timer.periodic(Duration(seconds: intervalSeconds), (timer) {
+      if (count > 0 && _currentRefreshCount >= count) {
+        stopAutoRefresh();
+        return;
+      }
+      controller.reload();
+      _currentRefreshCount++;
+    });
+  }
+
+  void stopAutoRefresh() {
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = null;
+    isAutoRefreshActive = false;
+  }
 }
