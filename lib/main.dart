@@ -23,13 +23,18 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const CupertinoApp(
-      title: 'Auok浏览器',
-      theme: CupertinoThemeData(
-        primaryColor: CupertinoColors.systemBlue,
-        brightness: Brightness.dark,
-      ),
-      home: BrowserHomePage(),
+    return Consumer<BrowserProvider>(
+      builder: (context, browserProvider, child) {
+        return CupertinoApp(
+          title: 'Auok浏览器',
+          theme: CupertinoThemeData(
+            primaryColor: CupertinoColors.systemBlue,
+            brightness:
+                browserProvider.isDarkMode ? Brightness.dark : Brightness.light,
+          ),
+          home: const BrowserHomePage(),
+        );
+      },
     );
   }
 }

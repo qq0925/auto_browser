@@ -215,6 +215,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                   }
                   browserProvider.currentTab!.controller
                       .loadRequest(Uri.parse(url));
+                  // Update navigation state after loading
+                  Future.delayed(const Duration(milliseconds: 500), () {
+                    _updateNavigationState();
+                  });
                 }
               },
               prefix: const Padding(
@@ -227,15 +231,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
               children: [
                 CupertinoButton(
                   padding: EdgeInsets.zero,
-                  child: Icon(scriptProvider.isRecording
-                      ? CupertinoIcons.stop_circle_fill
-                      : CupertinoIcons.circle),
+                  child: Icon(browserProvider.isDarkMode
+                      ? CupertinoIcons.sun_max
+                      : CupertinoIcons.moon),
                   onPressed: () {
-                    if (scriptProvider.isRecording) {
-                      scriptProvider.stopRecording();
-                    } else {
-                      scriptProvider.startRecording();
-                    }
+                    browserProvider.toggleDarkMode(!browserProvider.isDarkMode);
                   },
                 ),
                 CupertinoButton(
@@ -341,39 +341,81 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
   }
 
   void _showTabsList(BuildContext context, BrowserProvider browser) {
+    final isDark = browser.isDarkMode;
     showCupertinoModalPopup(
       context: context,
       builder: (context) => Container(
         height: 400,
-        color: CupertinoColors.systemBackground,
+        decoration: BoxDecoration(
+          color: isDark ? CupertinoColors.black : CupertinoColors.white,
+          border: const Border(
+            top: BorderSide(color: CupertinoColors.separator),
+          ),
+        ),
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Text('Tabs (${browser.tabs.length})'),
+            Container(
+              padding: const EdgeInsets.all(16.0),
+              decoration: const BoxDecoration(
+                border: Border(
+                    bottom: BorderSide(color: CupertinoColors.separator)),
+              ),
+              child: Text(
+                'Tabs (${browser.tabs.length})',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                ),
+              ),
             ),
             Expanded(
               child: ListView.builder(
                 itemCount: browser.tabs.length,
                 itemBuilder: (context, index) {
                   final tab = browser.tabs[index];
-                  return ListTile(
-                    title: Text(tab.title),
-                    subtitle: Text(tab.url),
-                    selected: index == browser.currentIndex,
-                    onTap: () {
-                      browser.setCurrentIndex(index);
-                      Navigator.pop(context);
-                    },
-                    trailing: IconButton(
-                      icon: const Icon(CupertinoIcons.xmark),
-                      onPressed: () {
-                        browser.removeTab(index);
-                        if (browser.tabs.isEmpty) {
-                          Navigator.pop(context);
-                          _addNewTab();
-                        }
+                  final isSelected = index == browser.currentIndex;
+                  return Container(
+                    color: isSelected
+                        ? CupertinoColors.activeBlue.withOpacity(0.1)
+                        : null,
+                    child: ListTile(
+                      title: Text(
+                        tab.title,
+                        style: TextStyle(
+                          color: isDark
+                              ? CupertinoColors.white
+                              : CupertinoColors.black,
+                        ),
+                      ),
+                      subtitle: Text(
+                        tab.url,
+                        style: TextStyle(
+                          color: isDark
+                              ? CupertinoColors.systemGrey
+                              : CupertinoColors.systemGrey2,
+                        ),
+                      ),
+                      selected: isSelected,
+                      onTap: () {
+                        browser.setCurrentIndex(index);
+                        Navigator.pop(context);
                       },
+                      trailing: IconButton(
+                        icon: Icon(
+                          CupertinoIcons.xmark,
+                          color: isDark
+                              ? CupertinoColors.white
+                              : CupertinoColors.black,
+                        ),
+                        onPressed: () {
+                          browser.removeTab(index);
+                          if (browser.tabs.isEmpty) {
+                            Navigator.pop(context);
+                            _addNewTab();
+                          }
+                        },
+                      ),
                     ),
                   );
                 },

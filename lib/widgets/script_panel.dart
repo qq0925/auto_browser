@@ -13,9 +13,15 @@ class ScriptPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final scriptProvider = context.watch<ScriptProvider>();
     final browserProvider = context.read<BrowserProvider>();
+    final isDark = context.watch<BrowserProvider>().isDarkMode;
 
     return Container(
-      color: CupertinoColors.systemBackground,
+      decoration: BoxDecoration(
+        color: isDark ? CupertinoColors.black : CupertinoColors.white,
+        border: const Border(
+          top: BorderSide(color: CupertinoColors.separator),
+        ),
+      ),
       child: Column(
         children: [
           // Header
@@ -28,21 +34,56 @@ class ScriptPanel extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Scripts',
-                    style:
-                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                Text('Scripts',
+                    style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: isDark
+                            ? CupertinoColors.white
+                            : CupertinoColors.black)),
                 Row(
                   children: [
+                    // Recording control
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      child: Icon(
+                        scriptProvider.isRecording
+                            ? CupertinoIcons.stop_circle_fill
+                            : CupertinoIcons.circle,
+                        color: scriptProvider.isRecording
+                            ? CupertinoColors.systemRed
+                            : (isDark
+                                ? CupertinoColors.white
+                                : CupertinoColors.black),
+                      ),
+                      onPressed: () {
+                        if (scriptProvider.isRecording) {
+                          scriptProvider.stopRecording();
+                        } else {
+                          scriptProvider.startRecording();
+                        }
+                      },
+                    ),
                     if (scriptProvider.isExecuting)
                       CupertinoButton(
                         padding: EdgeInsets.zero,
-                        child: const Icon(CupertinoIcons.pause),
+                        child: Icon(
+                          CupertinoIcons.pause,
+                          color: isDark
+                              ? CupertinoColors.white
+                              : CupertinoColors.black,
+                        ),
                         onPressed: () => scriptProvider.pauseExecution(),
                       )
                     else
                       CupertinoButton(
                         padding: EdgeInsets.zero,
-                        child: const Icon(CupertinoIcons.play),
+                        child: Icon(
+                          CupertinoIcons.play,
+                          color: isDark
+                              ? CupertinoColors.white
+                              : CupertinoColors.black,
+                        ),
                         onPressed: () {
                           if (browserProvider.currentTab != null) {
                             scriptProvider.startExecution(
@@ -52,13 +93,23 @@ class ScriptPanel extends StatelessWidget {
                       ),
                     CupertinoButton(
                       padding: EdgeInsets.zero,
-                      child: const Icon(CupertinoIcons.trash),
+                      child: Icon(
+                        CupertinoIcons.trash,
+                        color: isDark
+                            ? CupertinoColors.white
+                            : CupertinoColors.black,
+                      ),
                       onPressed: () => scriptProvider.clearScripts(),
                     ),
                     CupertinoButton(
                       padding: EdgeInsets.zero,
                       onPressed: onClose,
-                      child: const Icon(CupertinoIcons.down_arrow),
+                      child: Icon(
+                        CupertinoIcons.down_arrow,
+                        color: isDark
+                            ? CupertinoColors.white
+                            : CupertinoColors.black,
+                      ),
                     ),
                   ],
                 ),
@@ -86,10 +137,26 @@ class ScriptPanel extends StatelessWidget {
                           : CupertinoIcons.text_cursor,
                       color: isCurrent
                           ? CupertinoColors.activeBlue
-                          : CupertinoColors.systemGrey,
+                          : (isDark
+                              ? CupertinoColors.systemGrey
+                              : CupertinoColors.systemGrey2),
                     ),
-                    title: Text(script.type),
-                    subtitle: Text(script.params.toString()),
+                    title: Text(
+                      script.type,
+                      style: TextStyle(
+                        color: isDark
+                            ? CupertinoColors.white
+                            : CupertinoColors.black,
+                      ),
+                    ),
+                    subtitle: Text(
+                      script.params.toString(),
+                      style: TextStyle(
+                        color: isDark
+                            ? CupertinoColors.systemGrey
+                            : CupertinoColors.systemGrey2,
+                      ),
+                    ),
                     trailing: CupertinoSwitch(
                       value: script.isEnabled,
                       onChanged: (value) =>
