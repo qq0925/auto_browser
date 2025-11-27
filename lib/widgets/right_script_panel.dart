@@ -30,23 +30,23 @@ class RightScriptPanel extends StatelessWidget {
       ),
       child: Column(
         children: [
-          // Top Section: Global + Script Info (side by side)
+          // Top Section: Global Settings (centered) + Script Info
           IntrinsicHeight(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Global button (left)
+                // Global Settings button (left)
                 Expanded(
                   child: InkWell(
                     onTap: onGlobalSettings,
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       child: const Text(
-                        '全局',
+                        '全局设置',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: 13,
+                          fontSize: 11,
                         ),
                       ),
                     ),
@@ -178,6 +178,31 @@ class RightScriptPanel extends StatelessWidget {
           // White divider
           Container(height: 1, color: Colors.white),
 
+          // Add Script Section
+          InkWell(
+            onTap: onAddScript,
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.add_circle_outline, color: Colors.white, size: 18),
+                  SizedBox(width: 6),
+                  Text(
+                    '添加脚本',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // White divider
+          Container(height: 1, color: Colors.white),
+
           // Bottom Section: Action buttons (Execute | Load | Menu)
           IntrinsicHeight(
             child: Row(
@@ -233,7 +258,6 @@ class RightScriptPanel extends StatelessWidget {
                     ),
                     onSelected: (value) {
                       if (value == 'share') {
-                        // TODO: Implement share functionality
                         _showShareDialog(context, scriptProvider);
                       } else if (value == 'clear') {
                         scriptProvider.clearScripts();
