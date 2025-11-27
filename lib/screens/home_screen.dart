@@ -338,52 +338,38 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                     ],
                   ),
                 ),
-                // Progress bar positioned at the bottom of the framed container area
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: browserProvider.currentTab != null
-                      ? Stack(
-                          children: [
-                            // Progress bar
-                            if (browserProvider.currentTab!.progress < 1.0)
-                              SizedBox(
-                                height: 3.0,
-                                child: LinearProgressIndicator(
-                                  value: browserProvider.currentTab!.progress,
-                                  backgroundColor: Colors.grey[800],
-                                  valueColor:
-                                      const AlwaysStoppedAnimation<Color>(
-                                          Color(0xFF4CAF50)),
-                                ),
-                              )
-                            else
-                              const SizedBox(height: 3.0),
-                            // Fallback: spinning indicator if isLoading
-                            if (browserProvider.currentTab!.isLoading &&
-                                browserProvider.currentTab!.progress == 0.0)
-                              Positioned(
-                                right: 8,
-                                top: -10,
-                                child: SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor:
-                                        const AlwaysStoppedAnimation<Color>(
-                                            Colors.white),
-                                  ),
-                                ),
-                              ),
-                          ],
-                        )
-                      : const SizedBox(height: 3.0),
-                ),
               ],
             ),
+            bottom: (browserProvider.currentTab != null &&
+                    browserProvider.currentTab!.progress < 1.0)
+                ? PreferredSize(
+                    preferredSize: const Size.fromHeight(3.0),
+                    child: LinearProgressIndicator(
+                      value: browserProvider.currentTab!.progress,
+                      backgroundColor: Colors.grey[800],
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                          Color(0xFF4CAF50)),
+                      minHeight: 3.0,
+                    ),
+                  )
+                : null,
             actions: [
+              if (browserProvider.currentTab != null &&
+                  browserProvider.currentTab!.isLoading &&
+                  browserProvider.currentTab!.progress == 0.0)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12.0),
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    ),
+                  ),
+                ),
               PopupMenuButton<String>(
                 icon: const Icon(Icons.more_vert, color: Colors.white),
                 onSelected: (value) {
