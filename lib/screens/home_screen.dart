@@ -311,16 +311,20 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                   bottom: 0,
                   left: 0,
                   right: 0,
-                  child: browserProvider.currentTab != null &&
-                          browserProvider.currentTab!.progress < 1.0
-                      ? LinearProgressIndicator(
-                          value: browserProvider.currentTab!.progress,
-                          backgroundColor: Colors.transparent,
-                          valueColor:
-                              const AlwaysStoppedAnimation<Color>(Colors.blue),
-                          minHeight: 3.0,
+                  child: browserProvider.currentTab != null
+                      ? AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          height: browserProvider.currentTab!.progress < 1.0
+                              ? 3.0
+                              : 0.0,
+                          child: LinearProgressIndicator(
+                            value: browserProvider.currentTab!.progress,
+                            backgroundColor: Colors.transparent,
+                            valueColor: const AlwaysStoppedAnimation<Color>(
+                                Colors.blue),
+                          ),
                         )
-                      : const SizedBox(height: 3.0),
+                      : const SizedBox.shrink(),
                 ),
               ],
             ),
