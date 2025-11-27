@@ -150,13 +150,43 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
             backgroundColor: Colors.grey[800],
             elevation: 0,
             leading: IconButton(
-              icon: const Icon(Icons.star_border, color: Colors.white),
+              icon: Icon(
+                browserProvider.currentTab != null &&
+                        browserProvider
+                            .isBookmarked(browserProvider.currentTab!.url)
+                    ? Icons.star
+                    : Icons.star_border,
+                color: browserProvider.currentTab != null &&
+                        browserProvider
+                            .isBookmarked(browserProvider.currentTab!.url)
+                    ? Colors.amber
+                    : Colors.white,
+              ),
               onPressed: () {
-                // 添加书签
                 if (browserProvider.currentTab != null) {
-                  browserProvider.addBookmark(
-                    browserProvider.currentTab!.url,
-                    browserProvider.currentTab!.title,
+                  final currentUrl = browserProvider.currentTab!.url;
+                  final currentTitle = browserProvider.currentTab!.title;
+
+                  // Skip bookmark for special URLs
+                  if (currentUrl.startsWith('file://') ||
+                      currentUrl == 'about:blank' ||
+                      currentUrl.isEmpty) {
+                    return;
+                  }
+
+                  final wasBookmarked =
+                      browserProvider.isBookmarked(currentUrl);
+                  browserProvider.toggleBookmark(currentUrl, currentTitle);
+
+                  // Show feedback
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        wasBookmarked ? '书签已移除' : '书签已添加',
+                      ),
+                      duration: const Duration(seconds: 1),
+                      behavior: SnackBarBehavior.floating,
+                    ),
                   );
                 }
               },
@@ -164,6 +194,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
             title: TextField(
               controller: _urlController,
               style: const TextStyle(color: Colors.white),
+              keyboardType: TextInputType.url,
+              textInputAction: TextInputAction.go,
+              autocorrect: false,
+              enableSuggestions: false,
               decoration: const InputDecoration(
                 hintText: '仙侣情缘',
                 hintStyle: TextStyle(color: Colors.white70),
@@ -210,10 +244,13 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
               ),
             ],
           ),
-          body: Row(
+          body: Stack(
             children: [
               // WebView 区域
-              Expanded(
+              Padding(
+                padding: EdgeInsets.only(
+                  right: browserProvider.isScriptPanelExpanded ? 100 : 0,
+                ),
                 child: browserProvider.tabs.isEmpty
                     ? const Center(child: CircularProgressIndicator())
                     : IndexedStack(
@@ -225,34 +262,81 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                       ),
               ),
 
-              // 右侧脚本面板
-              RightScriptPanel(
-                onAddScript: () {
-                  showDialog(
-                    context: context,
-                    builder: (context) => const AddScriptDialog(),
-                  );
-                },
-                onGlobalSettings: () {
-                  showDialog(
-                    context: context,
-                    builder: (context) => const GlobalSettingsDialog(),
-                  );
-                },
-                onExecute: () {
-                  if (scriptProvider.isExecuting) {
-                    scriptProvider.stopExecution();
-                  } else {
-                    if (browserProvider.currentTab != null) {
-                      scriptProvider.startExecution(
-                        browserProvider.currentTab!.controller,
-                      );
+              // 右侧脚本面板（可折叠）
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeInOut,
+                right: browserProvider.isScriptPanelExpanded ? 0 : -100,
+                top: 0,
+                bottom: 50, // Leave space for bottom bar
+                width: 100,
+                child: RightScriptPanel(
+                  onAddScript: () {
+                    showDialog(
+                      context: context,
+                      builder: (context) => const AddScriptDialog(),
+                    );
+                  },
+                  onGlobalSettings: () {
+                    showDialog(
+                      context: context,
+                      builder: (context) => const GlobalSettingsDialog(),
+                    );
+                  },
+                  onExecute: () {
+                    if (scriptProvider.isExecuting) {
+                      scriptProvider.stopExecution();
+                    } else {
+                      if (browserProvider.currentTab != null) {
+                        scriptProvider.startExecution(
+                          browserProvider.currentTab!.controller,
+                        );
+                      }
                     }
-                  }
-                },
-                onLoad: () {
-                  _showLoadScriptDialog(context, scriptProvider);
-                },
+                  },
+                  onLoad: () {
+                    _showLoadScriptDialog(context, scriptProvider);
+                  },
+                ),
+              ),
+
+              // 脚本面板切换按钮
+              Positioned(
+                right: browserProvider.isScriptPanelExpanded ? 100 : 0,
+                top: MediaQuery.of(context).size.height / 2 - 80,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () {
+                      browserProvider.toggleScriptPanel();
+                    },
+                    child: Container(
+                      width: 24,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[800],
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(12),
+                          bottomLeft: Radius.circular(12),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.3),
+                            blurRadius: 4,
+                            offset: const Offset(-2, 0),
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        browserProvider.isScriptPanelExpanded
+                            ? Icons.chevron_right
+                            : Icons.chevron_left,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ],
           ),

@@ -14,6 +14,7 @@ class BrowserProvider extends ChangeNotifier {
   bool _isDarkMode = false;
   bool _keepScreenOn = false;
   bool _autoLeaveMode = false;
+  bool _isScriptPanelExpanded = true;
 
   List<BrowserTab> get tabs => _tabs;
   int get currentIndex => _currentIndex;
@@ -22,6 +23,7 @@ class BrowserProvider extends ChangeNotifier {
   bool get isDarkMode => _isDarkMode;
   bool get keepScreenOn => _keepScreenOn;
   bool get autoLeaveMode => _autoLeaveMode;
+  bool get isScriptPanelExpanded => _isScriptPanelExpanded;
 
   BrowserTab? get currentTab =>
       _tabs.isNotEmpty && _currentIndex >= 0 && _currentIndex < _tabs.length
@@ -138,6 +140,30 @@ class BrowserProvider extends ChangeNotifier {
     _saveBookmarksAndHistory();
   }
 
+  void removeBookmarkByUrl(String url) {
+    _bookmarks.removeWhere((bookmark) => bookmark.url == url);
+    notifyListeners();
+    _saveBookmarksAndHistory();
+  }
+
+  bool isBookmarked(String url) {
+    return _bookmarks.any((bookmark) => bookmark.url == url);
+  }
+
+  void toggleBookmark(String url, String title) {
+    if (isBookmarked(url)) {
+      removeBookmarkByUrl(url);
+    } else {
+      addBookmark(url, title);
+    }
+  }
+
+  void toggleScriptPanel() {
+    _isScriptPanelExpanded = !_isScriptPanelExpanded;
+    notifyListeners();
+    _saveTabsState();
+  }
+
   void clearHistory() {
     _history.clear();
     notifyListeners();
@@ -221,6 +247,7 @@ class BrowserProvider extends ChangeNotifier {
             'currentIndex': _currentIndex,
             'isDarkMode': _isDarkMode,
             'keepScreenOn': _keepScreenOn,
+            'isScriptPanelExpanded': _isScriptPanelExpanded,
           }));
     } catch (e) {
       debugPrint('Save tabs state error: $e');
@@ -241,6 +268,7 @@ class BrowserProvider extends ChangeNotifier {
 
         _isDarkMode = data['isDarkMode'] ?? false;
         _keepScreenOn = data['keepScreenOn'] ?? false;
+        _isScriptPanelExpanded = data['isScriptPanelExpanded'] ?? true;
 
         if (_keepScreenOn) {
           await WakelockPlus.enable();
