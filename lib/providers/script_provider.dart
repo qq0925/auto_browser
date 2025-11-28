@@ -190,13 +190,14 @@ class ScriptProvider extends ChangeNotifier {
     final content = parts[1];
 
     switch (type) {
-      case '点击链接':
+      case '点击文字':
+        // Now only records link clicks (improved detection in JS)
         addScript(Script(
-          type: '点击链接',
-          params: {'链接文本': content},
+          type: '点击文字',
+          params: {'点击文本': content},
           isEnabled: true,
         ));
-        _lastRecordedActionController.add('点击链接: $content');
+        _lastRecordedActionController.add('点击文字: $content');
         break;
 
       case '点击提交按钮':
@@ -489,7 +490,7 @@ class ScriptProvider extends ChangeNotifier {
           let linkText = linkElement.innerText || linkElement.textContent || '';
           linkText = linkText.trim().substring(0, 50);
           if (linkText) {
-            ScriptRunner.postMessage('点击链接|' + linkText);
+            ScriptRunner.postMessage('点击文字|' + linkText);
             return;
           }
         }
