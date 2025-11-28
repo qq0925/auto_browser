@@ -16,6 +16,8 @@ class ScriptProvider extends ChangeNotifier {
   int _originalLoopCount = 1;
   int _remainingLoopCount = 1;
   TimeUnit _delayTimeUnit = TimeUnit.milliseconds;
+  int _successCount = 0;
+  int _failureCount = 0;
 
   final ScriptExecutor _executor = ScriptExecutor();
 
@@ -28,6 +30,8 @@ class ScriptProvider extends ChangeNotifier {
   int get originalLoopCount => _originalLoopCount;
   int get remainingLoopCount => _remainingLoopCount;
   TimeUnit get delayTimeUnit => _delayTimeUnit;
+  int get successCount => _successCount;
+  int get failureCount => _failureCount;
 
   ScriptProvider() {
     _loadScripts();
@@ -229,7 +233,10 @@ class ScriptProvider extends ChangeNotifier {
     _isExecuting = true;
     _isPaused = false;
     _currentScriptIndex = 0;
+    _currentScriptIndex = 0;
     _remainingLoopCount = _originalLoopCount;
+    _successCount = 0;
+    _failureCount = 0;
 
     // Reset status for all scripts
     for (var script in _scripts) {
@@ -259,6 +266,13 @@ class ScriptProvider extends ChangeNotifier {
             onStatusChanged: (status, message) {
               script.status = status;
               script.statusMessage = message;
+              script.status = status;
+              script.statusMessage = message;
+              if (status == ScriptStatus.success) {
+                _successCount++;
+              } else if (status == ScriptStatus.failure) {
+                _failureCount++;
+              }
               notifyListeners();
             },
           );
