@@ -186,10 +186,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
           }
         },
         onNavigationRequest: (NavigationRequest request) {
-          // Prevent refresh on welcome page to avoid blank page
-          if (request.url == 'about:blank') {
-            return NavigationDecision.prevent;
-          }
           return NavigationDecision.navigate;
         },
       ),
@@ -502,11 +498,28 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                         IconButton(
                           icon: const Icon(Icons.refresh,
                               color: Colors.white, size: 24),
-                          onPressed: () {
+                          onPressed: () async {
                             if (scriptProvider.isRecording) {
                               scriptProvider.recordAction('刷新网页');
                             }
-                            browserProvider.currentTab?.controller.reload();
+
+                            // Smart refresh: check if on welcome page
+                            final currentUrl = await browserProvider
+                                .currentTab?.controller
+                                .currentUrl();
+                            if (currentUrl == null ||
+                                currentUrl == 'about:blank') {
+                              // Reload welcome content with latest version
+                              WelcomeManager.getWelcomeContent()
+                                  .then((content) {
+                                browserProvider.currentTab?.controller
+                                    .loadHtmlString(content,
+                                        baseUrl: 'about:blank');
+                              });
+                            } else {
+                              // Normal page reload
+                              browserProvider.currentTab?.controller.reload();
+                            }
                           },
                         ),
                       ],
