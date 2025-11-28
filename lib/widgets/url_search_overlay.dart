@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/browser_provider.dart';
 
 class UrlSearchOverlay extends StatefulWidget {
   final String initialUrl;
@@ -42,8 +44,12 @@ class _UrlSearchOverlayState extends State<UrlSearchOverlay> {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode =
+        context.select<BrowserProvider, bool>((p) => p.isDarkMode);
+    final backgroundColor = isDarkMode ? const Color(0xFF1E1E1E) : Colors.white;
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: backgroundColor,
       appBar: AppBar(
         backgroundColor: Colors.grey[800],
         elevation: 0,
@@ -70,17 +76,8 @@ class _UrlSearchOverlayState extends State<UrlSearchOverlay> {
               contentPadding: EdgeInsets.symmetric(vertical: 10),
             ),
             onSubmitted: (value) {
-              String finalValue = value;
-              if (value.trim().isNotEmpty) {
-                if (value == 'welcome.html') {
-                  // Keep as is
-                } else if (!value.startsWith('http://') &&
-                    !value.startsWith('https://') &&
-                    !value.startsWith('file://')) {
-                  finalValue = 'http://$value';
-                }
-              }
-              widget.onSubmitted(finalValue);
+              // Logic is handled in home_screen, just pass back
+              widget.onSubmitted(value);
               Navigator.pop(context);
             },
           ),
@@ -102,7 +99,7 @@ class _UrlSearchOverlayState extends State<UrlSearchOverlay> {
         ],
       ),
       body: Container(
-        color: Colors.white,
+        color: backgroundColor,
         // Future: Add search history or suggestions here
       ),
     );

@@ -3,6 +3,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../models/script.dart';
 import '../services/script_executor.dart';
 import 'dart:convert';
+import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ScriptProvider extends ChangeNotifier {
@@ -99,6 +100,7 @@ class ScriptProvider extends ChangeNotifier {
   }
 
   void startRecording() {
+    if (_isExecuting) return; // Prevent recording while executing
     _isRecording = true;
     notifyListeners();
   }
@@ -136,6 +138,40 @@ class ScriptProvider extends ChangeNotifier {
     }
   }
 
+  // Stream controller for last recorded action to trigger UI animation
+  final _lastRecordedActionController = StreamController<String>.broadcast();
+  Stream<String> get lastRecordedActionStream =>
+      _lastRecordedActionController.stream;
+
+  void recordAction(String actionType, [String? detail]) {
+    if (!_isRecording) return;
+
+    String actionDescription = '';
+
+    switch (actionType) {
+      case '网页后退':
+        addScript(Script(type: '网页后退', params: {}, isEnabled: true));
+        actionDescription = '网页后退';
+        break;
+      case '网页前进':
+        addScript(Script(type: '网页前进', params: {}, isEnabled: true));
+        actionDescription = '网页前进';
+        break;
+      case '刷新网页':
+        addScript(Script(type: '刷新网页', params: {}, isEnabled: true));
+        actionDescription = '刷新网页';
+        break;
+      case '点击图片':
+        addScript(Script(type: '点击图片', params: {}, isEnabled: true));
+        actionDescription = '点击图片';
+        break;
+    }
+
+    if (actionDescription.isNotEmpty) {
+      _lastRecordedActionController.add(actionDescription);
+    }
+  }
+
   void handleScriptMessage(String message) {
     if (!_isRecording) return;
 
@@ -152,6 +188,16 @@ class ScriptProvider extends ChangeNotifier {
           params: {'点击文字': content},
           isEnabled: true,
         ));
+        _lastRecordedActionController.add('点击文字: $content');
+        break;
+      case '点击图片':
+        // Image click from JS
+        addScript(Script(
+          type: '点击图片',
+          params: {}, // Image click usually doesn't need params in this simple model
+          isEnabled: true,
+        ));
+        _lastRecordedActionController.add('点击图片');
         break;
       case '输入框提交':
         try {
@@ -161,6 +207,7 @@ class ScriptProvider extends ChangeNotifier {
             params: data,
             isEnabled: true,
           ));
+          _lastRecordedActionController.add('输入框提交: ${data['value']}');
         } catch (e) {
           debugPrint('Parse input data error: $e');
         }
@@ -183,6 +230,12 @@ class ScriptProvider extends ChangeNotifier {
     _isPaused = false;
     _currentScriptIndex = 0;
     _remainingLoopCount = _originalLoopCount;
+
+    // Reset status for all scripts
+    for (var script in _scripts) {
+      script.status = ScriptStatus.idle;
+      script.statusMessage = null;
+    }
     notifyListeners();
 
     while (_remainingLoopCount > 0 && _isExecuting) {
@@ -199,8 +252,16 @@ class ScriptProvider extends ChangeNotifier {
 
         final script = _scripts[i];
         if (script.isEnabled) {
-          await _executor.execute(controller, script,
-              executionDelay: _executionDelay);
+          await _executor.execute(
+            controller,
+            script,
+            executionDelay: _executionDelay,
+            onStatusChanged: (status, message) {
+              script.status = status;
+              script.statusMessage = message;
+              notifyListeners();
+            },
+          );
         }
 
         // Global delay between scripts
@@ -237,43 +298,79 @@ class ScriptProvider extends ChangeNotifier {
   }
 
   String exportScript() {
-    final List<String> lines = [];
+    final List<Map<String, dynamic>> jsonList = [];
 
-    final globalScript = Script(
-      type: "全局变量",
-      params: {
-        '执行延迟': _executionDelay ~/ _delayTimeUnit.multiplier,
-        '时间单位': _delayTimeUnit.label,
-        '循环次数': _originalLoopCount,
-      },
-      isEnabled: true,
-    );
-    lines.add(globalScript.toJson());
+    // Add global settings
+    jsonList.add({
+      '脚本类型': '全局设置',
+      '执行延迟': _executionDelay ~/ _delayTimeUnit.multiplier,
+      // Note: User JSON example used '执行延迟' for global delay, assuming unit is implied or standard.
+      // But to be safe and consistent with my internal logic, I'll save what I have.
+      // The user example: "执行延迟": 1000.
+    });
 
     for (var script in _scripts) {
       if (script.isEnabled) {
-        lines.add(script.toJson());
+        jsonList.add(script.toUserMap());
       }
     }
 
-    return lines.join('\n');
+    return json.encode(jsonList);
   }
 
   void importScript(String content) {
+    try {
+      final List<dynamic> jsonList = json.decode(content);
+      _scripts.clear();
+
+      for (var item in jsonList) {
+        if (item is! Map<String, dynamic>) continue;
+
+        final type = item['脚本类型'];
+        if (type == '全局设置') {
+          final delay = item['执行延迟'] as int? ?? 1000;
+          // User JSON doesn't explicitly show unit, assuming milliseconds or matching current logic.
+          // If the user JSON implies milliseconds:
+          _executionDelay = delay;
+          // If we want to respect the unit, we might need to infer or default.
+          // Let's assume milliseconds for now as per "执行延迟": 1000 (1 second).
+          _delayTimeUnit = TimeUnit.milliseconds;
+
+          // User JSON didn't show loop count in global settings example, but if it exists:
+          if (item.containsKey('循环次数')) {
+            _originalLoopCount = item['循环次数'] as int;
+          }
+        } else {
+          try {
+            _scripts.add(Script.fromUserMap(item));
+          } catch (e) {
+            debugPrint('Parse script item error: $e');
+          }
+        }
+      }
+      _saveScripts();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Import script error: $e');
+      // Fallback to old line-by-line format if JSON decode fails
+      _importScriptLegacy(content);
+    }
+  }
+
+  void _importScriptLegacy(String content) {
     try {
       final lines = content.split('\n');
       _scripts.clear();
 
       for (var line in lines) {
         if (line.trim().isEmpty) continue;
-
         try {
           final script = Script.fromJson(line);
           if (script.type == '全局变量') {
+            // Legacy global settings logic
             final delay = script.params['执行延迟'] as int;
             final unitLabel = script.params['时间单位'] as String;
             final loop = script.params['循环次数'] as int;
-
             _delayTimeUnit = TimeUnit.values.firstWhere(
               (u) => u.label == unitLabel,
               orElse: () => TimeUnit.milliseconds,
@@ -284,13 +381,13 @@ class ScriptProvider extends ChangeNotifier {
             _scripts.add(script);
           }
         } catch (e) {
-          debugPrint('Parse script line error: $e');
+          debugPrint('Legacy parse error: $e');
         }
       }
       _saveScripts();
       notifyListeners();
     } catch (e) {
-      debugPrint('Import script error: $e');
+      debugPrint('Legacy import error: $e');
     }
   }
 
@@ -301,6 +398,13 @@ class ScriptProvider extends ChangeNotifier {
 
       document.addEventListener('click', function(e) {
         let target = e.target;
+        
+        // Check for image
+        if (target.tagName === 'IMG' || (window.getComputedStyle(target).backgroundImage !== 'none')) {
+           ScriptRunner.postMessage('点击图片|');
+           return;
+        }
+
         let text = target.innerText || target.textContent;
         if (!text || text.trim() === '') {
           let parent = target.parentElement;

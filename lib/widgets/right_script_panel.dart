@@ -179,6 +179,30 @@ class RightScriptPanel extends StatelessWidget {
                               ),
                               if (index < scriptProvider.scripts.length - 1)
                                 const Divider(color: Colors.grey, height: 8),
+
+                              // Status Line
+                              if (scriptProvider.isExecuting &&
+                                  script.status != ScriptStatus.idle) ...[
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    _getStatusIcon(script.status),
+                                    const SizedBox(width: 4),
+                                    Expanded(
+                                      child: Text(
+                                        _getStatusText(script),
+                                        style: TextStyle(
+                                          color: _getStatusColor(script.status),
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -342,6 +366,59 @@ class RightScriptPanel extends StatelessWidget {
         if (params.containsKey('执行延迟')) {
           return '延迟: ${params['执行延迟']}ms';
         }
+        return '';
+    }
+  }
+
+  Widget _getStatusIcon(ScriptStatus status) {
+    switch (status) {
+      case ScriptStatus.success:
+        return const Icon(Icons.check, color: Colors.green, size: 12);
+      case ScriptStatus.failure:
+        return const Icon(Icons.close, color: Colors.red, size: 12);
+      case ScriptStatus.waiting:
+        return const Icon(Icons.hourglass_empty,
+            color: Colors.orange, size: 12);
+      case ScriptStatus.running:
+        return const SizedBox(
+          width: 10,
+          height: 10,
+          child: CircularProgressIndicator(strokeWidth: 1, color: Colors.blue),
+        );
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  Color _getStatusColor(ScriptStatus status) {
+    switch (status) {
+      case ScriptStatus.success:
+        return Colors.green;
+      case ScriptStatus.failure:
+        return Colors.red;
+      case ScriptStatus.waiting:
+        return Colors.orange;
+      case ScriptStatus.running:
+        return Colors.blue;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _getStatusText(Script script) {
+    if (script.statusMessage != null) {
+      return script.statusMessage!;
+    }
+    switch (script.status) {
+      case ScriptStatus.success:
+        return '成功';
+      case ScriptStatus.failure:
+        return '失败';
+      case ScriptStatus.waiting:
+        return '等待中';
+      case ScriptStatus.running:
+        return '执行中';
+      default:
         return '';
     }
   }

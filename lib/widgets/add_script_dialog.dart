@@ -6,8 +6,10 @@ import '../models/script.dart';
 class AddScriptDialog extends StatefulWidget {
   final Script? script;
   final int? index;
+  final bool isNested;
 
-  const AddScriptDialog({super.key, this.script, this.index});
+  const AddScriptDialog(
+      {super.key, this.script, this.index, this.isNested = false});
 
   @override
   State<AddScriptDialog> createState() => _AddScriptDialogState();
@@ -85,6 +87,10 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   String _compareMethod = '>';
   bool _switchState = true;
 
+  // Nested scripts state
+  Script? _beforeScript;
+  Script? _afterScript;
+
   @override
   void initState() {
     super.initState();
@@ -117,6 +123,15 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       _scriptSetController.text = params['脚本集名称'] ?? '';
       _compareMethod = params['对比方式'] ?? '>';
       _switchState = params['开关状态'] ?? true;
+
+      if (params['执行每个脚本前执行'] != null) {
+        _beforeScript =
+            Script.fromUserMap(Map<String, dynamic>.from(params['执行每个脚本前执行']));
+      }
+      if (params['执行每个脚本后执行'] != null) {
+        _afterScript =
+            Script.fromUserMap(Map<String, dynamic>.from(params['执行每个脚本后执行']));
+      }
     } else {
       _selectedScriptType = scriptTypes[0];
     }
@@ -287,6 +302,24 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                     ..._buildDynamicFields(),
 
                     const SizedBox(height: 16),
+
+                    // Nested Scripts Section (Available for all types except Global Settings)
+                    if (_selectedScriptType != '全局设置') ...[
+                      const Divider(color: Colors.white24),
+                      const SizedBox(height: 8),
+                      const Text(
+                        '嵌套脚本',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 12),
+                      _buildNestedScriptTile('执行每个脚本前执行', 'beforeScript'),
+                      const SizedBox(height: 8),
+                      _buildNestedScriptTile('执行每个脚本后执行', 'afterScript'),
+                      const SizedBox(height: 16),
+                    ],
                   ],
                 ),
               ),
@@ -567,6 +600,73 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     );
   }
 
+  Widget _buildNestedScriptTile(String label, String type) {
+    final script = type == 'beforeScript' ? _beforeScript : _afterScript;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white10,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: ListTile(
+        title: Text(
+          label,
+          style: const TextStyle(color: Colors.white, fontSize: 13),
+        ),
+        subtitle: Text(
+          script != null ? '${script.type} (已配置)' : '未配置',
+          style: TextStyle(
+            color: script != null ? Colors.blueAccent : Colors.grey,
+            fontSize: 12,
+          ),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (script != null)
+              IconButton(
+                icon:
+                    const Icon(Icons.close, color: Colors.redAccent, size: 18),
+                onPressed: () {
+                  setState(() {
+                    if (type == 'beforeScript') {
+                      _beforeScript = null;
+                    } else {
+                      _afterScript = null;
+                    }
+                  });
+                },
+              ),
+            IconButton(
+              icon: Icon(script != null ? Icons.edit : Icons.add,
+                  color: Colors.white, size: 18),
+              onPressed: () async {
+                final result = await showDialog<Script>(
+                  context: context,
+                  builder: (context) => AddScriptDialog(
+                    script: script,
+                    isNested: true, // Pass a flag to indicate nested mode
+                  ),
+                );
+
+                if (result != null) {
+                  setState(() {
+                    if (type == 'beforeScript') {
+                      _beforeScript = result;
+                    } else {
+                      _afterScript = result;
+                    }
+                  });
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _handleSubmit() {
     final scriptProvider = context.read<ScriptProvider>();
 
@@ -739,11 +839,24 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         break;
     }
 
+    // Save nested scripts
+    if (_beforeScript != null) {
+      params['执行每个脚本前执行'] = _beforeScript!.toUserMap();
+    }
+    if (_afterScript != null) {
+      params['执行每个脚本后执行'] = _afterScript!.toUserMap();
+    }
+
     final newScript = Script(
       type: _selectedScriptType,
       params: params,
       isEnabled: true,
     );
+
+    if (widget.isNested) {
+      Navigator.pop(context, newScript);
+      return;
+    }
 
     if (widget.script != null && widget.index != null) {
       // Update existing script

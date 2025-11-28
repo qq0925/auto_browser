@@ -293,7 +293,24 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                                             if (!url.startsWith('http://') &&
                                                 !url.startsWith('https://') &&
                                                 !url.startsWith('file://')) {
-                                              url = 'http://$url';
+                                              if (url.contains('.')) {
+                                                url = 'http://$url';
+                                              } else {
+                                                // Search Engine Logic
+                                                final engine = browserProvider
+                                                    .searchEngine;
+                                                if (engine == 'Bing') {
+                                                  url =
+                                                      'https://www.bing.com/search?q=$url';
+                                                } else if (engine == 'Google') {
+                                                  url =
+                                                      'https://www.google.com/search?q=$url';
+                                                } else {
+                                                  // Default to Baidu
+                                                  url =
+                                                      'https://www.baidu.com/s?wd=$url';
+                                                }
+                                              }
                                             }
                                             await browserProvider
                                                 .currentTab!.controller
@@ -343,6 +360,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                           icon: const Icon(Icons.refresh,
                               color: Colors.white, size: 24),
                           onPressed: () {
+                            if (scriptProvider.isRecording) {
+                              scriptProvider.recordAction('刷新网页');
+                            }
                             browserProvider.currentTab?.controller.reload();
                           },
                         ),
@@ -640,6 +660,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
             icon: const Icon(Icons.arrow_back, color: Colors.white),
             onPressed: _canGoBack && browser.currentTab != null
                 ? () async {
+                    if (scriptProvider.isRecording) {
+                      scriptProvider.recordAction('网页后退');
+                    }
                     await browser.currentTab!.controller.goBack();
                     await _updateNavigationState();
                   }
@@ -649,6 +672,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
             icon: const Icon(Icons.arrow_forward, color: Colors.white),
             onPressed: _canGoForward && browser.currentTab != null
                 ? () async {
+                    if (scriptProvider.isRecording) {
+                      scriptProvider.recordAction('网页前进');
+                    }
                     await browser.currentTab!.controller.goForward();
                     await _updateNavigationState();
                   }
@@ -663,6 +689,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                 builder: (context) => BottomGridMenu(
                   isAutoRefreshActive:
                       browser.currentTab?.isAutoRefreshActive ?? false,
+                  isExecuting: scriptProvider.isExecuting,
                   onBookmarksHistory: () {
                     Navigator.pop(context);
                     Navigator.push(

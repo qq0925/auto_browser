@@ -15,6 +15,7 @@ class BrowserProvider extends ChangeNotifier {
   bool _keepScreenOn = false;
   bool _autoLeaveMode = false;
   bool _isScriptPanelExpanded = false; // Default to false (collapsed)
+  String _searchEngine = 'Baidu'; // Default to Baidu
   String? _nightCssContent;
 
   // Need a navigator key to access context for AssetBundle if context not available
@@ -29,6 +30,7 @@ class BrowserProvider extends ChangeNotifier {
   bool get keepScreenOn => _keepScreenOn;
   bool get autoLeaveMode => _autoLeaveMode;
   bool get isScriptPanelExpanded => _isScriptPanelExpanded;
+  String get searchEngine => _searchEngine;
 
   BrowserTab? get currentTab =>
       _tabs.isNotEmpty && _currentIndex >= 0 && _currentIndex < _tabs.length
@@ -68,6 +70,7 @@ class BrowserProvider extends ChangeNotifier {
 
     // Apply to all tabs
     for (var tab in _tabs) {
+      tab.controller.setBackgroundColor(value ? Colors.black : Colors.white);
       if (value) {
         _injectNightMode(tab.controller);
       } else {
@@ -317,6 +320,7 @@ class BrowserProvider extends ChangeNotifier {
             'isDarkMode': _isDarkMode,
             'keepScreenOn': _keepScreenOn,
             'isScriptPanelExpanded': _isScriptPanelExpanded,
+            'searchEngine': _searchEngine,
           }));
     } catch (e) {
       debugPrint('Save tabs state error: $e');
@@ -337,6 +341,7 @@ class BrowserProvider extends ChangeNotifier {
 
         _isDarkMode = data['isDarkMode'] ?? false;
         _keepScreenOn = data['keepScreenOn'] ?? false;
+        _searchEngine = data['searchEngine'] ?? 'Baidu';
         // _isScriptPanelExpanded = data['isScriptPanelExpanded'] ?? true; // Do not restore state
 
         if (_keepScreenOn) {
@@ -382,6 +387,12 @@ class BrowserProvider extends ChangeNotifier {
         currentTab!.controller.reload();
       }
     }
+  }
+
+  void setSearchEngine(String engine) {
+    _searchEngine = engine;
+    notifyListeners();
+    _saveTabsState();
   }
 
   String get currentUserAgentString => _uaMap[_userAgent]!;

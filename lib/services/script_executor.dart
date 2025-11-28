@@ -6,14 +6,24 @@ import 'dart:async';
 class ScriptExecutor {
   // Execute a script on the given controller
   Future<bool> execute(WebViewController controller, Script script,
-      {int executionDelay = 1000}) async {
+      {int executionDelay = 1000,
+      Function(ScriptStatus status, String? message)? onStatusChanged}) async {
     if (!script.isEnabled) return false;
+
+    onStatusChanged?.call(ScriptStatus.running, null);
 
     final repeatCount = script.params['重复次数'] ?? 1;
     bool success = true;
 
     for (var i = 0; i < repeatCount; i++) {
       bool result = false;
+
+      // Update status for repetition if needed
+      if (repeatCount > 1) {
+        onStatusChanged?.call(
+            ScriptStatus.running, '正在执行第 ${i + 1}/$repeatCount 次');
+      }
+
       switch (script.type) {
         case "点击文字":
           result = await _executeClickScript(controller, script);
@@ -21,20 +31,55 @@ class ScriptExecutor {
         case "输入框提交":
           result = await _executeFormSubmit(controller, script);
           break;
+        case "间隔时间":
+          result =
+              await _executeIntervalScript(controller, script, onStatusChanged);
+          break;
+        default:
+          // For other scripts, assume success for now or implement specific logic
+          // Some scripts like '脚本停止' might be handled outside or just return true
+          result = true;
+          break;
       }
 
       if (!result) {
         success = false;
+        onStatusChanged?.call(ScriptStatus.failure, '执行失败');
         break;
       }
 
       // If not the last repetition, wait for the delay
       if (i < repeatCount - 1) {
+        onStatusChanged?.call(ScriptStatus.waiting, '等待下次执行...');
         await Future.delayed(Duration(milliseconds: executionDelay));
       }
     }
 
+    if (success) {
+      onStatusChanged?.call(ScriptStatus.success, null);
+    }
+
     return success;
+  }
+
+  Future<bool> _executeIntervalScript(
+      WebViewController controller,
+      Script script,
+      Function(ScriptStatus status, String? message)? onStatusChanged) async {
+    final params = script.params;
+    final h = params['时间间隔-小时'] ?? 0;
+    final m = params['时间间隔-分钟'] ?? 0;
+    final s = params['时间间隔-秒'] ?? 0;
+
+    int totalSeconds = h * 3600 + m * 60 + s;
+    if (totalSeconds <= 0) return true;
+
+    for (var i = totalSeconds; i > 0; i--) {
+      onStatusChanged?.call(ScriptStatus.waiting, '等待延迟 ${i}s');
+      await Future.delayed(const Duration(seconds: 1));
+    }
+
+    return true;
   }
 
   Future<bool> _executeClickScript(

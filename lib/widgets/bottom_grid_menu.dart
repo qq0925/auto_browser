@@ -6,6 +6,7 @@ class BottomGridMenu extends StatelessWidget {
   final VoidCallback onRecordScript;
   final VoidCallback onSettings;
   final bool isAutoRefreshActive;
+  final bool isExecuting;
 
   const BottomGridMenu({
     super.key,
@@ -14,6 +15,7 @@ class BottomGridMenu extends StatelessWidget {
     required this.onRecordScript,
     required this.onSettings,
     this.isAutoRefreshActive = false,
+    this.isExecuting = false,
   });
 
   @override
@@ -46,7 +48,13 @@ class BottomGridMenu extends StatelessWidget {
                 onAutoRefresh,
               ),
               _buildMenuItem(
-                  Icons.fiber_manual_record_outlined, '录制脚本', onRecordScript),
+                Icons.fiber_manual_record_outlined,
+                '录制脚本',
+                isExecuting
+                    ? null
+                    : onRecordScript, // Disable callback if executing
+                color: isExecuting ? Colors.grey : Colors.white,
+              ),
               _buildMenuItem(Icons.settings_outlined, '设置', onSettings),
             ],
           ),
@@ -60,18 +68,19 @@ class BottomGridMenu extends StatelessWidget {
     );
   }
 
-  Widget _buildMenuItem(IconData icon, String label, VoidCallback onTap) {
+  Widget _buildMenuItem(IconData icon, String label, VoidCallback? onTap,
+      {Color color = Colors.white}) {
     return InkWell(
       onTap: onTap,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, color: Colors.white, size: 32),
+          Icon(icon, color: color, size: 32),
           const SizedBox(height: 8),
           Text(
             label,
-            style: const TextStyle(color: Colors.white, fontSize: 12),
+            style: TextStyle(color: color, fontSize: 12),
             textAlign: TextAlign.center,
           ),
         ],

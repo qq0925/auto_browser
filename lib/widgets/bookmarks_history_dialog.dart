@@ -27,8 +27,12 @@ class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode =
+        context.select<BrowserProvider, bool>((p) => p.isDarkMode);
+    final backgroundColor = isDarkMode ? const Color(0xFF1E1E1E) : Colors.white;
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: backgroundColor,
       appBar: AppBar(
         backgroundColor: const Color(0xFF333333),
         leading: IconButton(
@@ -82,14 +86,19 @@ class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
           separatorBuilder: (context, index) => const Divider(height: 1),
           itemBuilder: (context, index) {
             final bookmark = provider.bookmarks[index];
+            final textColor =
+                provider.isDarkMode ? Colors.white : Colors.black87;
+            final subtitleColor =
+                provider.isDarkMode ? Colors.white70 : Colors.black54;
+
             return ListTile(
               title: Text(bookmark.title,
-                  style: const TextStyle(
-                      color: Colors.black87, fontWeight: FontWeight.bold),
+                  style:
+                      TextStyle(color: textColor, fontWeight: FontWeight.bold),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis),
               subtitle: Text(bookmark.url,
-                  style: const TextStyle(color: Colors.black54),
+                  style: TextStyle(color: subtitleColor),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis),
               onTap: () {
@@ -121,10 +130,15 @@ class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
           separatorBuilder: (context, index) => const Divider(height: 1),
           itemBuilder: (context, index) {
             final item = provider.history[index];
+            final textColor =
+                provider.isDarkMode ? Colors.white : Colors.black87;
+            final subtitleColor =
+                provider.isDarkMode ? Colors.white70 : Colors.black54;
+
             return ListTile(
               title: Text(item.title,
-                  style: const TextStyle(
-                      color: Colors.black87, fontWeight: FontWeight.bold),
+                  style:
+                      TextStyle(color: textColor, fontWeight: FontWeight.bold),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis),
               subtitle: Column(
@@ -132,12 +146,12 @@ class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(item.url,
-                      style: const TextStyle(color: Colors.black54),
+                      style: TextStyle(color: subtitleColor),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis),
                   Text(
                     '${item.visitedAt.year}-${item.visitedAt.month.toString().padLeft(2, '0')}-${item.visitedAt.day.toString().padLeft(2, '0')} ${item.visitedAt.hour.toString().padLeft(2, '0')}:${item.visitedAt.minute.toString().padLeft(2, '0')}:${item.visitedAt.second.toString().padLeft(2, '0')}',
-                    style: const TextStyle(color: Colors.black54, fontSize: 12),
+                    style: TextStyle(color: subtitleColor, fontSize: 12),
                     maxLines: 1,
                   ),
                 ],

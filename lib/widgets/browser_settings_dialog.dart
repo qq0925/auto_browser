@@ -71,6 +71,38 @@ class BrowserSettingsDialog extends StatelessWidget {
                 );
               },
             ),
+            const Divider(height: 32),
+            _buildSectionTitle('搜索引擎'),
+            const SizedBox(height: 12),
+            Consumer<BrowserProvider>(
+              builder: (context, provider, child) {
+                return Column(
+                  children: [
+                    _buildRadioItem(
+                      context,
+                      '百度 (Baidu)',
+                      'Baidu',
+                      provider.searchEngine,
+                      (val) => provider.setSearchEngine(val!),
+                    ),
+                    _buildRadioItem(
+                      context,
+                      '必应 (Bing)',
+                      'Bing',
+                      provider.searchEngine,
+                      (val) => provider.setSearchEngine(val!),
+                    ),
+                    _buildRadioItem(
+                      context,
+                      '谷歌 (Google)',
+                      'Google',
+                      provider.searchEngine,
+                      (val) => provider.setSearchEngine(val!),
+                    ),
+                  ],
+                );
+              },
+            ),
             const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
