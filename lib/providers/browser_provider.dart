@@ -14,7 +14,12 @@ class BrowserProvider extends ChangeNotifier {
   bool _isDarkMode = false;
   bool _keepScreenOn = false;
   bool _autoLeaveMode = false;
-  bool _isScriptPanelExpanded = true;
+  bool _isScriptPanelExpanded = false; // Default to false (collapsed)
+  String? _nightCssContent;
+
+  // Need a navigator key to access context for AssetBundle if context not available
+  static final GlobalKey<NavigatorState> navigatorKey =
+      GlobalKey<NavigatorState>();
 
   List<BrowserTab> get tabs => _tabs;
   int get currentIndex => _currentIndex;
@@ -37,6 +42,15 @@ class BrowserProvider extends ChangeNotifier {
   Future<void> _init() async {
     await _loadBookmarksAndHistory();
     await _restoreTabsState();
+    try {
+      if (navigatorKey.currentContext != null) {
+        _nightCssContent =
+            await DefaultAssetBundle.of(navigatorKey.currentContext!)
+                .loadString('assets/night.css');
+      }
+    } catch (e) {
+      debugPrint('Error loading night.css: $e');
+    }
   }
 
   void setCurrentIndex(int index) {
@@ -51,8 +65,37 @@ class BrowserProvider extends ChangeNotifier {
     _isDarkMode = value;
     notifyListeners();
     _saveTabsState();
+
     // Apply to all tabs
-    // Note: Actual application happens in the UI or via controller in the tab
+    for (var tab in _tabs) {
+      if (value) {
+        _injectNightMode(tab.controller);
+      } else {
+        tab.controller.runJavaScript(
+            "document.getElementById('auok-night-mode')?.remove();");
+      }
+    }
+  }
+
+  void _injectNightMode(WebViewController controller) {
+    if (_nightCssContent != null) {
+      final js = """
+        (function() {
+          if (document.getElementById('auok-night-mode')) return;
+          var style = document.createElement('style');
+          style.id = 'auok-night-mode';
+          style.innerHTML = `${_nightCssContent!.replaceAll('\n', ' ')}`;
+          document.head.appendChild(style);
+        })();
+      """;
+      controller.runJavaScript(js);
+    }
+  }
+
+  void injectNightModeIfEnabled(WebViewController controller) {
+    if (_isDarkMode) {
+      _injectNightMode(controller);
+    }
   }
 
   void toggleKeepScreenOn(bool value) {
@@ -275,7 +318,7 @@ class BrowserProvider extends ChangeNotifier {
 
         _isDarkMode = data['isDarkMode'] ?? false;
         _keepScreenOn = data['keepScreenOn'] ?? false;
-        _isScriptPanelExpanded = data['isScriptPanelExpanded'] ?? true;
+        // _isScriptPanelExpanded = data['isScriptPanelExpanded'] ?? true; // Do not restore state
 
         if (_keepScreenOn) {
           await WakelockPlus.enable();

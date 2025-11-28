@@ -51,18 +51,7 @@ class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
             ),
           ],
         ),
-        actions: [
-          // Add Bookmark Button (only visible on Bookmarks tab)
-          // We can't easily hide/show based on tab index in AppBar actions without setState listener on controller
-          // So let's put generic actions or use a listener.
-          IconButton(
-            icon: const Icon(Icons.delete_outline, color: Colors.white),
-            onPressed: () {
-              _showClearDialog(context);
-            },
-            tooltip: '清空',
-          ),
-        ],
+        actions: [],
       ),
       body: TabBarView(
         controller: _tabController,
@@ -138,11 +127,20 @@ class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
                       color: Colors.black87, fontWeight: FontWeight.bold),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis),
-              subtitle: Text(
-                '${item.url}\n${item.visitedAt.year}-${item.visitedAt.month.toString().padLeft(2, '0')}-${item.visitedAt.day.toString().padLeft(2, '0')} ${item.visitedAt.hour.toString().padLeft(2, '0')}:${item.visitedAt.minute.toString().padLeft(2, '0')}',
-                style: const TextStyle(color: Colors.black54),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(item.url,
+                      style: const TextStyle(color: Colors.black54),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                  Text(
+                    '${item.visitedAt.year}-${item.visitedAt.month.toString().padLeft(2, '0')}-${item.visitedAt.day.toString().padLeft(2, '0')} ${item.visitedAt.hour.toString().padLeft(2, '0')}:${item.visitedAt.minute.toString().padLeft(2, '0')}:${item.visitedAt.second.toString().padLeft(2, '0')}',
+                    style: const TextStyle(color: Colors.black54, fontSize: 12),
+                    maxLines: 1,
+                  ),
+                ],
               ),
               isThreeLine: true,
               onTap: () {
@@ -193,6 +191,7 @@ class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
   }
 
   void _showActionsMenu(BuildContext context) {
+    final isBookmarks = _tabController.index == 0;
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -205,40 +204,92 @@ class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (isBookmarks) ...[
+              _buildActionItem(Icons.add, '增加书签', () {
+                Navigator.pop(context);
+                _showAddBookmarkDialog(context);
+              }),
+              const Divider(color: Colors.grey, height: 1),
+              _buildActionItem(Icons.sort, '排序', () {
+                Navigator.pop(context);
+                // Placeholder for sort
+              }),
+              const Divider(color: Colors.grey, height: 1),
+            ],
             _buildActionItem(Icons.delete_outline, '清空', () {
               Navigator.pop(context);
               _showClearDialog(context);
             }),
-            const Divider(color: Colors.grey, height: 1),
-            _buildActionItem(Icons.save_alt, '保存', () {
-              Navigator.pop(context);
-              // Placeholder
-            }),
-            const Divider(color: Colors.grey, height: 1),
-            _buildActionItem(Icons.file_upload_outlined, '读取', () {
-              Navigator.pop(context);
-              // Placeholder
-            }),
-            const Divider(color: Colors.grey, height: 1),
-            _buildActionItem(Icons.add, '增加', () {
-              Navigator.pop(context);
-              // Add bookmark logic
-              final provider = context.read<BrowserProvider>();
-              if (provider.currentTab != null) {
-                provider.addBookmark(
-                    provider.currentTab!.url, provider.currentTab!.title);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('已添加当前页为书签')),
-                );
-              }
-            }),
-            const Divider(color: Colors.grey, height: 1),
-            _buildActionItem(Icons.sort, '排序', () {
-              Navigator.pop(context);
-              // Placeholder
-            }),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showAddBookmarkDialog(BuildContext context) {
+    final provider = context.read<BrowserProvider>();
+    final titleController =
+        TextEditingController(text: provider.currentTab?.title ?? '');
+    final urlController =
+        TextEditingController(text: provider.currentTab?.url ?? '');
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF333333),
+        title: const Row(
+          children: [
+            Icon(Icons.star, color: Colors.white),
+            SizedBox(width: 8),
+            Text('增加书签', style: TextStyle(color: Colors.white)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: titleController,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: '名称:',
+                labelStyle: TextStyle(color: Colors.grey),
+                enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.grey)),
+                focusedBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.white)),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: urlController,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: '地址:',
+                labelStyle: TextStyle(color: Colors.grey),
+                enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.grey)),
+                focusedBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.white)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消', style: TextStyle(color: Colors.white)),
+          ),
+          TextButton(
+            onPressed: () {
+              if (titleController.text.isNotEmpty &&
+                  urlController.text.isNotEmpty) {
+                provider.addBookmark(urlController.text, titleController.text);
+              }
+              Navigator.pop(context);
+            },
+            child: const Text('确定', style: TextStyle(color: Colors.white)),
+          ),
+        ],
       ),
     );
   }

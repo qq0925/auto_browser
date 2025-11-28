@@ -26,6 +26,7 @@ class MyApp extends StatelessWidget {
     return Consumer<BrowserProvider>(
       builder: (context, browserProvider, child) {
         return MaterialApp(
+          navigatorKey: BrowserProvider.navigatorKey,
           title: 'Auok浏览器',
           theme: ThemeData(
             brightness:

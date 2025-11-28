@@ -100,4 +100,5 @@ flutter:
   assets:
     - assets/welcome.html
     - assets/app_icon.png
+    - assets/night.css
 

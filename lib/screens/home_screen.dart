@@ -98,6 +98,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
             browserProvider.updateTabProgress(1.0);
             browserProvider.currentTab?.isLoading = false;
 
+            // Inject Night Mode CSS if enabled
+            if (webViewController != null) {
+              browserProvider.injectNightModeIfEnabled(webViewController);
+            }
+
             final title = await webViewController!.getTitle() ?? url;
             browserProvider.currentTab?.title = title;
             browserProvider.currentTab?.url = url;

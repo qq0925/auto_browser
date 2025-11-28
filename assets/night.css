@@ -1,0 +1,13 @@
+html {
+  filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%) !important;
+  background: #fff !important;
+}
+
+img, video, iframe, canvas, svg, :not(object):not(body) > embed {
+  filter: invert(100%) hue-rotate(180deg) !important;
+}
+
+/* Exclude some elements from inversion if needed */
+[style*="background-image"] {
+  filter: invert(100%) hue-rotate(180deg) !important;
+}
