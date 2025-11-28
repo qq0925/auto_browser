@@ -1,86 +1,110 @@
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../models/script.dart';
-import '../models/browser_tab.dart';
-import '../services/script_runner.dart';
-import 'browser_provider.dart';
+import '../services/script_executor.dart';
 import 'dart:convert';
 import 'dart:async';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../models/browser_tab.dart';
 
 class ScriptProvider extends ChangeNotifier {
-  BrowserProvider? _browserProvider;
-  final Map<String, ScriptRunner> _runners = {};
-
+  BrowserTab? _currentTab;
   bool _isRecording = false;
+  bool _isExecuting = false;
+  bool _isPaused = false;
+  int _currentScriptIndex = 0;
+  int _executionDelay = 1000;
+  int _originalLoopCount = 1;
+  int _remainingLoopCount = 1;
+  TimeUnit _delayTimeUnit = TimeUnit.milliseconds;
+
+  int _successCount = 0;
+  int _failureCount = 0;
+
   Future<void> Function()? _waitForPageLoadCallback;
 
-  // Getters that delegate to current tab/runner
-  BrowserTab? get _currentTab => _browserProvider?.currentTab;
-  ScriptRunner? get _currentRunner {
-    if (_currentTab == null) return null;
-    if (!_runners.containsKey(_currentTab!.id)) {
-      _runners[_currentTab!.id] = ScriptRunner(_currentTab!);
-      // Listen to runner changes to propagate notifications
-      _runners[_currentTab!.id]!.addListener(notifyListeners);
-    }
-    return _runners[_currentTab!.id];
-  }
+  final ScriptExecutor _executor = ScriptExecutor();
 
+  // Get scripts from current tab
   List<Script> get scripts => _currentTab?.scripts ?? [];
+  BrowserTab? get currentTab =>
+      _currentTab; // Expose current tab for comparison
   bool get isRecording => _isRecording;
-  bool get isExecuting => _currentTab?.isExecutingScript ?? false;
-  bool get isPaused => _currentRunner?.isPaused ?? false;
-  int get currentScriptIndex => _currentTab?.currentScriptIndex ?? 0;
-
-  int get executionDelay => _currentTab?.executionDelay ?? 1000;
-  int get originalLoopCount => _currentTab?.originalLoopCount ?? 1;
-  int get remainingLoopCount => _currentTab?.remainingLoopCount ?? 1;
-  TimeUnit get delayTimeUnit =>
-      _currentTab?.delayTimeUnit ?? TimeUnit.milliseconds;
-
-  int get successCount => _currentTab?.successCount ?? 0;
-  int get failureCount => _currentTab?.failureCount ?? 0;
-
-  void update(BrowserProvider browserProvider) {
-    _browserProvider = browserProvider;
-    notifyListeners();
-  }
+  bool get isExecuting => _isExecuting;
+  bool get isPaused => _isPaused;
+  int get currentScriptIndex => _currentScriptIndex;
+  int get executionDelay => _executionDelay;
+  int get originalLoopCount => _originalLoopCount;
+  int get remainingLoopCount => _remainingLoopCount;
+  TimeUnit get delayTimeUnit => _delayTimeUnit;
+  int get successCount => _successCount;
+  int get failureCount => _failureCount;
 
   void setWaitForPageLoadCallback(Future<void> Function() callback) {
     _waitForPageLoadCallback = callback;
   }
 
-  ScriptProvider();
+  // Set current tab to work with
+  void setCurrentTab(BrowserTab? tab) {
+    _currentTab = tab;
+    notifyListeners();
+  }
 
-  // Settings Setters
-  void setExecutionDelay(int delay) {
-    if (_currentTab != null) {
-      _currentTab!.executionDelay = delay;
-      _browserProvider?.notifyListeners(); // Trigger save
+  ScriptProvider() {
+    _loadScripts();
+  }
+
+  Future<void> _loadScripts() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // Load global settings only (scripts are now tab-specific)
+      _executionDelay = prefs.getInt('script_global_delay') ?? 1000;
+      _originalLoopCount = prefs.getInt('script_global_loop') ?? 1;
+      final unitIndex = prefs.getInt('script_global_unit') ?? 0;
+      if (unitIndex >= 0 && unitIndex < TimeUnit.values.length) {
+        _delayTimeUnit = TimeUnit.values[unitIndex];
+      }
       notifyListeners();
+    } catch (e) {
+      debugPrint('Error loading global settings: $e');
     }
+  }
+
+  Future<void> _saveScripts() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // Save global settings only (scripts are now tab-specific)
+      await prefs.setInt('script_global_delay', _executionDelay);
+      await prefs.setInt('script_global_loop', _originalLoopCount);
+      await prefs.setInt('script_global_unit', _delayTimeUnit.index);
+    } catch (e) {
+      debugPrint('Error saving global settings: $e');
+    }
+  }
+
+  void setExecutionDelay(int delay) {
+    _executionDelay = delay;
+    _saveScripts();
+    notifyListeners();
   }
 
   void setDelayTimeUnit(TimeUnit unit) {
-    if (_currentTab != null) {
-      _currentTab!.delayTimeUnit = unit;
-      _browserProvider?.notifyListeners();
-      notifyListeners();
-    }
+    _delayTimeUnit = unit;
+    _saveScripts();
+    notifyListeners();
   }
 
   void setLoopCount(int count) {
-    if (_currentTab != null) {
-      _currentTab!.originalLoopCount = count;
-      _currentTab!.remainingLoopCount = count;
-      _browserProvider?.notifyListeners();
-      notifyListeners();
-    }
+    _originalLoopCount = count;
+    _remainingLoopCount = count;
+    _saveScripts();
+    notifyListeners();
   }
 
-  // Recording
   void startRecording() {
-    if (isExecuting) return;
+    if (_isExecuting) return; // Prevent recording while executing
     _isRecording = true;
     notifyListeners();
   }
@@ -90,11 +114,9 @@ class ScriptProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Script Management
   void clearScripts() {
     if (_currentTab != null) {
       _currentTab!.scripts.clear();
-      _browserProvider?.notifyListeners();
       notifyListeners();
     }
   }
@@ -102,157 +124,29 @@ class ScriptProvider extends ChangeNotifier {
   void addScript(Script script) {
     if (_currentTab != null) {
       _currentTab!.scripts.add(script);
-      _browserProvider?.notifyListeners();
       notifyListeners();
     }
   }
 
   void removeScript(int index) {
-    if (_currentTab != null && index >= 0 && index < scripts.length) {
+    if (_currentTab != null &&
+        index >= 0 &&
+        index < _currentTab!.scripts.length) {
       _currentTab!.scripts.removeAt(index);
-      _browserProvider?.notifyListeners();
       notifyListeners();
     }
   }
 
   void toggleScriptEnabled(int index, bool value) {
-    if (_currentTab != null && index >= 0 && index < scripts.length) {
+    if (_currentTab != null &&
+        index >= 0 &&
+        index < _currentTab!.scripts.length) {
       _currentTab!.scripts[index].isEnabled = value;
-      _browserProvider?.notifyListeners();
       notifyListeners();
     }
   }
 
-  void updateScript(int index, Script script) {
-    if (_currentTab != null && index >= 0 && index < scripts.length) {
-      _currentTab!.scripts[index] = script;
-      _browserProvider?.notifyListeners();
-      notifyListeners();
-    }
-  }
-
-  // Execution Control
-  Future<void> startExecution(WebViewController controller) async {
-    if (_currentRunner != null) {
-      await _currentRunner!.start(_waitForPageLoadCallback);
-    }
-  }
-
-  void stopExecution() {
-    _currentRunner?.stop();
-  }
-
-  void pauseExecution() {
-    _currentRunner?.pause();
-  }
-
-  void resumeExecution() {
-    _currentRunner?.resume();
-  }
-
-  // Import/Export
-  String exportScript() {
-    if (_currentTab == null) return '[]';
-
-    final List<Map<String, dynamic>> jsonList = [];
-
-    // Add global settings
-    jsonList.add({
-      '脚本类型': '全局设置',
-      '执行延迟': executionDelay ~/ delayTimeUnit.multiplier,
-      '循环次数': originalLoopCount,
-    });
-
-    for (var script in scripts) {
-      if (script.isEnabled) {
-        jsonList.add(script.toUserMap());
-      }
-    }
-
-    return json.encode(jsonList);
-  }
-
-  void importScript(String content) {
-    if (_currentTab == null) return;
-
-    try {
-      final List<dynamic> jsonList = json.decode(content);
-      _currentTab!.scripts.clear();
-
-      for (var item in jsonList) {
-        if (item is! Map<String, dynamic>) continue;
-
-        final type = item['脚本类型'];
-        if (type == '全局设置') {
-          final delay = item['执行延迟'] as int? ?? 1000;
-          final unitLabel = item['时间单位'] as String? ?? '毫秒';
-          final unit = TimeUnit.values.firstWhere(
-            (u) => u.label == unitLabel,
-            orElse: () => TimeUnit.milliseconds,
-          );
-
-          setExecutionDelay(delay * unit.multiplier);
-          setDelayTimeUnit(unit);
-
-          if (item.containsKey('循环次数')) {
-            setLoopCount(item['循环次数'] as int);
-          }
-        } else {
-          try {
-            _currentTab!.scripts.add(Script.fromUserMap(item));
-          } catch (e) {
-            debugPrint('Parse script item error: $e');
-          }
-        }
-      }
-      _browserProvider?.notifyListeners();
-      notifyListeners();
-    } catch (e) {
-      debugPrint('Import script error: $e');
-      // Fallback legacy
-      _importScriptLegacy(content);
-    }
-  }
-
-  void _importScriptLegacy(String content) {
-    if (_currentTab == null) return;
-
-    try {
-      final lines = content.split('\n');
-      _currentTab!.scripts.clear();
-
-      for (var line in lines) {
-        if (line.trim().isEmpty) continue;
-        try {
-          final script = Script.fromJson(line);
-          if (script.type == '全局变量') {
-            final delay = script.params['执行延迟'] as int;
-            final unitLabel = script.params['时间单位'] as String;
-            final loop = script.params['循环次数'] as int;
-
-            final unit = TimeUnit.values.firstWhere(
-              (u) => u.label == unitLabel,
-              orElse: () => TimeUnit.milliseconds,
-            );
-
-            setExecutionDelay(delay * unit.multiplier);
-            setDelayTimeUnit(unit);
-            setLoopCount(loop);
-          } else {
-            _currentTab!.scripts.add(script);
-          }
-        } catch (e) {
-          debugPrint('Legacy parse error: $e');
-        }
-      }
-      _browserProvider?.notifyListeners();
-      notifyListeners();
-    } catch (e) {
-      debugPrint('Legacy import error: $e');
-    }
-  }
-
-  // Recording Stream & Logic
+  // Stream controller for last recorded action to trigger UI animation
   final _lastRecordedActionController = StreamController<String>.broadcast();
   Stream<String> get lastRecordedActionStream =>
       _lastRecordedActionController.stream;
@@ -305,9 +199,10 @@ class ScriptProvider extends ChangeNotifier {
         _lastRecordedActionController.add('点击文字: $content');
         break;
       case '点击图片':
+        // Image click from JS
         addScript(Script(
           type: '点击图片',
-          params: {},
+          params: {}, // Image click usually doesn't need params in this simple model
           isEnabled: true,
         ));
         _lastRecordedActionController.add('点击图片');
@@ -328,6 +223,215 @@ class ScriptProvider extends ChangeNotifier {
     }
   }
 
+  void updateScript(int index, Script script) {
+    if (_currentTab != null &&
+        index >= 0 &&
+        index < _currentTab!.scripts.length) {
+      _currentTab!.scripts[index] = script;
+      notifyListeners();
+    }
+  }
+
+  Future<void> startExecution(WebViewController controller) async {
+    if (_currentTab == null || _currentTab!.scripts.isEmpty || _isRecording) {
+      return;
+    }
+
+    _isExecuting = true;
+    _isPaused = false;
+    _currentScriptIndex = 0;
+    _remainingLoopCount = _originalLoopCount;
+
+    // Mark tab as executing
+    _currentTab!.isExecutingScript = true;
+    _currentTab!.currentScriptIndex = 0;
+    _currentTab!.successCount = 0;
+    _currentTab!.failureCount = 0;
+    _currentTab!.remainingLoopCount = _remainingLoopCount;
+
+    // Reset status and counts
+    _successCount = 0;
+    _failureCount = 0;
+    for (var script in _currentTab!.scripts) {
+      script.status = ScriptStatus.idle;
+      script.statusMessage = null;
+    }
+    notifyListeners();
+
+    while (_remainingLoopCount > 0 && _isExecuting) {
+      for (var i = 0; i < _currentTab!.scripts.length; i++) {
+        if (!_isExecuting) break;
+
+        // Handle pause
+        while (_isPaused && _isExecuting) {
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
+
+        _currentScriptIndex = i;
+        _currentTab!.currentScriptIndex = i;
+        notifyListeners();
+
+        final script = _currentTab!.scripts[i];
+        if (script.isEnabled) {
+          await _executor.execute(
+            controller,
+            script,
+            executionDelay: _executionDelay,
+            onStatusChanged: (status, message, progress) {
+              script.status = status;
+              script.statusMessage = message;
+              script.progress = progress;
+
+              if (status == ScriptStatus.success) {
+                _successCount++;
+                _currentTab!.successCount++;
+              } else if (status == ScriptStatus.failure) {
+                _failureCount++;
+                _currentTab!.failureCount++;
+              }
+
+              notifyListeners();
+            },
+            waitForPageLoad: _waitForPageLoadCallback,
+          );
+        }
+
+        // Global delay between scripts is now handled inside execute (before execution)
+        // so we don't need it here.
+      }
+
+      if (_isExecuting) {
+        _remainingLoopCount--;
+        _currentTab!.remainingLoopCount = _remainingLoopCount;
+        notifyListeners();
+      }
+    }
+
+    _isExecuting = false;
+    _currentScriptIndex = 0;
+    if (_currentTab != null) {
+      _currentTab!.isExecutingScript = false;
+      _currentTab!.currentScriptIndex = 0;
+    }
+    notifyListeners();
+  }
+
+  void stopExecution() {
+    _isExecuting = false;
+    _isPaused = false;
+    notifyListeners();
+  }
+
+  void pauseExecution() {
+    _isPaused = true;
+    notifyListeners();
+  }
+
+  void resumeExecution() {
+    _isPaused = false;
+    notifyListeners();
+  }
+
+  String exportScript() {
+    if (_currentTab == null) return '[]';
+
+    final List<Map<String, dynamic>> jsonList = [];
+
+    // Add global settings
+    jsonList.add({
+      '脚本类型': '全局设置',
+      '执行延迟': _executionDelay ~/ _delayTimeUnit.multiplier,
+      // Note: User JSON example used '执行延迟' for global delay, assuming unit is implied or standard.
+      // But to be safe and consistent with my internal logic, I'll save what I have.
+      // The user example: "执行延迟": 1000.
+    });
+
+    for (var script in _currentTab!.scripts) {
+      if (script.isEnabled) {
+        jsonList.add(script.toUserMap());
+      }
+    }
+
+    return json.encode(jsonList);
+  }
+
+  void importScript(String content) {
+    if (_currentTab == null) return;
+
+    try {
+      final List<dynamic> jsonList = json.decode(content);
+      _currentTab!.scripts.clear();
+
+      for (var item in jsonList) {
+        if (item is! Map<String, dynamic>) continue;
+
+        final type = item['脚本类型'];
+        if (type == '全局设置') {
+          final delay = item['执行延迟'] as int? ?? 1000;
+          // User JSON doesn't explicitly show unit, assuming milliseconds or matching current logic.
+          // If the user JSON implies milliseconds:
+          _executionDelay = delay;
+          // If we want to respect the unit, we might need to infer or default.
+          // Let's assume milliseconds for now as per "执行延迟": 1000 (1 second).
+          _delayTimeUnit = TimeUnit.milliseconds;
+
+          // User JSON didn't show loop count in global settings example, but if it exists:
+          if (item.containsKey('循环次数')) {
+            _originalLoopCount = item['循环次数'] as int;
+          }
+        } else {
+          try {
+            _currentTab!.scripts.add(Script.fromUserMap(item));
+          } catch (e) {
+            debugPrint('Parse script item error: $e');
+          }
+        }
+      }
+      _saveScripts();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Import script error: $e');
+      // Fallback to old line-by-line format if JSON decode fails
+      _importScriptLegacy(content);
+    }
+  }
+
+  void _importScriptLegacy(String content) {
+    if (_currentTab == null) return;
+
+    try {
+      final lines = content.split('\n');
+      _currentTab!.scripts.clear();
+
+      for (var line in lines) {
+        if (line.trim().isEmpty) continue;
+        try {
+          final script = Script.fromJson(line);
+          if (script.type == '全局变量') {
+            // Legacy global settings logic
+            final delay = script.params['执行延迟'] as int;
+            final unitLabel = script.params['时间单位'] as String;
+            final loop = script.params['循环次数'] as int;
+            _delayTimeUnit = TimeUnit.values.firstWhere(
+              (u) => u.label == unitLabel,
+              orElse: () => TimeUnit.milliseconds,
+            );
+            _executionDelay = delay * _delayTimeUnit.multiplier;
+            _originalLoopCount = loop;
+          } else {
+            _currentTab!.scripts.add(script);
+          }
+        } catch (e) {
+          debugPrint('Legacy parse error: $e');
+        }
+      }
+      _saveScripts();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Legacy import error: $e');
+    }
+  }
+
   static const String recordingJs = '''
     (function() {
       if (window._auokRecorderInjected) return;
@@ -336,12 +440,15 @@ class ScriptProvider extends ChangeNotifier {
       document.addEventListener('click', function(e) {
         let target = e.target;
         
+        // Handle text nodes (nodeType 3)
         if (target.nodeType === 3) {
           target = target.parentElement;
         }
         
         if (!target) return;
 
+        // Check for image
+        // Safe check for getComputedStyle
         let isBgImage = false;
         try {
           isBgImage = window.getComputedStyle(target).backgroundImage !== 'none';

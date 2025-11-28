@@ -9,8 +9,6 @@ import '../widgets/global_settings_dialog.dart';
 
 import 'dart:async';
 import 'dart:io';
-import 'dart:convert';
-import '../models/script.dart';
 
 import 'package:permission_handler/permission_handler.dart';
 import '../widgets/url_search_overlay.dart';
@@ -67,17 +65,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
       for (var data in browserProvider.restoredTabsData!) {
         final url = data['url'] as String;
         final title = data['title'] as String;
-        final scriptsJson = data['scripts'] as List<dynamic>?;
-
-        List<Script> scripts = [];
-        if (scriptsJson != null) {
-          try {
-            scripts =
-                scriptsJson.map((s) => Script.fromJson(jsonEncode(s))).toList();
-          } catch (e) {
-            debugPrint('Error restoring scripts: $e');
-          }
-        }
 
         final controller = _createWebViewController(
             browserProvider, scriptProvider,
@@ -87,12 +74,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
           initialUrl: url,
           initialTitle: title,
           controller: controller,
-          initialScripts: scripts,
-          executionDelay: data['executionDelay'],
-          loopCount: data['originalLoopCount'],
-          timeUnit: data['delayTimeUnit'] != null
-              ? TimeUnit.values[data['delayTimeUnit']]
-              : null,
         );
       }
 
@@ -158,7 +139,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                 _urlController.text = displayUrl;
               }
             }
-            browserProvider.notifyState();
           }
         },
         onPageFinished: (String url) async {
@@ -307,6 +287,13 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
   Widget build(BuildContext context) {
     return Consumer2<BrowserProvider, ScriptProvider>(
       builder: (context, browserProvider, scriptProvider, child) {
+        // Update ScriptProvider's current tab when it changes
+        if (scriptProvider.currentTab != browserProvider.currentTab) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            scriptProvider.setCurrentTab(browserProvider.currentTab);
+          });
+        }
+
         // Update URL controller if needed
         if (browserProvider.currentTab != null) {
           final currentUrl = browserProvider.currentTab!.url;
@@ -924,13 +911,26 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            const Text(
-              '标签页',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  '标签页',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.add, color: Colors.white, size: 28),
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    await _addNewTab();
+                  },
+                  tooltip: '新建标签',
+                ),
+              ],
             ),
             const SizedBox(height: 16),
             Expanded(
@@ -939,32 +939,66 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                 itemBuilder: (context, index) {
                   final tab = browser.tabs[index];
                   final isSelected = index == browser.currentIndex;
+                  final canClose = browser.canCloseTab(index);
+
                   return ListTile(
                     title: Text(
                       tab.title,
                       style: const TextStyle(color: Colors.white),
                     ),
-                    subtitle: (tab.url == 'about:blank' ||
-                            tab.url.endsWith('welcome.html'))
-                        ? null
-                        : Text(
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (tab.url != 'about:blank' &&
+                            !tab.url.endsWith('welcome.html'))
+                          Text(
                             tab.url,
                             style: const TextStyle(color: Colors.grey),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
+                        if (tab.isExecutingScript)
+                          const Text(
+                            '正在执行脚本...',
+                            style: TextStyle(
+                              color: Colors.orange,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                      ],
+                    ),
                     selected: isSelected,
                     onTap: () {
                       browser.setCurrentIndex(index);
                       Navigator.pop(context);
                     },
                     trailing: IconButton(
-                      icon: const Icon(Icons.close, color: Colors.white),
+                      icon: Icon(
+                        Icons.close,
+                        color: canClose ? Colors.white : Colors.grey.shade600,
+                      ),
                       onPressed: () {
-                        browser.removeTab(index);
-                        if (browser.tabs.isEmpty) {
+                        if (!canClose) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('该标签页正在执行脚本，无法关闭'),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                          return;
+                        }
+
+                        if (browser.tabs.length == 1) {
+                          // Last tab - remove and create new default tab
+                          browser.removeTab(index);
                           Navigator.pop(context);
                           _addNewTab();
+                        } else {
+                          browser.removeTab(index);
+                          if (browser.tabs.isEmpty) {
+                            Navigator.pop(context);
+                            _addNewTab();
+                          }
                         }
                       },
                     ),

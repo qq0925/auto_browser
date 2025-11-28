@@ -80,7 +80,6 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
   String _compareMethod = '>';
   bool _switchState = true;
-  TimeUnit _selectedTimeUnit = TimeUnit.milliseconds;
 
   // Nested scripts state
   Script? _beforeScript;
@@ -118,13 +117,6 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       _scriptSetController.text = params['脚本集名称'] ?? '';
       _compareMethod = params['对比方式'] ?? '>';
       _switchState = params['开关状态'] ?? true;
-
-      if (params.containsKey('时间单位')) {
-        _selectedTimeUnit = TimeUnit.values.firstWhere(
-          (e) => e.label == params['时间单位'],
-          orElse: () => TimeUnit.milliseconds,
-        );
-      }
 
       if (params['执行每个脚本前执行'] != null) {
         _beforeScript =
@@ -357,12 +349,13 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
   List<Widget> _buildDynamicFields() {
     // Common delay field for most types
-    final delayField = _buildDelayRow();
+    final delayField = _buildFieldRow('执行延迟', _delayController, '', hint: '毫秒');
 
     switch (_selectedScriptType) {
       case '全局设置':
         return [
-          _buildDelayRow(required: true),
+          _buildFieldRow('执行延迟', _delayController, '',
+              hint: '毫秒', required: true),
         ];
       case '点击文字':
         return [
@@ -474,69 +467,6 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       default:
         return [delayField];
     }
-  }
-
-  Widget _buildDelayRow({bool required = false}) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 120,
-            child: Row(
-              children: [
-                const Text(
-                  '执行延迟',
-                  style: TextStyle(color: Colors.white, fontSize: 13),
-                ),
-                if (required)
-                  const Text(
-                    '*',
-                    style: TextStyle(color: Colors.red, fontSize: 13),
-                  ),
-              ],
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: _buildTextField(_delayController, ''),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            flex: 1,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: DropdownButtonFormField<TimeUnit>(
-                value: _selectedTimeUnit,
-                decoration: const InputDecoration(
-                  contentPadding:
-                      EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                  border: InputBorder.none,
-                ),
-                isExpanded: true,
-                items: TimeUnit.values.map((TimeUnit unit) {
-                  return DropdownMenuItem<TimeUnit>(
-                    value: unit,
-                    child:
-                        Text(unit.label, style: const TextStyle(fontSize: 13)),
-                  );
-                }).toList(),
-                onChanged: (TimeUnit? newValue) {
-                  if (newValue != null) {
-                    setState(() {
-                      _selectedTimeUnit = newValue;
-                    });
-                  }
-                },
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   Widget _buildLabel(String text) {
@@ -743,7 +673,6 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       case '全局设置':
         if (_delayController.text.isEmpty) return;
         params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
-        params['时间单位'] = _selectedTimeUnit.label;
         break;
 
       case '点击文字':
@@ -903,11 +832,6 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
         }
         break;
-    }
-
-    // Add time unit if delay is present
-    if (params.containsKey('执行延迟')) {
-      params['时间单位'] = _selectedTimeUnit.label;
     }
 
     // Save nested scripts

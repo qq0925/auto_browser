@@ -11,10 +11,7 @@ void main() async {
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => BrowserProvider()),
-        ChangeNotifierProxyProvider<BrowserProvider, ScriptProvider>(
-          create: (_) => ScriptProvider(),
-          update: (_, browser, script) => script!..update(browser),
-        ),
+        ChangeNotifierProvider(create: (_) => ScriptProvider()),
       ],
       child: const MyApp(),
     ),

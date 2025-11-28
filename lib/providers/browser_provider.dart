@@ -5,8 +5,6 @@ import 'dart:convert';
 import '../models/browser_tab.dart';
 import '../models/browser_data.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
-import '../models/script.dart';
-import 'package:flutter/services.dart' show rootBundle;
 
 class BrowserProvider extends ChangeNotifier {
   final List<BrowserTab> _tabs = [];
@@ -47,7 +45,11 @@ class BrowserProvider extends ChangeNotifier {
     await _loadBookmarksAndHistory();
     await _restoreTabsState();
     try {
-      _nightCssContent = await rootBundle.loadString('assets/night.css');
+      if (navigatorKey.currentContext != null) {
+        _nightCssContent =
+            await DefaultAssetBundle.of(navigatorKey.currentContext!)
+                .loadString('assets/night.css');
+      }
     } catch (e) {
       debugPrint('Error loading night.css: $e');
     }
@@ -118,53 +120,53 @@ class BrowserProvider extends ChangeNotifier {
   Future<void> addTab(
       {String? initialUrl,
       String? initialTitle,
-      required WebViewController controller,
-      List<Script>? initialScripts,
-      int? executionDelay,
-      int? loopCount,
-      TimeUnit? timeUnit}) async {
-    final tab = BrowserTab(
+      required WebViewController controller}) async {
+    _tabs.add(BrowserTab(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       controller: controller,
       title: initialTitle ?? 'New Tab',
       url: initialUrl ?? 'about:blank',
-      scripts: initialScripts ?? [],
-    );
-
-    if (executionDelay != null) tab.executionDelay = executionDelay;
-    if (loopCount != null) tab.originalLoopCount = loopCount;
-    if (timeUnit != null) tab.delayTimeUnit = timeUnit;
-
-    _tabs.add(tab);
+    ));
     _currentIndex = _tabs.length - 1;
     notifyListeners();
     _saveTabsState();
   }
 
-  void removeTab(int index) {
+  bool canCloseTab(int index) {
     if (index >= 0 && index < _tabs.length) {
+      return !_tabs[index].isExecutingScript;
+    }
+    return false;
+  }
+
+  void removeTab(int index) {
+    if (_tabs.length > 1) {
       final tab = _tabs[index];
 
-      // Prevent closing if script is executing
+      // Prevent closing if executing script
       if (tab.isExecutingScript) {
-        debugPrint('Cannot close tab with running script');
-        return;
+        return; // Caller should show error message
       }
 
       tab.controller.clearCache();
       tab.controller.clearLocalStorage();
 
       _tabs.removeAt(index);
-
-      // If no tabs left, add a default one
-      if (_tabs.isEmpty) {
-        // We rely on UI to handle empty tabs or we can notify a special state
-      } else {
-        if (_currentIndex >= index) {
-          _currentIndex = _currentIndex > 0 ? _currentIndex - 1 : 0;
-        }
+      if (_currentIndex >= index) {
+        _currentIndex = _currentIndex > 0 ? _currentIndex - 1 : 0;
       }
-
+      notifyListeners();
+      _saveTabsState();
+    } else if (_tabs.length == 1) {
+      // Last tab - check if executing, will be handled by caller
+      final tab = _tabs[0];
+      if (tab.isExecutingScript) {
+        return; // Prevent removal
+      }
+      // Allow removal - caller will create new default tab
+      tab.controller.clearCache();
+      tab.controller.clearLocalStorage();
+      _tabs.removeAt(index);
       notifyListeners();
       _saveTabsState();
     }
@@ -327,13 +329,11 @@ class BrowserProvider extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       final tabsData = await Future.wait(_tabs.map((tab) async {
+        // Note: We can't easily get current URL from controller here synchronously,
+        // so we rely on the stored url in BrowserTab which should be updated via updateTabInfo
         return {
           'url': tab.url.startsWith('file:///') ? 'about:blank' : tab.url,
           'title': tab.title,
-          'scripts': tab.scripts.map((s) => s.toJson()).toList(),
-          'executionDelay': tab.executionDelay,
-          'originalLoopCount': tab.originalLoopCount,
-          'delayTimeUnit': tab.delayTimeUnit.index,
         };
       }));
 
@@ -431,9 +431,5 @@ class BrowserProvider extends ChangeNotifier {
   void clearRestoredData() {
     _restoredTabsData = null;
     _restoredIndex = null;
-  }
-
-  void notifyState() {
-    notifyListeners();
   }
 }
