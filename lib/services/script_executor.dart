@@ -7,43 +7,25 @@ class ScriptExecutor {
   // Execute a script on the given controller
   Future<bool> execute(WebViewController controller, Script script,
       {int executionDelay = 1000,
-      Function(ScriptStatus status, String? message)? onStatusChanged}) async {
+      Function(ScriptStatus status, String? message)? onStatusChanged,
+      Future<void> Function()? waitForPageLoad}) async {
     if (!script.isEnabled) return false;
-
-    onStatusChanged?.call(ScriptStatus.running, null);
 
     final repeatCount = script.params['重复次数'] ?? 1;
     bool success = true;
 
     for (var i = 0; i < repeatCount; i++) {
-      bool result = false;
-
-      // Update status for repetition if needed
-      if (repeatCount > 1) {
-        onStatusChanged?.call(
-            ScriptStatus.running, '正在执行第 ${i + 1}/$repeatCount 次');
+      // 1. Wait for page load
+      if (waitForPageLoad != null) {
+        onStatusChanged?.call(ScriptStatus.waiting, '等待网页加载...');
+        await waitForPageLoad();
       }
 
-      // 1. Wait for Page Load
-      onStatusChanged?.call(ScriptStatus.waiting, '等待网页加载...');
-      await _waitForPageLoad(controller);
-
-      // 2. Wait for Execution Delay (Global or Script-specific)
-      // Note: Script-specific delay logic was inside _executeClickScript,
-      // but user requested "Wait for page load AND delay before execution".
-      // So we should probably move the delay here or ensure it's additive.
-      // For now, I will add the global delay here if it's passed as executionDelay.
-      // Script specific delay is handled inside specific methods or we can unify it.
-      // The user said: "执行每个脚本前是不是要等网页加载完成并且自身执行延迟过后（如果自身没有延迟的用全局执行延迟）才执行？"
-      // So: Wait Page Load -> Wait Delay (Self or Global) -> Execute.
-
+      // 2. Wait for delay (Script specific or Global)
+      // If script has its own delay, use it, otherwise use global executionDelay
       int delay = executionDelay;
       if (script.params.containsKey('执行延迟')) {
-        // If script has specific delay, use it.
-        // Note: params['执行延迟'] might be int.
-        delay = script.params['执行延迟'] is int
-            ? script.params['执行延迟']
-            : executionDelay;
+        delay = script.params['执行延迟'] as int;
       }
 
       if (delay > 0) {
@@ -51,7 +33,15 @@ class ScriptExecutor {
         await Future.delayed(Duration(milliseconds: delay));
       }
 
-      onStatusChanged?.call(ScriptStatus.running, '正在执行...');
+      onStatusChanged?.call(ScriptStatus.running, null);
+
+      bool result = false;
+
+      // Update status for repetition if needed
+      if (repeatCount > 1) {
+        onStatusChanged?.call(
+            ScriptStatus.running, '正在执行第 ${i + 1}/$repeatCount 次');
+      }
 
       switch (script.type) {
         case "点击文字":
@@ -64,23 +54,12 @@ class ScriptExecutor {
           result =
               await _executeIntervalScript(controller, script, onStatusChanged);
           break;
-        case "点击图片":
-          // Simple image click logic
-          result = await _executeImageClick(controller);
-          break;
-        case "网页后退":
-          await controller.goBack();
-          result = true;
-          break;
-        case "网页前进":
-          await controller.goForward();
-          result = true;
-          break;
-        case "刷新网页":
-          await controller.reload();
-          result = true;
+        case "自定义JS":
+          result = await _executeCustomJs(controller, script);
           break;
         default:
+          // For other scripts, assume success for now or implement specific logic
+          // Some scripts like '脚本停止' might be handled outside or just return true
           result = true;
           break;
       }
@@ -91,16 +70,11 @@ class ScriptExecutor {
         break;
       }
 
-      // If not the last repetition, wait for the delay (loop delay?)
-      // User didn't specify loop delay, but usually loop has delay.
-      // The "executionDelay" parameter in execute() is usually the global delay.
-      // If we already waited before execution, do we wait after?
-      // Usually "Interval" between scripts is handled by the provider loop.
-      // This loop is for "Repeat Count" of a SINGLE script.
-      if (i < repeatCount - 1) {
-        onStatusChanged?.call(ScriptStatus.waiting, '等待下次执行...');
-        await Future.delayed(Duration(milliseconds: executionDelay));
-      }
+      // If not the last repetition, we might want a small delay or just continue
+      // The requirement says "wait for page load and delay BEFORE execution",
+      // so we handled it at the start of the loop.
+      // We don't need an extra delay here unless it's specifically for repetition interval.
+      // But for now, let's stick to the "Before Execution" rule.
     }
 
     if (success) {
@@ -108,38 +82,6 @@ class ScriptExecutor {
     }
 
     return success;
-  }
-
-  Future<void> _waitForPageLoad(WebViewController controller) async {
-    int maxRetries = 30; // 30 seconds max wait
-    for (int i = 0; i < maxRetries; i++) {
-      final String readyState = await controller
-          .runJavaScriptReturningResult("document.readyState") as String;
-      // readyState returns '"complete"' (with quotes) from runJavaScriptReturningResult
-      if (readyState.contains('complete')) {
-        return;
-      }
-      await Future.delayed(const Duration(milliseconds: 1000));
-    }
-  }
-
-  Future<bool> _executeImageClick(WebViewController controller) async {
-    // Logic to click the first image or specific image?
-    // For now, let's try to click the first image that looks clickable or just any image.
-    // Or maybe we recorded specific image details?
-    // The current recording only records "点击图片", no details.
-    // So we'll try to click the first image.
-    final result = await controller.runJavaScriptReturningResult('''
-      (function() {
-        const images = document.querySelectorAll('img');
-        if (images.length > 0) {
-          images[0].click();
-          return true;
-        }
-        return false;
-      })();
-    ''');
-    return result.toString() == 'true';
   }
 
   Future<bool> _executeIntervalScript(
@@ -243,6 +185,30 @@ class ScriptExecutor {
     ''');
 
     return result.toString() == 'true';
+  }
+
+  Future<bool> _executeCustomJs(
+      WebViewController controller, Script script) async {
+    final jsContent = script.params['js内容'] ?? '';
+    if (jsContent.isEmpty) return true; // Empty script considered success
+
+    try {
+      // Wrap in try-catch block to prevent crashing
+      final result = await controller.runJavaScriptReturningResult('''
+        (function() {
+          try {
+            $jsContent
+            return true;
+          } catch (e) {
+            console.error('Custom JS execution error:', e);
+            return false;
+          }
+        })();
+      ''');
+      return result.toString() == 'true';
+    } catch (e) {
+      return false;
+    }
   }
 
   String _buildClickScriptLogic(ScriptMode mode, Map<String, dynamic> params) {

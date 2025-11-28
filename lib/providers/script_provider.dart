@@ -16,8 +16,11 @@ class ScriptProvider extends ChangeNotifier {
   int _originalLoopCount = 1;
   int _remainingLoopCount = 1;
   TimeUnit _delayTimeUnit = TimeUnit.milliseconds;
+
   int _successCount = 0;
   int _failureCount = 0;
+
+  Future<void> Function()? _waitForPageLoadCallback;
 
   final ScriptExecutor _executor = ScriptExecutor();
 
@@ -32,6 +35,10 @@ class ScriptProvider extends ChangeNotifier {
   TimeUnit get delayTimeUnit => _delayTimeUnit;
   int get successCount => _successCount;
   int get failureCount => _failureCount;
+
+  void setWaitForPageLoadCallback(Future<void> Function() callback) {
+    _waitForPageLoadCallback = callback;
+  }
 
   ScriptProvider() {
     _loadScripts();
@@ -233,12 +240,11 @@ class ScriptProvider extends ChangeNotifier {
     _isExecuting = true;
     _isPaused = false;
     _currentScriptIndex = 0;
-    _currentScriptIndex = 0;
     _remainingLoopCount = _originalLoopCount;
+
+    // Reset status and counts
     _successCount = 0;
     _failureCount = 0;
-
-    // Reset status for all scripts
     for (var script in _scripts) {
       script.status = ScriptStatus.idle;
       script.statusMessage = null;
@@ -266,22 +272,21 @@ class ScriptProvider extends ChangeNotifier {
             onStatusChanged: (status, message) {
               script.status = status;
               script.statusMessage = message;
-              script.status = status;
-              script.statusMessage = message;
+
               if (status == ScriptStatus.success) {
                 _successCount++;
               } else if (status == ScriptStatus.failure) {
                 _failureCount++;
               }
+
               notifyListeners();
             },
+            waitForPageLoad: _waitForPageLoadCallback,
           );
         }
 
-        // Global delay between scripts
-        if (i < _scripts.length - 1) {
-          await Future.delayed(Duration(milliseconds: _executionDelay));
-        }
+        // Global delay between scripts is now handled inside execute (before execution)
+        // so we don't need it here.
       }
 
       if (_isExecuting) {

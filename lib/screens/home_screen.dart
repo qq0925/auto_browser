@@ -55,6 +55,24 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
     final browserProvider = context.read<BrowserProvider>();
     final scriptProvider = context.read<ScriptProvider>();
 
+    // Set wait for page load callback
+    scriptProvider.setWaitForPageLoadCallback(() async {
+      if (browserProvider.currentTab == null) return;
+
+      // Wait until isLoading is false
+      // We can poll or use a completer if we had a stream, but polling is simpler for now
+      // given we don't have a direct stream of loading state here easily accessible
+      // without refactoring BrowserProvider to expose a stream.
+      // A simple poll with timeout is robust enough.
+      int timeout = 30000; // 30 seconds timeout
+      int elapsed = 0;
+      while (browserProvider.currentTab!.isLoading) {
+        await Future.delayed(const Duration(milliseconds: 100));
+        elapsed += 100;
+        if (elapsed >= timeout) break;
+      }
+    });
+
     WebViewController? webViewController;
 
     webViewController = WebViewController()
@@ -629,6 +647,13 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                           },
                           onLoad: () {
                             _showLoadScriptDialog(context, scriptProvider);
+                          },
+                          onRecordScript: () {
+                            if (browserProvider.currentTab != null) {
+                              scriptProvider.startRecording();
+                              browserProvider.currentTab!.controller
+                                  .runJavaScript(ScriptProvider.recordingJs);
+                            }
                           },
                         ),
                       ),
