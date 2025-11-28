@@ -18,13 +18,13 @@ class AddScriptDialog extends StatefulWidget {
 class _AddScriptDialogState extends State<AddScriptDialog> {
   // Script types list (focused on implemented types)
   static const List<String> scriptTypes = [
-    '点击图片',
     '点击文字',
     '间隔时间',
     '脚本替换',
     '脚本停止',
     '脚本暂停',
     '进入网址',
+    '点击图片',
     '控制脚本开关',
     '逻辑脚本-出现文字',
     '逻辑脚本-时间对比',
