@@ -158,7 +158,66 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
         onMessageReceived: (JavaScriptMessage message) {
           scriptProvider.handleScriptMessage(message.message);
         },
-      );
+      )
+      ..setOnJavaScriptAlertDialog(
+          (JavaScriptAlertDialogRequest request) async {
+        await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            content: Text(request.message),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('确定'),
+              ),
+            ],
+          ),
+        );
+      })
+      ..setOnJavaScriptConfirmDialog(
+          (JavaScriptConfirmDialogRequest request) async {
+        return await showDialog<bool>(
+              context: context,
+              builder: (context) => AlertDialog(
+                content: Text(request.message),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('取消'),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('确定'),
+                  ),
+                ],
+              ),
+            ) ??
+            false;
+      })
+      ..setOnJavaScriptTextInputDialog(
+          (JavaScriptTextInputDialogRequest request) async {
+        final controller = TextEditingController(text: request.defaultText);
+        return await showDialog<String>(
+              context: context,
+              builder: (context) => AlertDialog(
+                content: TextField(
+                  controller: controller,
+                  decoration: InputDecoration(hintText: request.message),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('取消'),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, controller.text),
+                    child: const Text('确定'),
+                  ),
+                ],
+              ),
+            ) ??
+            '';
+      });
 
     if (initialUrl != null && initialUrl != 'about:blank') {
       await webViewController.loadRequest(Uri.parse(initialUrl));

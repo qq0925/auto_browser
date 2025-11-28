@@ -7,7 +7,8 @@ class ScriptExecutor {
   // Execute a script on the given controller
   Future<bool> execute(WebViewController controller, Script script,
       {int executionDelay = 1000,
-      Function(ScriptStatus status, String? message)? onStatusChanged,
+      Function(ScriptStatus status, String? message, double? progress)?
+          onStatusChanged,
       Future<void> Function()? waitForPageLoad}) async {
     if (!script.isEnabled) return false;
 
@@ -17,7 +18,7 @@ class ScriptExecutor {
     for (var i = 0; i < repeatCount; i++) {
       // 1. Wait for page load
       if (waitForPageLoad != null) {
-        onStatusChanged?.call(ScriptStatus.waiting, '等待网页加载...');
+        onStatusChanged?.call(ScriptStatus.waiting, '等待网页加载...', null);
         await waitForPageLoad();
       }
 
@@ -29,18 +30,19 @@ class ScriptExecutor {
       }
 
       if (delay > 0) {
-        onStatusChanged?.call(ScriptStatus.waiting, '等待延迟 ${delay}ms...');
+        onStatusChanged?.call(ScriptStatus.waiting, '等待延迟 ${delay}ms...', 0.0);
         await Future.delayed(Duration(milliseconds: delay));
+        onStatusChanged?.call(ScriptStatus.waiting, '等待延迟 ${delay}ms...', 1.0);
       }
 
-      onStatusChanged?.call(ScriptStatus.running, null);
+      onStatusChanged?.call(ScriptStatus.running, null, null);
 
       bool result = false;
 
       // Update status for repetition if needed
       if (repeatCount > 1) {
         onStatusChanged?.call(
-            ScriptStatus.running, '正在执行第 ${i + 1}/$repeatCount 次');
+            ScriptStatus.running, '正在执行第 ${i + 1}/$repeatCount 次', null);
       }
 
       switch (script.type) {
@@ -66,7 +68,7 @@ class ScriptExecutor {
 
       if (!result) {
         success = false;
-        onStatusChanged?.call(ScriptStatus.failure, '执行失败');
+        onStatusChanged?.call(ScriptStatus.failure, '执行失败', null);
         break;
       }
 
@@ -78,7 +80,7 @@ class ScriptExecutor {
     }
 
     if (success) {
-      onStatusChanged?.call(ScriptStatus.success, null);
+      onStatusChanged?.call(ScriptStatus.success, null, 1.0);
     }
 
     return success;
@@ -87,7 +89,8 @@ class ScriptExecutor {
   Future<bool> _executeIntervalScript(
       WebViewController controller,
       Script script,
-      Function(ScriptStatus status, String? message)? onStatusChanged) async {
+      Function(ScriptStatus status, String? message, double? progress)?
+          onStatusChanged) async {
     final params = script.params;
     final h = params['时间间隔-小时'] ?? 0;
     final m = params['时间间隔-分钟'] ?? 0;
@@ -97,9 +100,11 @@ class ScriptExecutor {
     if (totalSeconds <= 0) return true;
 
     for (var i = totalSeconds; i > 0; i--) {
-      onStatusChanged?.call(ScriptStatus.waiting, '等待延迟 ${i}s');
+      double progress = 1.0 - (i / totalSeconds);
+      onStatusChanged?.call(ScriptStatus.waiting, '等待延迟 ${i}s', progress);
       await Future.delayed(const Duration(seconds: 1));
     }
+    onStatusChanged?.call(ScriptStatus.waiting, '等待延迟 0s', 1.0);
 
     return true;
   }

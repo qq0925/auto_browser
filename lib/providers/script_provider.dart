@@ -269,9 +269,10 @@ class ScriptProvider extends ChangeNotifier {
             controller,
             script,
             executionDelay: _executionDelay,
-            onStatusChanged: (status, message) {
+            onStatusChanged: (status, message, progress) {
               script.status = status;
               script.statusMessage = message;
+              script.progress = progress;
 
               if (status == ScriptStatus.success) {
                 _successCount++;

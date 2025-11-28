@@ -33,72 +33,139 @@ class RightScriptPanel extends StatelessWidget {
       ),
       child: Column(
         children: [
-          // Top Section: Global Settings (centered) + Script Info
-          IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Global Settings button (left)
-                Expanded(
-                  child: InkWell(
-                    onTap: onGlobalSettings,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: const Text(
-                        '全局设置',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 11,
-                        ),
+          // --- Top Section: Global Settings ---
+          InkWell(
+            onTap: onGlobalSettings,
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  // Left: Global Settings Title
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.white24),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Text(
+                      '全局',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
-                ),
-                // Vertical divider
-                Container(
-                  width: 1,
-                  color: Colors.white,
-                ),
-                // Script info (right)
-                Expanded(
-                  child: Padding(
-                    padding:
-                        const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                  const SizedBox(width: 12),
+                  // Right: Settings Details
+                  Expanded(
                     child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          '执行延迟',
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 10,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${scriptProvider.executionDelay ~/ scriptProvider.delayTimeUnit.multiplier}${scriptProvider.delayTimeUnit.label}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        Row(
+                          children: [
+                            const Text(
+                              '执行速度: ',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 11,
+                              ),
+                            ),
+                            Text(
+                              '${scriptProvider.executionDelay ~/ scriptProvider.delayTimeUnit.multiplier}${scriptProvider.delayTimeUnit.label}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 4),
-                        Text(
-                          '循环次数',
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 10,
-                          ),
+                        Row(
+                          children: [
+                            const Text(
+                              '循环次数: ',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 11,
+                              ),
+                            ),
+                            Text(
+                              '${scriptProvider.originalLoopCount}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 2),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // Divider 1 (White) - Separates Top and Middle
+          Container(height: 1, color: Colors.white),
+
+          // --- Middle Section: Script List & Management ---
+          Expanded(
+            child: Column(
+              children: [
+                // Header
+                Container(
+                  width: double.infinity,
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                  color: Colors.white.withValues(alpha: 0.05),
+                  child: Text(
+                    '脚本列表 (${scriptProvider.scripts.length})',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+
+                // Divider (Subtle)
+                const Divider(height: 1, color: Colors.white12),
+
+                // Scrollable List
+                Expanded(
+                  child: scriptProvider.scripts.isEmpty
+                      ? _buildEmptyState(scriptProvider)
+                      : ListView.builder(
+                          itemCount: scriptProvider.scripts.length,
+                          itemBuilder: (context, index) =>
+                              _buildScriptItem(context, scriptProvider, index),
+                        ),
+                ),
+
+                // Divider (Subtle)
+                const Divider(height: 1, color: Colors.white12),
+
+                // Add Script Button
+                InkWell(
+                  onTap: onAddScript,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.add_circle_outline,
+                            color: Colors.white, size: 18),
+                        SizedBox(width: 6),
                         Text(
-                          '${scriptProvider.originalLoopCount}',
-                          style: const TextStyle(
+                          '添加脚本',
+                          style: TextStyle(
                             color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
                           ),
                         ),
                       ],
@@ -109,357 +176,321 @@ class RightScriptPanel extends StatelessWidget {
             ),
           ),
 
-          // White divider
+          // Divider 2 (White) - Separates Middle and Bottom
           Container(height: 1, color: Colors.white),
 
-          // Middle Section: Script List (scrollable)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-            child: Text(
-              '脚本列表 (${scriptProvider.scripts.length})',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-              ),
-            ),
+          // --- Bottom Section: Action Buttons ---
+          IntrinsicHeight(
+            child: scriptProvider.isExecuting
+                ? _buildExecutingActions(scriptProvider)
+                : _buildIdleActions(context, scriptProvider),
           ),
+        ],
+      ),
+    );
+  }
 
-          // White divider
-          Container(height: 1, color: Colors.white),
-
-          // Scrollable script list
-          Expanded(
-            child: scriptProvider.scripts.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Text(
-                          '暂无脚本',
-                          style: TextStyle(color: Colors.white54, fontSize: 11),
-                        ),
-                        const SizedBox(height: 8),
-                        InkWell(
-                          onTap: () {
-                            if (!scriptProvider.isExecuting) {
-                              onRecordScript?.call();
-                            }
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              border: Border.all(color: Colors.white54),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.fiber_manual_record,
-                                    color: Colors.red, size: 12),
-                                SizedBox(width: 4),
-                                Text(
-                                  '录制脚本',
-                                  style: TextStyle(
-                                      color: Colors.white, fontSize: 11),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    itemCount: scriptProvider.scripts.length,
-                    itemBuilder: (context, index) {
-                      final script = scriptProvider.scripts[index];
-                      final isCurrent = scriptProvider.isExecuting &&
-                          scriptProvider.currentScriptIndex == index;
-
-                      return InkWell(
-                        onTap: () {
-                          showDialog(
-                            context: context,
-                            builder: (context) => AddScriptDialog(
-                              script: script,
-                              index: index,
-                            ),
-                          );
-                        },
-                        child: Container(
-                          color: isCurrent
-                              ? Colors.blue.withValues(alpha: 0.3)
-                              : null,
-                          padding: const EdgeInsets.symmetric(
-                              vertical: 6, horizontal: 8),
-                          child: Stack(
-                            children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    script.type,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    _getScriptContent(script),
-                                    style: const TextStyle(
-                                      color: Colors.grey,
-                                      fontSize: 10,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  if (index < scriptProvider.scripts.length - 1)
-                                    const Divider(
-                                        color: Colors.grey, height: 8),
-
-                                  // Status Line
-                                  if (scriptProvider.isExecuting &&
-                                      script.status != ScriptStatus.idle) ...[
-                                    const SizedBox(height: 4),
-                                    Row(
-                                      children: [
-                                        _getStatusIcon(script.status),
-                                        const SizedBox(width: 4),
-                                        Expanded(
-                                          child: Text(
-                                            _getStatusText(script),
-                                            style: TextStyle(
-                                              color: _getStatusColor(
-                                                  script.status),
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ],
-                              ),
-                              // Numbering Badge
-                              Positioned(
-                                right: 0,
-                                top: 0,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 4, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey[800],
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    '${index + 1}',
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 9,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+  Widget _buildEmptyState(ScriptProvider scriptProvider) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Text(
+            '暂无脚本',
+            style: TextStyle(color: Colors.white54, fontSize: 11),
           ),
-
-          // White divider
-          Container(height: 1, color: Colors.white),
-
-          // Add Script Section
+          const SizedBox(height: 8),
           InkWell(
-            onTap: onAddScript,
+            onTap: () {
+              if (!scriptProvider.isExecuting) {
+                onRecordScript?.call();
+              }
+            },
             child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.white54),
+                borderRadius: BorderRadius.circular(4),
+              ),
               child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.add_circle_outline, color: Colors.white, size: 18),
-                  SizedBox(width: 6),
+                  Icon(Icons.fiber_manual_record, color: Colors.red, size: 12),
+                  SizedBox(width: 4),
                   Text(
-                    '添加脚本',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                    ),
+                    '录制脚本',
+                    style: TextStyle(color: Colors.white, fontSize: 11),
                   ),
                 ],
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
 
-          // White divider
-          Container(height: 1, color: Colors.white),
+  Widget _buildScriptItem(
+      BuildContext context, ScriptProvider scriptProvider, int index) {
+    final script = scriptProvider.scripts[index];
+    final isCurrent = scriptProvider.isExecuting &&
+        scriptProvider.currentScriptIndex == index;
 
-          // Bottom Section: Action buttons
-          IntrinsicHeight(
-            child: scriptProvider.isExecuting
-                ? Row(
+    return InkWell(
+      onTap: () {
+        showDialog(
+          context: context,
+          builder: (context) => AddScriptDialog(
+            script: script,
+            index: index,
+          ),
+        );
+      },
+      child: Container(
+        color: isCurrent ? Colors.blue.withValues(alpha: 0.3) : null,
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+        child: Stack(
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  script.type,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _getScriptContent(script),
+                  style: const TextStyle(
+                    color: Colors.grey,
+                    fontSize: 10,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (index < scriptProvider.scripts.length - 1)
+                  const Divider(color: Colors.grey, height: 8),
+
+                // Status Line
+                if (scriptProvider.isExecuting &&
+                    script.status != ScriptStatus.idle) ...[
+                  const SizedBox(height: 4),
+                  Row(
                     children: [
-                      // Pause/Resume button
+                      _getStatusIcon(script.status),
+                      const SizedBox(width: 4),
                       Expanded(
-                        child: InkWell(
-                          onTap: () {
-                            if (scriptProvider.isPaused) {
-                              scriptProvider.resumeExecution();
-                            } else {
-                              scriptProvider.pauseExecution();
-                            }
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            child: Icon(
-                              scriptProvider.isPaused
-                                  ? Icons.play_arrow
-                                  : Icons.pause,
-                              color: Colors.white,
-                              size: 24,
-                            ),
-                          ),
-                        ),
-                      ),
-                      // Vertical divider
-                      Container(width: 1, color: Colors.white),
-                      // Stop button
-                      Expanded(
-                        child: InkWell(
-                          onTap: () => scriptProvider.stopExecution(),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            child: const Text(
-                              '停止',
-                              textAlign: TextAlign.center,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _getStatusText(script),
                               style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 14,
+                                color: _getStatusColor(script.status),
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
                               ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                          ),
-                        ),
-                      ),
-                      // Vertical divider
-                      Container(width: 1, color: Colors.white),
-                      // Counts display
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                '失败${scriptProvider.failureCount}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                ),
-                              ),
-                              Text(
-                                '成功${scriptProvider.successCount}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                ),
+                            if (script.progress != null &&
+                                script.progress! >= 0 &&
+                                script.progress! <= 1.0) ...[
+                              const SizedBox(height: 2),
+                              LinearProgressIndicator(
+                                value: script.progress,
+                                backgroundColor: Colors.white24,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                    _getStatusColor(script.status)),
+                                minHeight: 2,
                               ),
                             ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  )
-                : Row(
-                    children: [
-                      // Execute button
-                      Expanded(
-                        child: InkWell(
-                          onTap: scriptProvider.isRecording ? null : onExecute,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            child: Text(
-                              '执行',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: scriptProvider.isRecording
-                                    ? Colors.grey
-                                    : Colors.white,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      // Vertical divider
-                      Container(width: 1, color: Colors.white),
-                      // Load button
-                      Expanded(
-                        child: InkWell(
-                          onTap: onLoad,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            child: const Text(
-                              '读取',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      // Vertical divider
-                      Container(width: 1, color: Colors.white),
-                      // Menu button (3 dots)
-                      Expanded(
-                        child: PopupMenuButton<String>(
-                          icon: const Icon(Icons.more_vert,
-                              color: Colors.white, size: 20),
-                          color: Colors.black87,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          onSelected: (value) {
-                            if (value == 'share') {
-                              _showShareDialog(context, scriptProvider);
-                            } else if (value == 'clear') {
-                              scriptProvider.clearScripts();
-                            } else if (value == 'save') {
-                              _showSaveDialog(context, scriptProvider);
-                            }
-                          },
-                          itemBuilder: (context) => [
-                            const PopupMenuItem(
-                              value: 'share',
-                              child: Text('分享',
-                                  style: TextStyle(color: Colors.white)),
-                            ),
-                            const PopupMenuItem(
-                              value: 'clear',
-                              child: Text('清空',
-                                  style: TextStyle(color: Colors.white)),
-                            ),
-                            const PopupMenuItem(
-                              value: 'save',
-                              child: Text('保存',
-                                  style: TextStyle(color: Colors.white)),
-                            ),
                           ],
                         ),
                       ),
                     ],
                   ),
-          ),
-        ],
+                ],
+              ],
+            ),
+            // Numbering Badge
+            Positioned(
+              right: 0,
+              top: 0,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.grey[800],
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  '${index + 1}',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 9,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildExecutingActions(ScriptProvider scriptProvider) {
+    return Row(
+      children: [
+        // Pause/Resume button
+        Expanded(
+          child: InkWell(
+            onTap: () {
+              if (scriptProvider.isPaused) {
+                scriptProvider.resumeExecution();
+              } else {
+                scriptProvider.pauseExecution();
+              }
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Icon(
+                scriptProvider.isPaused ? Icons.play_arrow : Icons.pause,
+                color: Colors.white,
+                size: 24,
+              ),
+            ),
+          ),
+        ),
+        // Vertical divider
+        Container(width: 1, color: Colors.white),
+        // Stop button
+        Expanded(
+          child: InkWell(
+            onTap: () => scriptProvider.stopExecution(),
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: const Text(
+                '停止',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ),
+        ),
+        // Vertical divider
+        Container(width: 1, color: Colors.white),
+        // Counts display
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  '失败${scriptProvider.failureCount}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                  ),
+                ),
+                Text(
+                  '成功${scriptProvider.successCount}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildIdleActions(
+      BuildContext context, ScriptProvider scriptProvider) {
+    return Row(
+      children: [
+        // Execute button
+        Expanded(
+          child: InkWell(
+            onTap: scriptProvider.isRecording ? null : onExecute,
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Text(
+                '执行',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color:
+                      scriptProvider.isRecording ? Colors.grey : Colors.white,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ),
+        ),
+        // Vertical divider
+        Container(width: 1, color: Colors.white),
+        // Load button
+        Expanded(
+          child: InkWell(
+            onTap: onLoad,
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: const Text(
+                '读取',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ),
+        ),
+        // Vertical divider
+        Container(width: 1, color: Colors.white),
+        // Menu button (3 dots)
+        Expanded(
+          child: PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: Colors.white, size: 20),
+            color: Colors.black87,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+            onSelected: (value) {
+              if (value == 'share') {
+                _showShareDialog(context, scriptProvider);
+              } else if (value == 'clear') {
+                scriptProvider.clearScripts();
+              } else if (value == 'save') {
+                _showSaveDialog(context, scriptProvider);
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'share',
+                child: Text('分享', style: TextStyle(color: Colors.white)),
+              ),
+              const PopupMenuItem(
+                value: 'clear',
+                child: Text('清空', style: TextStyle(color: Colors.white)),
+              ),
+              const PopupMenuItem(
+                value: 'save',
+                child: Text('保存', style: TextStyle(color: Colors.white)),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

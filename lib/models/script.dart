@@ -50,6 +50,7 @@ class Script {
   // Runtime state
   ScriptStatus status = ScriptStatus.idle;
   String? statusMessage;
+  double? progress;
 
   Script({
     required this.type,
@@ -57,6 +58,7 @@ class Script {
     this.isEnabled = true,
     this.status = ScriptStatus.idle,
     this.statusMessage,
+    this.progress,
   });
 
   Map<String, dynamic> getClickParams() {

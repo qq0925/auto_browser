@@ -36,19 +36,13 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     '跳转脚本',
     '网页后退',
     '网页前进',
-    '新建标签页并执行脚本',
-    '延时脚本',
-    '执行本地脚本集',
-    '重置限制次数',
   ];
 
-  late String _selectedScriptType;
-  final TextEditingController _repeatCountController =
-      TextEditingController(text: '1');
-  final TextEditingController _loopCountController =
-      TextEditingController(text: '0');
+  String _selectedScriptType = scriptTypes[0];
 
   // Common fields
+  final TextEditingController _repeatCountController = TextEditingController();
+  final TextEditingController _loopCountController = TextEditingController();
   final TextEditingController _delayController = TextEditingController();
   final TextEditingController _appearTextController = TextEditingController();
   final TextEditingController _clickTextController = TextEditingController();
@@ -96,11 +90,11 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     super.initState();
     if (widget.script != null) {
       _selectedScriptType = widget.script!.type;
-      // Load params
       final params = widget.script!.params;
+
       _delayController.text = (params['执行延迟'] ?? '').toString();
-      _clickTextController.text = params['点击文本'] ?? '';
       _appearTextController.text = params['出现文字'] ?? '';
+      _clickTextController.text = params['点击文本'] ?? '';
       _afterSearchController.text = params['在...之后搜索'] ?? '';
       _beforeSearchController.text = params['在...之前搜索'] ?? '';
       _exactMatch = params['完全匹配'] ?? false;
@@ -212,8 +206,9 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(16),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Top row: Script Type and Repeat Count
+                    // Script Type Row
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
