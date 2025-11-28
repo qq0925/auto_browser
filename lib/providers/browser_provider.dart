@@ -5,6 +5,7 @@ import 'dart:convert';
 import '../models/browser_tab.dart';
 import '../models/browser_data.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import '../utils/welcome_manager.dart';
 
 class BrowserProvider extends ChangeNotifier {
   final List<BrowserTab> _tabs = [];
@@ -53,6 +54,9 @@ class BrowserProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('Error loading night.css: $e');
     }
+
+    // Start background welcome.html update (fire-and-forget)
+    WelcomeManager.updateWelcomeInBackground();
   }
 
   void setCurrentIndex(int index) {

@@ -4,14 +4,14 @@ import 'package:path_provider/path_provider.dart';
 
 /// Utility class for managing script file directories
 class FileManager {
-  /// Get the default script directory path (Auok/脚本)
+  /// Get the default script directory path (脚本)
   /// Creates the directory if it doesn't exist
   static Future<String> getScriptDirectory() async {
     // Get app documents directory
     final Directory appDocDir = await getApplicationDocumentsDirectory();
 
-    // Create Auok/脚本 path
-    final String scriptDirPath = path.join(appDocDir.path, 'Auok', '脚本');
+    // Create 脚本 path directly under Documents
+    final String scriptDirPath = path.join(appDocDir.path, '脚本');
 
     // Create directory if it doesn't exist
     final Directory scriptDir = Directory(scriptDirPath);

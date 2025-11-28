@@ -18,6 +18,7 @@ import '../widgets/bookmarks_history_dialog.dart';
 import '../widgets/auto_refresh_dialog.dart';
 import '../widgets/browser_settings_dialog.dart';
 import '../widgets/script_recording_overlay.dart';
+import '../utils/welcome_manager.dart';
 
 class BrowserHomePage extends StatefulWidget {
   const BrowserHomePage({super.key});
@@ -263,7 +264,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
       controller.loadRequest(Uri.parse(initialUrl));
     } else {
       // Load welcome.html by default for new tabs
-      controller.loadFlutterAsset('assets/welcome.html');
+      // Use updated version if available, fallback to bundled asset
+      WelcomeManager.getWelcomeContent().then((content) {
+        controller.loadHtmlString(content, baseUrl: 'about:blank');
+      });
     }
 
     return controller;
@@ -907,8 +911,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
             onPressed: () {
               // AU按钮功能 - 回到初始页面
               if (browser.currentTab != null) {
-                browser.currentTab!.controller
-                    .loadFlutterAsset('assets/welcome.html');
+                WelcomeManager.getWelcomeContent().then((content) {
+                  browser.currentTab!.controller
+                      .loadHtmlString(content, baseUrl: 'about:blank');
+                });
               }
             },
             child: const Text(

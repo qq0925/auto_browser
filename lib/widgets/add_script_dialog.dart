@@ -160,7 +160,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      backgroundColor: const Color(0xFF4A5C6A),
+      backgroundColor: const Color(0xFF1A2332),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
       ),
@@ -174,7 +174,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFF3A4A5A),
+                color: const Color(0xFF0D1B2A),
                 borderRadius: const BorderRadius.only(
                   topLeft: Radius.circular(8),
                   topRight: Radius.circular(8),
@@ -329,7 +329,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                 child: ElevatedButton(
                   onPressed: _handleSubmit,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF5A6C7A),
+                    backgroundColor: const Color(0xFF5E81AC),
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(4),
@@ -644,7 +644,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
             ),
             child: DropdownButton<String>(
               value: _delayTimeUnit,
-              dropdownColor: const Color(0xFF4A5C6A),
+              dropdownColor: const Color(0xFF1A2332),
               style: const TextStyle(color: Colors.black, fontSize: 14),
               underline: Container(),
               isDense: true,

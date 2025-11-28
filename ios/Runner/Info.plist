@@ -90,6 +90,11 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Auok浏览器需要访问网络以加载网页内容</string>
+	<!-- Enable Files app integration -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Auok浏览器需要访问相册以保存截图</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
