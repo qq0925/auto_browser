@@ -85,7 +85,7 @@ class ScriptExecutor {
   Future<bool> _executeClickScript(
       WebViewController controller, Script script) async {
     final params = script.getClickParams();
-    final clickText = params['点击文字'] ?? '';
+    final clickText = params['点击文本'] ?? '';
     if (clickText.isEmpty) return false;
 
     // Handle delay for non-simple modes
@@ -169,7 +169,7 @@ class ScriptExecutor {
     switch (mode) {
       case ScriptMode.simple:
         return '''
-          const text = "${params['点击文字']}";
+          const text = "${params['点击文本']}";
           const links = Array.from(document.querySelectorAll('a')).filter(a => 
             a.textContent.trim() === text.trim()
           );
@@ -191,7 +191,7 @@ class ScriptExecutor {
             if (!hasText) return false;
           }
           
-          const clickTexts = "${params['点击文字']}".split(';').filter(t => t.trim());
+          const clickTexts = "${params['点击文本']}".split(';').filter(t => t.trim());
           const isExactMatch = ${params['完全匹配'] ? 'true' : 'false'};
           
           for (const text of clickTexts) {
@@ -261,7 +261,7 @@ class ScriptExecutor {
           }
           
           // Filter by click text
-          const clickTexts = "${params['点击文字']}".split(';').filter(t => t.trim());
+          const clickTexts = "${params['点击文本']}".split(';').filter(t => t.trim());
           const isExactMatch = ${params['完全匹配'] ? 'true' : 'false'};
           
           for (const text of clickTexts) {

@@ -185,7 +185,7 @@ class ScriptProvider extends ChangeNotifier {
       case '点击文字':
         addScript(Script(
           type: type,
-          params: {'点击文字': content},
+          params: {'点击文本': content},
           isEnabled: true,
         ));
         _lastRecordedActionController.add('点击文字: $content');
@@ -399,8 +399,21 @@ class ScriptProvider extends ChangeNotifier {
       document.addEventListener('click', function(e) {
         let target = e.target;
         
+        // Handle text nodes (nodeType 3)
+        if (target.nodeType === 3) {
+          target = target.parentElement;
+        }
+        
+        if (!target) return;
+
         // Check for image
-        if (target.tagName === 'IMG' || (window.getComputedStyle(target).backgroundImage !== 'none')) {
+        // Safe check for getComputedStyle
+        let isBgImage = false;
+        try {
+          isBgImage = window.getComputedStyle(target).backgroundImage !== 'none';
+        } catch (e) {}
+
+        if (target.tagName === 'IMG' || isBgImage) {
            ScriptRunner.postMessage('点击图片|');
            return;
         }
