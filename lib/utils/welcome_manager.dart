@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
@@ -39,12 +40,15 @@ class WelcomeManager {
           .timeout(const Duration(seconds: 5));
 
       // Check if successful
-      if (response.statusCode == 200 && response.body.isNotEmpty) {
-        // Save to documents directory
+      if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
+        // Decode response with UTF-8 to handle Chinese characters correctly
+        final content = utf8.decode(response.bodyBytes);
+        
+        // Save to documents directory with UTF-8 encoding
         final documentsDir = await getApplicationDocumentsDirectory();
         final localFile = File(path.join(documentsDir.path, _localFilename));
 
-        await localFile.writeAsString(response.body);
+        await localFile.writeAsString(content, encoding: utf8);
 
         // Silent success - no user notification needed
       }

@@ -186,6 +186,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
           }
         },
         onNavigationRequest: (NavigationRequest request) {
+          // Prevent refresh on welcome page to avoid blank page
+          if (request.url == 'about:blank') {
+            return NavigationDecision.prevent;
+          }
           return NavigationDecision.navigate;
         },
       ),
