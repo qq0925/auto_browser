@@ -244,6 +244,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
 
     if (initialUrl != null && initialUrl.isNotEmpty) {
       controller.loadRequest(Uri.parse(initialUrl));
+    } else {
+      // Load welcome.html by default for new tabs
+      controller.loadFlutterAsset('assets/welcome.html');
     }
 
     return controller;

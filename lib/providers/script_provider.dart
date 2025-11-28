@@ -190,35 +190,43 @@ class ScriptProvider extends ChangeNotifier {
     final content = parts[1];
 
     switch (type) {
-      case '点击文字':
+      case '点击链接':
         addScript(Script(
-          type: type,
-          params: {'点击文本': content},
+          type: '点击链接',
+          params: {'链接文本': content},
           isEnabled: true,
         ));
-        _lastRecordedActionController.add('点击文字: $content');
+        _lastRecordedActionController.add('点击链接: $content');
         break;
+
+      case '点击提交按钮':
+        try {
+          final data = json.decode(content) as Map<String, dynamic>;
+          final buttonText = data['按钮文本'] as String? ?? '提交';
+          final formData = data['表单数据'] as Map<String, dynamic>? ?? {};
+
+          addScript(Script(
+            type: '点击提交按钮',
+            params: {
+              '按钮文本': buttonText,
+              '表单数据': formData,
+            },
+            isEnabled: true,
+          ));
+          _lastRecordedActionController.add('点击提交按钮: $buttonText');
+        } catch (e) {
+          debugPrint('Parse submit button data error: $e');
+        }
+        break;
+
       case '点击图片':
-        // Image click from JS
+        // Image click from JS with optional src
         addScript(Script(
           type: '点击图片',
-          params: {}, // Image click usually doesn't need params in this simple model
+          params: content.isNotEmpty ? {'图片地址': content} : {},
           isEnabled: true,
         ));
         _lastRecordedActionController.add('点击图片');
-        break;
-      case '输入框提交':
-        try {
-          final data = json.decode(content) as Map<String, dynamic>;
-          addScript(Script(
-            type: type,
-            params: data,
-            isEnabled: true,
-          ));
-          _lastRecordedActionController.add('输入框提交: ${data['value']}');
-        } catch (e) {
-          debugPrint('Parse input data error: $e');
-        }
         break;
     }
   }
@@ -237,29 +245,35 @@ class ScriptProvider extends ChangeNotifier {
       return;
     }
 
+    // Lock execution to this specific tab (not _currentTab which can change)
+    final executingTab = _currentTab!;
+    final executingController = controller;
+
     _isExecuting = true;
     _isPaused = false;
     _currentScriptIndex = 0;
     _remainingLoopCount = _originalLoopCount;
 
     // Mark tab as executing
-    _currentTab!.isExecutingScript = true;
-    _currentTab!.currentScriptIndex = 0;
-    _currentTab!.successCount = 0;
-    _currentTab!.failureCount = 0;
-    _currentTab!.remainingLoopCount = _remainingLoopCount;
+    executingTab.isExecutingScript = true;
+    executingTab.currentScriptIndex = 0;
+    executingTab.successCount = 0;
+    executingTab.failureCount = 0;
+    executingTab.remainingLoopCount = _remainingLoopCount;
 
     // Reset status and counts
     _successCount = 0;
     _failureCount = 0;
-    for (var script in _currentTab!.scripts) {
+    for (var script in executingTab.scripts) {
       script.status = ScriptStatus.idle;
       script.statusMessage = null;
     }
     notifyListeners();
 
-    while (_remainingLoopCount > 0 && _isExecuting) {
-      for (var i = 0; i < _currentTab!.scripts.length; i++) {
+    // Loop execution: 0 means infinite loop, otherwise loop the specified times
+    while (
+        _isExecuting && (_originalLoopCount == 0 || _remainingLoopCount > 0)) {
+      for (var i = 0; i < executingTab.scripts.length; i++) {
         if (!_isExecuting) break;
 
         // Handle pause
@@ -268,13 +282,13 @@ class ScriptProvider extends ChangeNotifier {
         }
 
         _currentScriptIndex = i;
-        _currentTab!.currentScriptIndex = i;
+        executingTab.currentScriptIndex = i;
         notifyListeners();
 
-        final script = _currentTab!.scripts[i];
+        final script = executingTab.scripts[i];
         if (script.isEnabled) {
           await _executor.execute(
-            controller,
+            executingController,
             script,
             executionDelay: _executionDelay,
             onStatusChanged: (status, message, progress) {
@@ -284,10 +298,10 @@ class ScriptProvider extends ChangeNotifier {
 
               if (status == ScriptStatus.success) {
                 _successCount++;
-                _currentTab!.successCount++;
+                executingTab.successCount++;
               } else if (status == ScriptStatus.failure) {
                 _failureCount++;
-                _currentTab!.failureCount++;
+                executingTab.failureCount++;
               }
 
               notifyListeners();
@@ -300,19 +314,18 @@ class ScriptProvider extends ChangeNotifier {
         // so we don't need it here.
       }
 
-      if (_isExecuting) {
+      // Only decrement if not in infinite loop mode (0 = infinite)
+      if (_isExecuting && _originalLoopCount > 0) {
         _remainingLoopCount--;
-        _currentTab!.remainingLoopCount = _remainingLoopCount;
+        executingTab.remainingLoopCount = _remainingLoopCount;
         notifyListeners();
       }
     }
 
     _isExecuting = false;
     _currentScriptIndex = 0;
-    if (_currentTab != null) {
-      _currentTab!.isExecutingScript = false;
-      _currentTab!.currentScriptIndex = 0;
-    }
+    executingTab.isExecutingScript = false;
+    executingTab.currentScriptIndex = 0;
     notifyListeners();
   }
 
@@ -447,40 +460,105 @@ class ScriptProvider extends ChangeNotifier {
         
         if (!target) return;
 
-        // Check for image
-        // Safe check for getComputedStyle
+        // Priority 1: Check if it's an image
+        if (target.tagName === 'IMG') {
+          ScriptRunner.postMessage('点击图片|' + (target.src || ''));
+          return;
+        }
+
+        // Check if target or parent has background image
         let isBgImage = false;
         try {
-          isBgImage = window.getComputedStyle(target).backgroundImage !== 'none';
+          let computedStyle = window.getComputedStyle(target);
+          isBgImage = computedStyle.backgroundImage !== 'none';
+          
+          if (!isBgImage && target.parentElement) {
+            computedStyle = window.getComputedStyle(target.parentElement);
+            isBgImage = computedStyle.backgroundImage !== 'none';
+          }
         } catch (e) {}
-
-        if (target.tagName === 'IMG' || isBgImage) {
-           ScriptRunner.postMessage('点击图片|');
-           return;
+        
+        if (isBgImage) {
+          ScriptRunner.postMessage('点击图片|');
+          return;
         }
 
-        let text = target.innerText || target.textContent;
-        if (!text || text.trim() === '') {
-          let parent = target.parentElement;
-          if (parent) {
-            text = parent.innerText || parent.textContent;
+        // Priority 2: Check if it's a link (or element within a link)
+        let linkElement = target.closest('a');
+        if (linkElement && linkElement.href) {
+          let linkText = linkElement.innerText || linkElement.textContent || '';
+          linkText = linkText.trim().substring(0, 50);
+          if (linkText) {
+            ScriptRunner.postMessage('点击链接|' + linkText);
+            return;
           }
         }
-        
-        if (text && text.trim().length > 0) {
-          text = text.trim().substring(0, 50);
-          ScriptRunner.postMessage('点击文字|' + text);
-        }
-      }, true);
 
-      document.addEventListener('change', function(e) {
-        let target = e.target;
-        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
-          let data = {
-            'xpath': '',
-            'value': target.value
-          };
-          ScriptRunner.postMessage('输入框提交|' + JSON.stringify(data));
+        // Priority 3: Check if it's a submit button
+        let isSubmitButton = false;
+        let submitElement = null;
+        
+        if (target.tagName === 'BUTTON') {
+          if (target.type === 'submit' || !target.type) {
+            isSubmitButton = true;
+            submitElement = target;
+          }
+        } else if (target.tagName === 'INPUT' && target.type === 'submit') {
+          isSubmitButton = true;
+          submitElement = target;
+        } else {
+          // Check if clicked element is inside a submit button
+          submitElement = target.closest('button[type="submit"], input[type="submit"]');
+          if (!submitElement) {
+            submitElement = target.closest('button:not([type])');
+          }
+          if (submitElement) {
+            isSubmitButton = true;
+          }
+        }
+
+        if (isSubmitButton && submitElement) {
+          // Find the form
+          let form = submitElement.closest('form');
+          if (form) {
+            // Collect form data
+            let formData = {};
+            let inputs = form.querySelectorAll('input, textarea');
+            
+            inputs.forEach(function(input) {
+              // Skip hidden, button, submit, reset, image types
+              if (input.type === 'hidden' || 
+                  input.type === 'button' || 
+                  input.type === 'submit' ||
+                  input.type === 'reset' ||
+                  input.type === 'image') {
+                return;
+              }
+              
+              // Use name or id as key
+              let key = input.name || input.id;
+              if (key && input.value) {
+                formData[key] = input.value;
+              }
+            });
+
+            // Get button text
+            let buttonText = '';
+            if (submitElement.tagName === 'INPUT') {
+              buttonText = submitElement.value || '提交';
+            } else {
+              buttonText = submitElement.innerText || submitElement.textContent || '提交';
+            }
+            buttonText = buttonText.trim();
+
+            let data = {
+              '按钮文本': buttonText,
+              '表单数据': formData
+            };
+            
+            ScriptRunner.postMessage('点击提交按钮|' + JSON.stringify(data));
+            return;
+          }
         }
       }, true);
     })();
