@@ -80,6 +80,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
   String _compareMethod = '>';
   bool _switchState = true;
+  String _delayTimeUnit = '毫秒'; // Time unit for delay field
 
   // Nested scripts state
   Script? _beforeScript;
@@ -348,14 +349,13 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   }
 
   List<Widget> _buildDynamicFields() {
-    // Common delay field for most types
-    final delayField = _buildFieldRow('执行延迟', _delayController, '', hint: '毫秒');
+    // Common delay field with time unit selector for most types
+    final delayField = _buildDelayFieldWithUnit('执行延迟');
 
     switch (_selectedScriptType) {
       case '全局设置':
         return [
-          _buildFieldRow('执行延迟', _delayController, '',
-              hint: '毫秒', required: true),
+          _buildDelayFieldWithUnit('执行延迟', required: true),
         ];
       case '点击文字':
         return [
@@ -595,6 +595,76 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     );
   }
 
+  Widget _buildDelayFieldWithUnit(String label, {bool required = false}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 120,
+            child: Row(
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                ),
+                if (required)
+                  const Text(
+                    '*',
+                    style: TextStyle(color: Colors.red, fontSize: 13),
+                  ),
+              ],
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: TextField(
+                controller: _delayController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  border: InputBorder.none,
+                ),
+                style: const TextStyle(fontSize: 14),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: DropdownButton<String>(
+              value: _delayTimeUnit,
+              dropdownColor: const Color(0xFF4A5C6A),
+              style: const TextStyle(color: Colors.black, fontSize: 14),
+              underline: Container(),
+              isDense: true,
+              items: const [
+                DropdownMenuItem(value: '毫秒', child: Text('毫秒')),
+                DropdownMenuItem(value: '秒', child: Text('秒')),
+                DropdownMenuItem(value: '分', child: Text('分')),
+              ],
+              onChanged: (value) {
+                if (value != null) {
+                  setState(() => _delayTimeUnit = value);
+                }
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildNestedScriptTile(String label, String type) {
     final script = type == 'beforeScript' ? _beforeScript : _afterScript;
 
@@ -662,6 +732,19 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     );
   }
 
+  // Helper method to convert delay to milliseconds based on selected unit
+  int _convertDelayToMilliseconds() {
+    final value = int.tryParse(_delayController.text) ?? 0;
+    switch (_delayTimeUnit) {
+      case '秒':
+        return value * 1000;
+      case '分':
+        return value * 60000;
+      default: // '毫秒'
+        return value;
+    }
+  }
+
   void _handleSubmit() {
     final scriptProvider = context.read<ScriptProvider>();
 
@@ -672,13 +755,13 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     switch (_selectedScriptType) {
       case '全局设置':
         if (_delayController.text.isEmpty) return;
-        params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+        params['执行延迟'] = _convertDelayToMilliseconds();
         break;
 
       case '点击文字':
         if (_clickTextController.text.isEmpty) return;
         if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+          params['执行延迟'] = _convertDelayToMilliseconds();
         }
         if (_appearTextController.text.isNotEmpty) {
           params['出现文字'] = _appearTextController.text;
@@ -695,7 +778,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
       case '点击图片':
         if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+          params['执行延迟'] = _convertDelayToMilliseconds();
         }
         if (_afterSearchController.text.isNotEmpty) {
           params['在...之后搜索'] = _afterSearchController.text;
@@ -707,7 +790,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
       case '间隔时间':
         if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+          params['执行延迟'] = _convertDelayToMilliseconds();
         }
         if (_intervalHoursController.text.isNotEmpty) {
           params['时间间隔-小时'] = int.tryParse(_intervalHoursController.text) ?? 0;
@@ -725,14 +808,14 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       case '新建标签页并执行脚本':
         if (_urlController.text.isEmpty) return;
         if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+          params['执行延迟'] = _convertDelayToMilliseconds();
         }
         params['网址'] = _urlController.text;
         break;
 
       case '输入框提交':
         if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+          params['执行延迟'] = _convertDelayToMilliseconds();
         }
         if (_submitButtonTextController.text.isNotEmpty) {
           params['提交按钮文字'] = _submitButtonTextController.text;
@@ -745,7 +828,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       case '跳转脚本':
         if (_jumpLabelController.text.isEmpty) return;
         if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+          params['执行延迟'] = _convertDelayToMilliseconds();
         }
         params['跳转标签'] = _jumpLabelController.text;
         break;
@@ -757,7 +840,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
       case '控制脚本开关':
         if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+          params['执行延迟'] = _convertDelayToMilliseconds();
         }
         params['开关状态'] = _switchState;
         break;
@@ -765,7 +848,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       case '逻辑脚本-出现文字':
         if (_appearTextController.text.isEmpty) return;
         if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+          params['执行延迟'] = _convertDelayToMilliseconds();
         }
         params['出现文字'] = _appearTextController.text;
         if (_jumpLabelController.text.isNotEmpty) {
@@ -776,7 +859,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       case '逻辑脚本-时间对比':
         if (_targetValueController.text.isEmpty) return;
         if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+          params['执行延迟'] = _convertDelayToMilliseconds();
         }
         params['目标值'] = _targetValueController.text;
         if (_jumpLabelController.text.isNotEmpty) {
@@ -787,7 +870,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       case '逻辑脚本-数值对比':
         if (_targetValueController.text.isEmpty) return;
         if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+          params['执行延迟'] = _convertDelayToMilliseconds();
         }
         params['目标值'] = _targetValueController.text;
         params['对比方式'] = _compareMethod;
@@ -800,7 +883,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         if (_variableNameController.text.isEmpty) return;
         if (_targetValueController.text.isEmpty) return;
         if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+          params['执行延迟'] = _convertDelayToMilliseconds();
         }
         params['变量名'] = _variableNameController.text;
         params['运算方式'] = _operationController.text;
@@ -811,7 +894,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         if (_clickTextController.text.isEmpty) return;
         if (_targetValueController.text.isEmpty) return;
         if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+          params['执行延迟'] = _convertDelayToMilliseconds();
         }
         params['点击文本'] = _clickTextController.text;
         params['目标值'] = _targetValueController.text;
@@ -821,7 +904,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       case '执行本地脚本集':
         if (_scriptSetController.text.isEmpty) return;
         if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+          params['执行延迟'] = _convertDelayToMilliseconds();
         }
         params['脚本集名称'] = _scriptSetController.text;
         break;
@@ -829,7 +912,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       default:
         // For other types, just save delay if present
         if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+          params['执行延迟'] = _convertDelayToMilliseconds();
         }
         break;
     }

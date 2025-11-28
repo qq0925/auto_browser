@@ -146,6 +146,31 @@ class ScriptProvider extends ChangeNotifier {
     }
   }
 
+  // Insert script at specific index
+  void insertScript(int index, Script script) {
+    if (_currentTab != null &&
+        index >= 0 &&
+        index <= _currentTab!.scripts.length) {
+      _currentTab!.scripts.insert(index, script);
+      notifyListeners();
+    }
+  }
+
+  // Duplicate (copy) a script
+  Script? duplicateScript(int index) {
+    if (_currentTab != null &&
+        index >= 0 &&
+        index < _currentTab!.scripts.length) {
+      final original = _currentTab!.scripts[index];
+      return Script(
+        type: original.type,
+        params: Map<String, dynamic>.from(original.params),
+        isEnabled: original.isEnabled,
+      );
+    }
+    return null;
+  }
+
   // Stream controller for last recorded action to trigger UI animation
   final _lastRecordedActionController = StreamController<String>.broadcast();
   Stream<String> get lastRecordedActionStream =>

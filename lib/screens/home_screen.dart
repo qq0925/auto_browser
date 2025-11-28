@@ -158,12 +158,26 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
               controller.runJavaScript(ScriptProvider.recordingJs);
             }
 
-            final title = await controller.getTitle();
-            if (title != null) {
-              browserProvider.updateTabInfo(index, url, title);
-              if (url.startsWith('http')) {
-                browserProvider.addToHistory(url, title);
+            // Get title with retry for background tabs
+            String? title = await controller.getTitle();
+
+            // Retry if title is null or empty (common for background tabs)
+            if ((title == null || title.isEmpty) && url.startsWith('http')) {
+              for (int i = 0; i < 3; i++) {
+                await Future.delayed(const Duration(milliseconds: 500));
+                title = await controller.getTitle();
+                if (title != null && title.isNotEmpty) break;
               }
+            }
+
+            // Use URL as fallback if still no title
+            if (title == null || title.isEmpty) {
+              title = url;
+            }
+
+            browserProvider.updateTabInfo(index, url, title);
+            if (url.startsWith('http')) {
+              browserProvider.addToHistory(url, title);
             }
           }
         },

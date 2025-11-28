@@ -236,7 +236,7 @@ class RightScriptPanel extends StatelessWidget {
     final isCurrent = scriptProvider.isExecuting &&
         scriptProvider.currentScriptIndex == index;
 
-    return InkWell(
+    return GestureDetector(
       onTap: () {
         showDialog(
           context: context,
@@ -245,6 +245,9 @@ class RightScriptPanel extends StatelessWidget {
             index: index,
           ),
         );
+      },
+      onLongPress: () {
+        _showScriptContextMenu(context, scriptProvider, index);
       },
       child: Container(
         color: isCurrent ? Colors.blue.withValues(alpha: 0.3) : null,
@@ -338,6 +341,102 @@ class RightScriptPanel extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  void _showScriptContextMenu(
+      BuildContext context, ScriptProvider scriptProvider, int index) {
+    final script = scriptProvider.scripts[index];
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF2C2C2C),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 禁用/启用
+              ListTile(
+                leading: Icon(
+                  script.isEnabled ? Icons.visibility_off : Icons.visibility,
+                  color: Colors.white,
+                ),
+                title: Text(
+                  script.isEnabled ? '禁用' : '启用',
+                  style: const TextStyle(color: Colors.white),
+                ),
+                onTap: () {
+                  scriptProvider.toggleScriptEnabled(index, !script.isEnabled);
+                  Navigator.pop(context);
+                },
+              ),
+              const Divider(color: Colors.white24, height: 1),
+
+              // 复制
+              ListTile(
+                leading: const Icon(Icons.copy, color: Colors.white),
+                title: const Text('复制', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  final copied = scriptProvider.duplicateScript(index);
+                  if (copied != null) {
+                    scriptProvider.addScript(copied);
+                  }
+                  Navigator.pop(context);
+                },
+              ),
+              const Divider(color: Colors.white24, height: 1),
+
+              // 在前粘贴脚本
+              ListTile(
+                leading: const Icon(Icons.content_paste, color: Colors.white),
+                title:
+                    const Text('在前粘贴脚本', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  final copied = scriptProvider.duplicateScript(index);
+                  if (copied != null) {
+                    scriptProvider.insertScript(index, copied);
+                  }
+                  Navigator.pop(context);
+                },
+              ),
+              const Divider(color: Colors.white24, height: 1),
+
+              // 删除
+              ListTile(
+                leading: const Icon(Icons.delete, color: Colors.red),
+                title: const Text('删除', style: TextStyle(color: Colors.red)),
+                onTap: () {
+                  scriptProvider.removeScript(index);
+                  Navigator.pop(context);
+                },
+              ),
+              const Divider(color: Colors.white24, height: 1),
+
+              // 在前插入新脚本
+              ListTile(
+                leading:
+                    const Icon(Icons.add_circle_outline, color: Colors.white),
+                title: const Text('在前插入新脚本',
+                    style: TextStyle(color: Colors.white)),
+                onTap: () async {
+                  Navigator.pop(context);
+                  final result = await showDialog<Script>(
+                    context: context,
+                    builder: (context) => const AddScriptDialog(),
+                  );
+                  if (result != null) {
+                    scriptProvider.insertScript(index, result);
+                  }
+                },
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
