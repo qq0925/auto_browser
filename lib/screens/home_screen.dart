@@ -6,9 +6,11 @@ import '../providers/script_provider.dart';
 import '../widgets/right_script_panel.dart';
 import '../widgets/add_script_dialog.dart';
 import '../widgets/global_settings_dialog.dart';
-import '../models/browser_data.dart';
+
 import 'dart:async';
 import 'dart:io';
+import 'dart:convert';
+import '../models/script.dart';
 
 import 'package:permission_handler/permission_handler.dart';
 import '../widgets/url_search_overlay.dart';
@@ -46,25 +48,12 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
 
   Future<void> _initTabs() async {
     final browserProvider = context.read<BrowserProvider>();
-    if (browserProvider.tabs.isEmpty) {
-      await _addNewTab();
-    }
-  }
-
-  Future<void> _addNewTab({String? initialUrl, String? initialTitle}) async {
-    final browserProvider = context.read<BrowserProvider>();
     final scriptProvider = context.read<ScriptProvider>();
 
-    // Set wait for page load callback
+    // Set wait for page load callback globally once
     scriptProvider.setWaitForPageLoadCallback(() async {
       if (browserProvider.currentTab == null) return;
-
-      // Wait until isLoading is false
-      // We can poll or use a completer if we had a stream, but polling is simpler for now
-      // given we don't have a direct stream of loading state here easily accessible
-      // without refactoring BrowserProvider to expose a stream.
-      // A simple poll with timeout is robust enough.
-      int timeout = 30000; // 30 seconds timeout
+      int timeout = 30000;
       int elapsed = 0;
       while (browserProvider.currentTab!.isLoading) {
         await Future.delayed(const Duration(milliseconds: 100));
@@ -73,162 +62,224 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
       }
     });
 
-    WebViewController? webViewController;
+    if (browserProvider.restoredTabsData != null &&
+        browserProvider.restoredTabsData!.isNotEmpty) {
+      for (var data in browserProvider.restoredTabsData!) {
+        final url = data['url'] as String;
+        final title = data['title'] as String;
+        final scriptsJson = data['scripts'] as List<dynamic>?;
 
-    webViewController = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(
-          browserProvider.isDarkMode ? Colors.black : Colors.white)
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onProgress: (int progress) {
-            // Update progress bar (progress is 0-100, convert to 0.0-1.0)
-            browserProvider.updateTabProgress(progress / 100.0);
-          },
-          onPageStarted: (String url) {
-            // Reset progress to 0 when page starts loading
-            browserProvider.updateTabProgress(0.0);
-            browserProvider.currentTab?.isLoading = true;
+        List<Script> scripts = [];
+        if (scriptsJson != null) {
+          try {
+            scripts =
+                scriptsJson.map((s) => Script.fromJson(jsonEncode(s))).toList();
+          } catch (e) {
+            debugPrint('Error restoring scripts: $e');
+          }
+        }
 
-            // Try to get title from history for instant display
+        final controller = _createWebViewController(
+            browserProvider, scriptProvider,
+            initialUrl: url);
+
+        await browserProvider.addTab(
+          initialUrl: url,
+          initialTitle: title,
+          controller: controller,
+          initialScripts: scripts,
+          executionDelay: data['executionDelay'],
+          loopCount: data['originalLoopCount'],
+          timeUnit: data['delayTimeUnit'] != null
+              ? TimeUnit.values[data['delayTimeUnit']]
+              : null,
+        );
+      }
+
+      if (browserProvider.restoredIndex != null) {
+        browserProvider.setCurrentIndex(browserProvider.restoredIndex!);
+      }
+
+      browserProvider.clearRestoredData();
+    }
+
+    if (browserProvider.tabs.isEmpty) {
+      await _addNewTab();
+    }
+  }
+
+  WebViewController _createWebViewController(
+      BrowserProvider browserProvider, ScriptProvider scriptProvider,
+      {String? initialUrl}) {
+    final controller = WebViewController();
+
+    controller.setJavaScriptMode(JavaScriptMode.unrestricted);
+    controller.setBackgroundColor(
+        browserProvider.isDarkMode ? Colors.black : Colors.white);
+
+    controller.setNavigationDelegate(
+      NavigationDelegate(
+        onProgress: (int progress) {
+          final index = browserProvider.tabs
+              .indexWhere((t) => t.controller == controller);
+          if (index != -1) {
+            if (index == browserProvider.currentIndex) {
+              browserProvider.updateTabProgress(progress / 100.0);
+            } else {
+              browserProvider.tabs[index].progress = progress / 100.0;
+            }
+          }
+        },
+        onPageStarted: (String url) {
+          final index = browserProvider.tabs
+              .indexWhere((t) => t.controller == controller);
+          if (index != -1) {
+            final tab = browserProvider.tabs[index];
+            tab.isLoading = true;
+            if (index == browserProvider.currentIndex) {
+              browserProvider.updateTabProgress(0.0);
+            }
+
             if (url != 'about:blank' && !url.endsWith('welcome.html')) {
-              final historyItem = browserProvider.history.firstWhere(
-                (item) => item.url == url,
-                orElse: () => HistoryItem(
-                  title: '加载中...',
-                  url: url,
-                  visitedAt: DateTime.now(),
-                ),
-              );
-              browserProvider.currentTab?.title = historyItem.title;
-              browserProvider.currentTab?.url = url;
+              tab.url = url;
+              try {
+                final historyItem = browserProvider.history.firstWhere(
+                  (item) => item.url == url,
+                );
+                tab.title = historyItem.title;
+              } catch (_) {}
             }
 
             if (url.startsWith('http')) {
-              browserProvider.currentTab?.url = url;
-              if (!FocusScope.of(context).hasFocus) {
+              tab.url = url;
+              if (index == browserProvider.currentIndex &&
+                  !FocusScope.of(context).hasFocus) {
                 final displayUrl = url.startsWith('file://') ? '' : url;
                 _urlController.text = displayUrl;
               }
             }
-          },
-          onPageFinished: (String url) async {
-            // Set progress to 100% when page finishes
-            browserProvider.updateTabProgress(1.0);
-            browserProvider.currentTab?.isLoading = false;
-
-            // Inject Night Mode CSS if enabled
-            if (webViewController != null) {
-              browserProvider.injectNightModeIfEnabled(webViewController);
-            }
-
-            // Inject Recording JS if recording
-            if (scriptProvider.isRecording && webViewController != null) {
-              webViewController.runJavaScript(ScriptProvider.recordingJs);
-            }
-
-            final title = await webViewController!.getTitle() ?? url;
-            browserProvider.currentTab?.title = title;
-            browserProvider.currentTab?.url = url;
-
-            if (!url.startsWith('file://') && url != 'about:blank') {
-              // Add to history - using internal method
-              browserProvider.history.insert(
-                0,
-                HistoryItem(
-                  title: title,
-                  url: url,
-                  visitedAt: DateTime.now(),
-                ),
-              );
-            }
-
-            await _updateNavigationState();
-          },
-          onNavigationRequest: (NavigationRequest request) {
-            if (scriptProvider.isRecording && request.url.startsWith('http')) {
-              return NavigationDecision.navigate;
-            }
-            return NavigationDecision.navigate;
-          },
-        ),
-      )
-      ..addJavaScriptChannel(
-        'ScriptRunner',
-        onMessageReceived: (JavaScriptMessage message) {
-          scriptProvider.handleScriptMessage(message.message);
+            browserProvider.notifyState();
+          }
         },
-      )
-      ..setOnJavaScriptAlertDialog(
-          (JavaScriptAlertDialogRequest request) async {
-        await showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            content: Text(request.message),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('确定'),
-              ),
-            ],
-          ),
-        );
-      })
-      ..setOnJavaScriptConfirmDialog(
-          (JavaScriptConfirmDialogRequest request) async {
-        return await showDialog<bool>(
-              context: context,
-              builder: (context) => AlertDialog(
-                content: Text(request.message),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context, false),
-                    child: const Text('取消'),
-                  ),
-                  TextButton(
-                    onPressed: () => Navigator.pop(context, true),
-                    child: const Text('确定'),
-                  ),
-                ],
-              ),
-            ) ??
-            false;
-      })
-      ..setOnJavaScriptTextInputDialog(
-          (JavaScriptTextInputDialogRequest request) async {
-        final controller = TextEditingController(text: request.defaultText);
-        return await showDialog<String>(
-              context: context,
-              builder: (context) => AlertDialog(
-                content: TextField(
-                  controller: controller,
-                  decoration: InputDecoration(hintText: request.message),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('取消'),
-                  ),
-                  TextButton(
-                    onPressed: () => Navigator.pop(context, controller.text),
-                    child: const Text('确定'),
-                  ),
-                ],
-              ),
-            ) ??
-            '';
-      });
+        onPageFinished: (String url) async {
+          final index = browserProvider.tabs
+              .indexWhere((t) => t.controller == controller);
+          if (index != -1) {
+            final tab = browserProvider.tabs[index];
+            tab.isLoading = false;
+            if (index == browserProvider.currentIndex) {
+              browserProvider.updateTabProgress(1.0);
+            }
 
-    if (initialUrl != null && initialUrl != 'about:blank') {
-      await webViewController.loadRequest(Uri.parse(initialUrl));
-    } else {
-      await webViewController.loadFlutterAsset('assets/welcome.html');
+            browserProvider.injectNightModeIfEnabled(controller);
+
+            if (scriptProvider.isRecording &&
+                index == browserProvider.currentIndex) {
+              controller.runJavaScript(ScriptProvider.recordingJs);
+            }
+
+            final title = await controller.getTitle();
+            if (title != null) {
+              browserProvider.updateTabInfo(index, url, title);
+              if (url.startsWith('http')) {
+                browserProvider.addToHistory(url, title);
+              }
+            }
+          }
+        },
+        onNavigationRequest: (NavigationRequest request) {
+          return NavigationDecision.navigate;
+        },
+      ),
+    );
+
+    controller.addJavaScriptChannel(
+      'ScriptRunner',
+      onMessageReceived: (JavaScriptMessage message) {
+        scriptProvider.handleScriptMessage(message.message);
+      },
+    );
+
+    controller.setOnJavaScriptAlertDialog(
+        (JavaScriptAlertDialogRequest request) async {
+      await showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          content: Text(request.message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('确定'),
+            ),
+          ],
+        ),
+      );
+    });
+
+    controller.setOnJavaScriptConfirmDialog(
+        (JavaScriptConfirmDialogRequest request) async {
+      return await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              content: Text(request.message),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('取消'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('确定'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+    });
+
+    controller.setOnJavaScriptTextInputDialog(
+        (JavaScriptTextInputDialogRequest request) async {
+      final textController = TextEditingController(text: request.defaultText);
+      return await showDialog<String>(
+            context: context,
+            builder: (context) => AlertDialog(
+              content: TextField(
+                controller: textController,
+                decoration: InputDecoration(hintText: request.message),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('取消'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(context, textController.text),
+                  child: const Text('确定'),
+                ),
+              ],
+            ),
+          ) ??
+          '';
+    });
+
+    if (initialUrl != null && initialUrl.isNotEmpty) {
+      controller.loadRequest(Uri.parse(initialUrl));
     }
+
+    return controller;
+  }
+
+  Future<void> _addNewTab({String? initialUrl, String? initialTitle}) async {
+    final browserProvider = context.read<BrowserProvider>();
+    final scriptProvider = context.read<ScriptProvider>();
+
+    final controller = _createWebViewController(browserProvider, scriptProvider,
+        initialUrl: initialUrl);
 
     await browserProvider.addTab(
         initialUrl: initialUrl ?? '',
         initialTitle: initialTitle,
-        controller: webViewController);
+        controller: controller);
   }
 
   Future<void> _updateNavigationState() async {

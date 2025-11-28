@@ -23,6 +23,11 @@ class BrowserTab {
   int autoRefreshCount = 0; // 0 means infinite
   int _currentRefreshCount = 0;
 
+  // Script Settings
+  int executionDelay = 1000;
+  int originalLoopCount = 1;
+  TimeUnit delayTimeUnit = TimeUnit.milliseconds;
+
   BrowserTab({
     required this.id,
     required this.controller,
@@ -31,6 +36,7 @@ class BrowserTab {
     this.isLoading = false,
     this.isExecutingScript = false,
     this.progress = 0.0,
+    this.scripts = const [],
   });
 
   void startAutoRefresh(int intervalSeconds, int count) {

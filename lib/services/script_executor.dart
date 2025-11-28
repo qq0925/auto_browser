@@ -26,7 +26,16 @@ class ScriptExecutor {
       // If script has its own delay, use it, otherwise use global executionDelay
       int delay = executionDelay;
       if (script.params.containsKey('执行延迟')) {
-        delay = script.params['执行延迟'] as int;
+        int scriptDelay = script.params['执行延迟'] as int;
+        if (script.params.containsKey('时间单位')) {
+          final unitLabel = script.params['时间单位'] as String;
+          final unit = TimeUnit.values.firstWhere(
+            (u) => u.label == unitLabel,
+            orElse: () => TimeUnit.milliseconds,
+          );
+          scriptDelay = scriptDelay * unit.multiplier;
+        }
+        delay = scriptDelay;
       }
 
       if (delay > 0) {
