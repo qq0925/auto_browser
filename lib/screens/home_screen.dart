@@ -59,7 +59,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
 
     webViewController = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(Colors.white)
+      ..setBackgroundColor(
+          browserProvider.isDarkMode ? Colors.black : Colors.white)
       ..setNavigationDelegate(
         NavigationDelegate(
           onProgress: (int progress) {
@@ -101,6 +102,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
             // Inject Night Mode CSS if enabled
             if (webViewController != null) {
               browserProvider.injectNightModeIfEnabled(webViewController);
+            }
+
+            // Inject Recording JS if recording
+            if (scriptProvider.isRecording && webViewController != null) {
+              webViewController.runJavaScript(ScriptProvider.recordingJs);
             }
 
             final title = await webViewController!.getTitle() ?? url;
@@ -303,57 +309,35 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                                         }
                                       },
                                     ),
-                                    transitionsBuilder: (context, animation,
-                                        secondaryAnimation, child) {
-                                      return FadeTransition(
-                                        opacity: animation,
-                                        child: child,
-                                      );
-                                    },
-                                    transitionDuration:
-                                        const Duration(milliseconds: 200),
                                   ),
                                 );
                               }
                             },
                             child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  vertical: 8, horizontal: 8),
-                              // Removed decoration to match screenshot (no inner box)
-                              child: Consumer<BrowserProvider>(
-                                builder: (context, provider, child) {
-                                  final currentTab = provider.currentTab;
-                                  String displayText;
-
-                                  if (currentTab == null) {
-                                    displayText = 'Auok浏览器';
-                                  } else if (currentTab.url == 'about:blank' ||
-                                      currentTab.url.endsWith('welcome.html')) {
-                                    displayText = 'Auok浏览器';
-                                  } else if (currentTab.title == 'New Tab' ||
-                                      currentTab.title.isEmpty ||
-                                      currentTab.title == currentTab.url) {
-                                    displayText = '无标题';
-                                  } else {
-                                    displayText = currentTab.title;
-                                  }
-
-                                  return Text(
-                                    displayText,
-                                    style: TextStyle(
-                                      color: displayText == 'Auok浏览器'
-                                          ? Colors.white70
-                                          : Colors.white,
-                                      fontSize: 16,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  );
-                                },
+                              color: Colors.transparent,
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 8),
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                (browserProvider.currentTab?.url ==
+                                            'about:blank' ||
+                                        (browserProvider.currentTab?.url
+                                                .endsWith('welcome.html') ??
+                                            false))
+                                    ? 'Auok浏览器'
+                                    : (browserProvider
+                                                .currentTab?.title.isEmpty ??
+                                            true)
+                                        ? '无标题'
+                                        : browserProvider.currentTab!.title,
+                                style: const TextStyle(
+                                    color: Colors.white, fontSize: 16),
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ),
                         ),
+
                         // Refresh button
                         IconButton(
                           icon: const Icon(Icons.refresh,
@@ -720,39 +704,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                     if (browser.currentTab != null) {
                       scriptProvider.startRecording();
                       // Inject script immediately
-                      await browser.currentTab!.controller.runJavaScript('''
-                        (function() {
-                          if (window._auokRecorderInjected) return;
-                          window._auokRecorderInjected = true;
-
-                          document.addEventListener('click', function(e) {
-                            let target = e.target;
-                            let text = target.innerText || target.textContent;
-                            if (!text || text.trim() === '') {
-                              let parent = target.parentElement;
-                              if (parent) {
-                                text = parent.innerText || parent.textContent;
-                              }
-                            }
-                            
-                            if (text && text.trim().length > 0) {
-                              text = text.trim().substring(0, 50);
-                              ScriptRunner.postMessage('点击文字|' + text);
-                            }
-                          }, true);
-
-                          document.addEventListener('change', function(e) {
-                            let target = e.target;
-                            if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
-                              let data = {
-                                'xpath': '',
-                                'value': target.value
-                              };
-                              ScriptRunner.postMessage('输入框提交|' + JSON.stringify(data));
-                            }
-                          }, true);
-                        })();
-                      ''');
+                      await browser.currentTab!.controller
+                          .runJavaScript(ScriptProvider.recordingJs);
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('开始录制脚本...')),

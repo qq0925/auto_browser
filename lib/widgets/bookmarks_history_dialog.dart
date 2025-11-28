@@ -171,13 +171,7 @@ class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
             onPressed: () {
               final provider = context.read<BrowserProvider>();
               if (_tabController.index == 0) {
-                // Clear bookmarks - need to implement clearBookmarks in provider if not exists
-                // Provider has removeBookmark but not clear all.
-                // I'll add a clearBookmarks method or iterate.
-                // Actually provider.bookmarks is a list, I can't modify it directly from here safely without provider method.
-                // I'll check provider again. It has clearHistory but maybe not clearBookmarks.
-                // For now, I'll just clear history if index 1.
-                // If index 0, I'll leave it or add method later.
+                provider.clearBookmarks();
               } else {
                 provider.clearHistory();
               }
@@ -212,7 +206,40 @@ class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
               const Divider(color: Colors.grey, height: 1),
               _buildActionItem(Icons.sort, '排序', () {
                 Navigator.pop(context);
-                // Placeholder for sort
+                showModalBottomSheet(
+                  context: context,
+                  backgroundColor: Colors.transparent,
+                  builder: (context) => Container(
+                    margin: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF333333),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _buildActionItem(null, '按地址排序', () {
+                          context.read<BrowserProvider>().sortBookmarks('url');
+                          Navigator.pop(context);
+                        }),
+                        const Divider(color: Colors.grey, height: 1),
+                        _buildActionItem(null, '按名称排序', () {
+                          context.read<BrowserProvider>().sortBookmarks('name');
+                          Navigator.pop(context);
+                        }),
+                        const Divider(color: Colors.grey, height: 1),
+                        _buildActionItem(null, '按时间排序', () {
+                          context.read<BrowserProvider>().sortBookmarks('time');
+                          Navigator.pop(context);
+                        }),
+                        const Divider(color: Colors.grey, height: 1),
+                        _buildActionItem(null, '取消', () {
+                          Navigator.pop(context);
+                        }),
+                      ],
+                    ),
+                  ),
+                );
               }),
               const Divider(color: Colors.grey, height: 1),
             ],
@@ -228,10 +255,16 @@ class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
 
   void _showAddBookmarkDialog(BuildContext context) {
     final provider = context.read<BrowserProvider>();
-    final titleController =
-        TextEditingController(text: provider.currentTab?.title ?? '');
-    final urlController =
-        TextEditingController(text: provider.currentTab?.url ?? '');
+    String initialTitle = provider.currentTab?.title ?? '';
+    String initialUrl = provider.currentTab?.url ?? '';
+
+    if (initialUrl == 'about:blank' || initialUrl.endsWith('welcome.html')) {
+      initialTitle = 'Auok浏览器';
+      initialUrl = 'about:blank';
+    }
+
+    final titleController = TextEditingController(text: initialTitle);
+    final urlController = TextEditingController(text: initialUrl);
 
     showDialog(
       context: context,
@@ -294,10 +327,14 @@ class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
     );
   }
 
-  Widget _buildActionItem(IconData icon, String label, VoidCallback onTap) {
+  Widget _buildActionItem(IconData? icon, String label, VoidCallback onTap) {
     return ListTile(
-      leading: Icon(icon, color: Colors.white),
-      title: Text(label, style: const TextStyle(color: Colors.white)),
+      leading: icon != null ? Icon(icon, color: Colors.white) : null,
+      title: Text(
+        label,
+        style: const TextStyle(color: Colors.white),
+        textAlign: icon == null ? TextAlign.center : TextAlign.start,
+      ),
       onTap: onTap,
       dense: true,
     );

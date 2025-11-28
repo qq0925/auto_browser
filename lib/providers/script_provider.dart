@@ -3,6 +3,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../models/script.dart';
 import '../services/script_executor.dart';
 import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ScriptProvider extends ChangeNotifier {
   final List<Script> _scripts = [];
@@ -27,19 +28,73 @@ class ScriptProvider extends ChangeNotifier {
   int get remainingLoopCount => _remainingLoopCount;
   TimeUnit get delayTimeUnit => _delayTimeUnit;
 
+  ScriptProvider() {
+    _loadScripts();
+  }
+
+  Future<void> _loadScripts() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // Load global settings
+      _executionDelay = prefs.getInt('script_global_delay') ?? 1000;
+      _originalLoopCount = prefs.getInt('script_global_loop') ?? 1;
+      final unitIndex = prefs.getInt('script_global_unit') ?? 0;
+      if (unitIndex >= 0 && unitIndex < TimeUnit.values.length) {
+        _delayTimeUnit = TimeUnit.values[unitIndex];
+      }
+
+      // Load scripts
+      final scriptsList = prefs.getStringList('scripts_list');
+      if (scriptsList != null) {
+        _scripts.clear();
+        for (var jsonStr in scriptsList) {
+          try {
+            _scripts.add(Script.fromJson(jsonStr));
+          } catch (e) {
+            debugPrint('Error loading script item: $e');
+          }
+        }
+      }
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error loading scripts: $e');
+    }
+  }
+
+  Future<void> _saveScripts() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // Save global settings
+      await prefs.setInt('script_global_delay', _executionDelay);
+      await prefs.setInt('script_global_loop', _originalLoopCount);
+      await prefs.setInt('script_global_unit', _delayTimeUnit.index);
+
+      // Save scripts
+      final scriptsList = _scripts.map((s) => s.toJson()).toList();
+      await prefs.setStringList('scripts_list', scriptsList);
+    } catch (e) {
+      debugPrint('Error saving scripts: $e');
+    }
+  }
+
   void setExecutionDelay(int delay) {
     _executionDelay = delay;
+    _saveScripts();
     notifyListeners();
   }
 
   void setDelayTimeUnit(TimeUnit unit) {
     _delayTimeUnit = unit;
+    _saveScripts();
     notifyListeners();
   }
 
   void setLoopCount(int count) {
     _originalLoopCount = count;
     _remainingLoopCount = count;
+    _saveScripts();
     notifyListeners();
   }
 
@@ -55,17 +110,20 @@ class ScriptProvider extends ChangeNotifier {
 
   void clearScripts() {
     _scripts.clear();
+    _saveScripts();
     notifyListeners();
   }
 
   void addScript(Script script) {
     _scripts.add(script);
+    _saveScripts();
     notifyListeners();
   }
 
   void removeScript(int index) {
     if (index >= 0 && index < _scripts.length) {
       _scripts.removeAt(index);
+      _saveScripts();
       notifyListeners();
     }
   }
@@ -73,6 +131,7 @@ class ScriptProvider extends ChangeNotifier {
   void toggleScriptEnabled(int index, bool value) {
     if (index >= 0 && index < _scripts.length) {
       _scripts[index].isEnabled = value;
+      _saveScripts();
       notifyListeners();
     }
   }
@@ -109,8 +168,16 @@ class ScriptProvider extends ChangeNotifier {
     }
   }
 
+  void updateScript(int index, Script script) {
+    if (index >= 0 && index < _scripts.length) {
+      _scripts[index] = script;
+      _saveScripts();
+      notifyListeners();
+    }
+  }
+
   Future<void> startExecution(WebViewController controller) async {
-    if (_scripts.isEmpty) return;
+    if (_scripts.isEmpty || _isRecording) return;
 
     _isExecuting = true;
     _isPaused = false;
@@ -220,9 +287,44 @@ class ScriptProvider extends ChangeNotifier {
           debugPrint('Parse script line error: $e');
         }
       }
+      _saveScripts();
       notifyListeners();
     } catch (e) {
       debugPrint('Import script error: $e');
     }
   }
+
+  static const String recordingJs = '''
+    (function() {
+      if (window._auokRecorderInjected) return;
+      window._auokRecorderInjected = true;
+
+      document.addEventListener('click', function(e) {
+        let target = e.target;
+        let text = target.innerText || target.textContent;
+        if (!text || text.trim() === '') {
+          let parent = target.parentElement;
+          if (parent) {
+            text = parent.innerText || parent.textContent;
+          }
+        }
+        
+        if (text && text.trim().length > 0) {
+          text = text.trim().substring(0, 50);
+          ScriptRunner.postMessage('点击文字|' + text);
+        }
+      }, true);
+
+      document.addEventListener('change', function(e) {
+        let target = e.target;
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+          let data = {
+            'xpath': '',
+            'value': target.value
+          };
+          ScriptRunner.postMessage('输入框提交|' + JSON.stringify(data));
+        }
+      }, true);
+    })();
+  ''';
 }

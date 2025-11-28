@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/script_provider.dart';
 import '../models/script.dart';
+import 'add_script_dialog.dart';
 
 class RightScriptPanel extends StatelessWidget {
   final VoidCallback onAddScript;
@@ -140,35 +141,46 @@ class RightScriptPanel extends StatelessWidget {
                       final isCurrent = scriptProvider.isExecuting &&
                           scriptProvider.currentScriptIndex == index;
 
-                      return Container(
-                        color: isCurrent
-                            ? Colors.blue.withValues(alpha: 0.3)
-                            : null,
-                        padding: const EdgeInsets.symmetric(
-                            vertical: 6, horizontal: 8),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              script.type,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                              ),
+                      return InkWell(
+                        onTap: () {
+                          showDialog(
+                            context: context,
+                            builder: (context) => AddScriptDialog(
+                              script: script,
+                              index: index,
                             ),
-                            const SizedBox(height: 2),
-                            Text(
-                              _getScriptContent(script),
-                              style: const TextStyle(
-                                color: Colors.grey,
-                                fontSize: 10,
+                          );
+                        },
+                        child: Container(
+                          color: isCurrent
+                              ? Colors.blue.withValues(alpha: 0.3)
+                              : null,
+                          padding: const EdgeInsets.symmetric(
+                              vertical: 6, horizontal: 8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                script.type,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                ),
                               ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            if (index < scriptProvider.scripts.length - 1)
-                              const Divider(color: Colors.grey, height: 8),
-                          ],
+                              const SizedBox(height: 2),
+                              Text(
+                                _getScriptContent(script),
+                                style: const TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 10,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              if (index < scriptProvider.scripts.length - 1)
+                                const Divider(color: Colors.grey, height: 8),
+                            ],
+                          ),
                         ),
                       );
                     },
@@ -210,16 +222,18 @@ class RightScriptPanel extends StatelessWidget {
                 // Execute button
                 Expanded(
                   child: InkWell(
-                    onTap: onExecute,
+                    onTap: scriptProvider.isRecording ? null : onExecute,
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       child: Text(
                         scriptProvider.isExecuting ? '停止' : '执行',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          color: scriptProvider.isExecuting
-                              ? Colors.red
-                              : Colors.white,
+                          color: scriptProvider.isRecording
+                              ? Colors.grey
+                              : (scriptProvider.isExecuting
+                                  ? Colors.red
+                                  : Colors.white),
                           fontSize: 12,
                         ),
                       ),
@@ -293,12 +307,43 @@ class RightScriptPanel extends StatelessWidget {
   }
 
   String _getScriptContent(Script script) {
-    if (script.type == '点击文字') {
-      return script.params['点击文字'] ?? '';
-    } else if (script.type == '输入框提交') {
-      return script.params.toString();
+    final params = script.params;
+    switch (script.type) {
+      case '点击文字':
+        return '点击: ${params['点击文本'] ?? ''}';
+      case '点击图片':
+        return '点击图片';
+      case '输入框提交':
+        return '输入: ${params['输入框值'] ?? ''}';
+      case '进入网址':
+        return '网址: ${params['网址'] ?? ''}';
+      case '间隔时间':
+        final h = params['时间间隔-小时'] ?? 0;
+        final m = params['时间间隔-分钟'] ?? 0;
+        final s = params['时间间隔-秒'] ?? 0;
+        return '等待: $h时$m分$s秒';
+      case '跳转脚本':
+        return '跳转到: ${params['跳转标签'] ?? ''}';
+      case '延时脚本':
+        return '延时: ${params['延时时间'] ?? 0}ms';
+      case '逻辑脚本-出现文字':
+        return '检测: ${params['出现文字'] ?? ''}';
+      case '刷新网页':
+        return '刷新当前页面';
+      case '网页后退':
+        return '后退';
+      case '网页前进':
+        return '前进';
+      case '脚本停止':
+        return '停止运行';
+      case '脚本暂停':
+        return '暂停运行';
+      default:
+        if (params.containsKey('执行延迟')) {
+          return '延迟: ${params['执行延迟']}ms';
+        }
+        return '';
     }
-    return '';
   }
 
   void _showShareDialog(BuildContext context, ScriptProvider scriptProvider) {

@@ -4,7 +4,10 @@ import '../providers/script_provider.dart';
 import '../models/script.dart';
 
 class AddScriptDialog extends StatefulWidget {
-  const AddScriptDialog({super.key});
+  final Script? script;
+  final int? index;
+
+  const AddScriptDialog({super.key, this.script, this.index});
 
   @override
   State<AddScriptDialog> createState() => _AddScriptDialogState();
@@ -13,14 +16,31 @@ class AddScriptDialog extends StatefulWidget {
 class _AddScriptDialogState extends State<AddScriptDialog> {
   // Script types list (focused on implemented types)
   static const List<String> scriptTypes = [
-    '点击文字',
     '点击图片',
+    '点击文字',
     '间隔时间',
+    '脚本替换',
+    '脚本停止',
+    '脚本暂停',
     '进入网址',
+    '控制脚本开关',
+    '逻辑脚本-出现文字',
+    '逻辑脚本-时间对比',
+    '逻辑脚本-数值对比',
     '输入框提交',
+    '数学运算',
+    '数值对比-点击文字',
+    '刷新网页',
+    '跳转脚本',
+    '网页后退',
+    '网页前进',
+    '新建标签页并执行脚本',
+    '延时脚本',
+    '执行本地脚本集',
+    '重置限制次数',
   ];
 
-  String _selectedScriptType = '点击文字';
+  late String _selectedScriptType;
   final TextEditingController _repeatCountController =
       TextEditingController(text: '1');
   final TextEditingController _loopCountController =
@@ -49,7 +69,58 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   // 进入网址 field
   final TextEditingController _urlController = TextEditingController();
 
+  // Generic/Other fields
+  final TextEditingController _scriptNameController = TextEditingController();
+  final TextEditingController _targetValueController = TextEditingController();
+  final TextEditingController _compareValueController = TextEditingController();
+  final TextEditingController _jumpLabelController = TextEditingController();
+
   bool _exactMatch = false;
+
+  // Additional controllers
+  final TextEditingController _variableNameController = TextEditingController();
+  final TextEditingController _operationController = TextEditingController();
+  final TextEditingController _scriptSetController = TextEditingController();
+
+  String _compareMethod = '>';
+  bool _switchState = true;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.script != null) {
+      _selectedScriptType = widget.script!.type;
+      // Load params
+      final params = widget.script!.params;
+      _delayController.text = (params['执行延迟'] ?? '').toString();
+      _clickTextController.text = params['点击文本'] ?? '';
+      _appearTextController.text = params['出现文字'] ?? '';
+      _afterSearchController.text = params['在...之后搜索'] ?? '';
+      _beforeSearchController.text = params['在...之前搜索'] ?? '';
+      _exactMatch = params['完全匹配'] ?? false;
+
+      _intervalHoursController.text = (params['时间间隔-小时'] ?? '').toString();
+      _intervalMinutesController.text = (params['时间间隔-分钟'] ?? '').toString();
+      _intervalSecondsController.text = (params['时间间隔-秒'] ?? '').toString();
+
+      _urlController.text = params['网址'] ?? '';
+      _submitButtonTextController.text = params['提交按钮文字'] ?? '';
+      _inputValueController.text = params['输入框值'] ?? '';
+
+      _scriptNameController.text = params['脚本名称'] ?? '';
+      _targetValueController.text = params['目标值'] ?? '';
+      _compareValueController.text = params['对比值'] ?? '';
+      _jumpLabelController.text = params['跳转标签'] ?? '';
+
+      _variableNameController.text = params['变量名'] ?? '';
+      _operationController.text = params['运算方式'] ?? '';
+      _scriptSetController.text = params['脚本集名称'] ?? '';
+      _compareMethod = params['对比方式'] ?? '>';
+      _switchState = params['开关状态'] ?? true;
+    } else {
+      _selectedScriptType = scriptTypes[0];
+    }
+  }
 
   @override
   void dispose() {
@@ -66,6 +137,13 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     _submitButtonTextController.dispose();
     _inputValueController.dispose();
     _urlController.dispose();
+    _scriptNameController.dispose();
+    _targetValueController.dispose();
+    _compareValueController.dispose();
+    _jumpLabelController.dispose();
+    _variableNameController.dispose();
+    _operationController.dispose();
+    _scriptSetController.dispose();
     super.dispose();
   }
 
@@ -95,9 +173,9 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    '添加脚本',
-                    style: TextStyle(
+                  Text(
+                    widget.script != null ? '编辑脚本' : '添加脚本',
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -152,13 +230,15 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                                           style: const TextStyle(fontSize: 14)),
                                     );
                                   }).toList(),
-                                  onChanged: (String? newValue) {
-                                    if (newValue != null) {
-                                      setState(() {
-                                        _selectedScriptType = newValue;
-                                      });
-                                    }
-                                  },
+                                  onChanged: widget.script == null
+                                      ? (String? newValue) {
+                                          if (newValue != null) {
+                                            setState(() {
+                                              _selectedScriptType = newValue;
+                                            });
+                                          }
+                                        }
+                                      : null, // Disable type change when editing
                                 ),
                               ),
                             ],
@@ -240,6 +320,9 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   }
 
   List<Widget> _buildDynamicFields() {
+    // Common delay field for most types
+    final delayField = _buildFieldRow('执行延迟', _delayController, '', hint: '毫秒');
+
     switch (_selectedScriptType) {
       case '全局设置':
         return [
@@ -248,7 +331,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         ];
       case '点击文字':
         return [
-          _buildFieldRow('执行延迟', _delayController, '', hint: '毫秒'),
+          delayField,
           _buildFieldRow('出现文字', _appearTextController, ''),
           _buildFieldRow('点击文本', _clickTextController, '', required: true),
           _buildFieldRow('在...之后搜索', _afterSearchController, ''),
@@ -259,30 +342,102 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         ];
       case '点击图片':
         return [
-          _buildFieldRow('执行延迟', _delayController, '', hint: '毫秒'),
+          delayField,
           _buildFieldRow('在...之后搜索', _afterSearchController, ''),
           _buildFieldRow('在...之前搜索', _beforeSearchController, ''),
         ];
       case '间隔时间':
         return [
-          _buildFieldRow('执行延迟', _delayController, '', hint: '毫秒'),
+          delayField,
           _buildFieldRow('时间间隔-小时', _intervalHoursController, ''),
           _buildFieldRow('时间间隔-分钟', _intervalMinutesController, ''),
           _buildFieldRow('时间间隔-秒', _intervalSecondsController, ''),
         ];
       case '进入网址':
+      case '新建标签页并执行脚本':
         return [
-          _buildFieldRow('执行延迟', _delayController, '', hint: '毫秒'),
+          delayField,
           _buildFieldRow('网址', _urlController, '', required: true),
         ];
       case '输入框提交':
         return [
-          _buildFieldRow('执行延迟', _delayController, '', hint: '毫秒'),
+          delayField,
           _buildFieldRow('提交按钮文字', _submitButtonTextController, ''),
           _buildFieldRow('输入框值', _inputValueController, ''),
         ];
+      case '脚本替换':
+      case '脚本停止':
+      case '脚本暂停':
+      case '刷新网页':
+      case '网页后退':
+      case '网页前进':
+      case '重置限制次数':
+        return [delayField];
+      case '跳转脚本':
+        return [
+          delayField,
+          _buildFieldRow('跳转标签', _jumpLabelController, '', required: true),
+        ];
+      case '延时脚本':
+        return [
+          _buildFieldRow('延时时间', _delayController, '',
+              hint: '毫秒', required: true),
+        ];
+      case '控制脚本开关':
+        return [
+          delayField,
+          _buildCheckboxRow('开关状态', _switchState, (value) {
+            setState(() => _switchState = value ?? true);
+          }),
+        ];
+      case '逻辑脚本-出现文字':
+        return [
+          delayField,
+          _buildFieldRow('出现文字', _appearTextController, '', required: true),
+          _buildFieldRow('跳转标签', _jumpLabelController, ''),
+        ];
+      case '逻辑脚本-时间对比':
+        return [
+          delayField,
+          _buildFieldRow('时间(HH:mm:ss)', _targetValueController, '',
+              required: true),
+          _buildFieldRow('跳转标签', _jumpLabelController, ''),
+        ];
+      case '逻辑脚本-数值对比':
+        return [
+          delayField,
+          _buildFieldRow('目标值', _targetValueController, '', required: true),
+          _buildDropdownRow('对比方式', _compareMethod, ['>', '<', '=', '>=', '<='],
+              (val) {
+            if (val != null) setState(() => _compareMethod = val);
+          }),
+          _buildFieldRow('跳转标签', _jumpLabelController, ''),
+        ];
+      case '数学运算':
+        return [
+          delayField,
+          _buildFieldRow('变量名', _variableNameController, '', required: true),
+          _buildFieldRow('运算方式', _operationController, '+, -, *, /',
+              required: true),
+          _buildFieldRow('值', _targetValueController, '', required: true),
+        ];
+      case '数值对比-点击文字':
+        return [
+          delayField,
+          _buildFieldRow('点击文本', _clickTextController, '', required: true),
+          _buildFieldRow('目标值', _targetValueController, '', required: true),
+          _buildDropdownRow('对比方式', _compareMethod, ['>', '<', '=', '>=', '<='],
+              (val) {
+            if (val != null) setState(() => _compareMethod = val);
+          }),
+        ];
+      case '执行本地脚本集':
+        return [
+          delayField,
+          _buildFieldRow('脚本集名称', _scriptSetController, '', required: true),
+        ];
       default:
-        return [];
+        return [delayField];
     }
   }
 
@@ -370,6 +525,48 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     );
   }
 
+  Widget _buildDropdownRow(String label, String value, List<String> items,
+      ValueChanged<String?> onChanged) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(
+              label,
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+            ),
+          ),
+          Expanded(
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: DropdownButtonFormField<String>(
+                value: value,
+                decoration: const InputDecoration(
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  border: InputBorder.none,
+                ),
+                isExpanded: true,
+                items: items.map((String item) {
+                  return DropdownMenuItem<String>(
+                    value: item,
+                    child: Text(item, style: const TextStyle(fontSize: 14)),
+                  );
+                }).toList(),
+                onChanged: onChanged,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _handleSubmit() {
     final scriptProvider = context.read<ScriptProvider>();
 
@@ -430,6 +627,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         break;
 
       case '进入网址':
+      case '新建标签页并执行脚本':
         if (_urlController.text.isEmpty) return;
         if (_delayController.text.isNotEmpty) {
           params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
@@ -448,13 +646,112 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           params['输入框值'] = _inputValueController.text;
         }
         break;
+
+      case '跳转脚本':
+        if (_jumpLabelController.text.isEmpty) return;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+        }
+        params['跳转标签'] = _jumpLabelController.text;
+        break;
+
+      case '延时脚本':
+        if (_delayController.text.isEmpty) return;
+        params['延时时间'] = int.tryParse(_delayController.text) ?? 0;
+        break;
+
+      case '控制脚本开关':
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+        }
+        params['开关状态'] = _switchState;
+        break;
+
+      case '逻辑脚本-出现文字':
+        if (_appearTextController.text.isEmpty) return;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+        }
+        params['出现文字'] = _appearTextController.text;
+        if (_jumpLabelController.text.isNotEmpty) {
+          params['跳转标签'] = _jumpLabelController.text;
+        }
+        break;
+
+      case '逻辑脚本-时间对比':
+        if (_targetValueController.text.isEmpty) return;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+        }
+        params['目标值'] = _targetValueController.text;
+        if (_jumpLabelController.text.isNotEmpty) {
+          params['跳转标签'] = _jumpLabelController.text;
+        }
+        break;
+
+      case '逻辑脚本-数值对比':
+        if (_targetValueController.text.isEmpty) return;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+        }
+        params['目标值'] = _targetValueController.text;
+        params['对比方式'] = _compareMethod;
+        if (_jumpLabelController.text.isNotEmpty) {
+          params['跳转标签'] = _jumpLabelController.text;
+        }
+        break;
+
+      case '数学运算':
+        if (_variableNameController.text.isEmpty) return;
+        if (_targetValueController.text.isEmpty) return;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+        }
+        params['变量名'] = _variableNameController.text;
+        params['运算方式'] = _operationController.text;
+        params['目标值'] = _targetValueController.text;
+        break;
+
+      case '数值对比-点击文字':
+        if (_clickTextController.text.isEmpty) return;
+        if (_targetValueController.text.isEmpty) return;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+        }
+        params['点击文本'] = _clickTextController.text;
+        params['目标值'] = _targetValueController.text;
+        params['对比方式'] = _compareMethod;
+        break;
+
+      case '执行本地脚本集':
+        if (_scriptSetController.text.isEmpty) return;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+        }
+        params['脚本集名称'] = _scriptSetController.text;
+        break;
+
+      default:
+        // For other types, just save delay if present
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = int.tryParse(_delayController.text) ?? 0;
+        }
+        break;
     }
 
-    scriptProvider.addScript(Script(
+    final newScript = Script(
       type: _selectedScriptType,
       params: params,
       isEnabled: true,
-    ));
+    );
+
+    if (widget.script != null && widget.index != null) {
+      // Update existing script
+      scriptProvider.updateScript(widget.index!, newScript);
+    } else {
+      // Add new script
+      scriptProvider.addScript(newScript);
+    }
 
     Navigator.pop(context);
   }

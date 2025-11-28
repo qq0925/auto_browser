@@ -208,6 +208,19 @@ class BrowserProvider extends ChangeNotifier {
     }
   }
 
+  void sortBookmarks(String type) {
+    if (type == 'url') {
+      _bookmarks.sort((a, b) => a.url.compareTo(b.url));
+    } else if (type == 'name') {
+      _bookmarks.sort((a, b) => a.title.compareTo(b.title));
+    } else if (type == 'time') {
+      _bookmarks
+          .sort((a, b) => b.createdAt.compareTo(a.createdAt)); // Newest first
+    }
+    notifyListeners();
+    _saveBookmarksAndHistory();
+  }
+
   void toggleScriptPanel() {
     _isScriptPanelExpanded = !_isScriptPanelExpanded;
     notifyListeners();
@@ -216,6 +229,12 @@ class BrowserProvider extends ChangeNotifier {
 
   void clearHistory() {
     _history.clear();
+    notifyListeners();
+    _saveBookmarksAndHistory();
+  }
+
+  void clearBookmarks() {
+    _bookmarks.clear();
     notifyListeners();
     _saveBookmarksAndHistory();
   }
