@@ -120,13 +120,21 @@ class BrowserProvider extends ChangeNotifier {
   Future<void> addTab(
       {String? initialUrl,
       String? initialTitle,
+      String? scriptFilePath,
       required WebViewController controller}) async {
-    _tabs.add(BrowserTab(
+    final tab = BrowserTab(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       controller: controller,
       title: initialTitle ?? 'New Tab',
       url: initialUrl ?? 'about:blank',
-    ));
+    );
+
+    // Set script file path if provided
+    if (scriptFilePath != null) {
+      tab.scriptFilePath = scriptFilePath;
+    }
+
+    _tabs.add(tab);
     _currentIndex = _tabs.length - 1;
     notifyListeners();
     _saveTabsState();
@@ -334,6 +342,7 @@ class BrowserProvider extends ChangeNotifier {
         return {
           'url': tab.url.startsWith('file:///') ? 'about:blank' : tab.url,
           'title': tab.title,
+          'scriptFilePath': tab.scriptFilePath, // Save script file path
         };
       }));
 

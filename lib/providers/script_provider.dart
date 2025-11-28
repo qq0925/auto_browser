@@ -39,6 +39,7 @@ class ScriptProvider extends ChangeNotifier {
   TimeUnit get delayTimeUnit => _delayTimeUnit;
   int get successCount => _successCount;
   int get failureCount => _failureCount;
+  String? get currentScriptFilePath => _currentTab?.scriptFilePath;
 
   void setWaitForPageLoadCallback(Future<void> Function() callback) {
     _waitForPageLoadCallback = callback;
@@ -169,6 +170,14 @@ class ScriptProvider extends ChangeNotifier {
       );
     }
     return null;
+  }
+
+  // Update the script file path for the current tab
+  void updateScriptFilePath(String? filePath) {
+    if (_currentTab != null) {
+      _currentTab!.scriptFilePath = filePath;
+      notifyListeners();
+    }
   }
 
   // Stream controller for last recorded action to trigger UI animation

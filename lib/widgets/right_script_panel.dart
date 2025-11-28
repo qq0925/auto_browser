@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:path/path.dart' as path;
+import '../utils/file_manager.dart';
 
 class RightScriptPanel extends StatelessWidget {
   final VoidCallback onAddScript;
@@ -253,7 +254,9 @@ class RightScriptPanel extends StatelessWidget {
       onLongPress: () {
         _showScriptContextMenu(context, scriptProvider, index);
       },
+      behavior: HitTestBehavior.opaque,
       child: Container(
+        width: double.infinity,
         color: isCurrent ? Colors.blue.withValues(alpha: 0.3) : null,
         padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
         child: Stack(
@@ -693,74 +696,84 @@ class RightScriptPanel extends StatelessWidget {
   Future<void> _handleSaveScript(
       BuildContext context, ScriptProvider scriptProvider) async {
     try {
-      // Get the save directory from user
-      String? directoryPath = await FilePicker.platform.getDirectoryPath(
-        dialogTitle: '选择保存位置',
-      );
+      final String? existingFilePath = scriptProvider.currentScriptFilePath;
+      String filePath;
 
-      if (directoryPath == null) return; // User cancelled
+      if (existingFilePath == null || existingFilePath.isEmpty) {
+        // First-time save: ask for filename and use default directory
+        final String defaultDir = await FileManager.getScriptDirectory();
 
-      // Check if widget is still mounted after async operation
-      if (!context.mounted) return;
+        if (!context.mounted) return;
 
-      // Show filename input dialog
-      final TextEditingController filenameController = TextEditingController(
-        text: 'script_${DateTime.now().millisecondsSinceEpoch}',
-      );
+        // Show filename input dialog
+        final TextEditingController filenameController = TextEditingController(
+          text: 'script_${DateTime.now().millisecondsSinceEpoch}',
+        );
 
-      final filename = await showDialog<String>(
-        context: context,
-        builder: (context) => AlertDialog(
-          backgroundColor: const Color(0xFF2C2C2C),
-          title: const Text('输入文件名', style: TextStyle(color: Colors.white)),
-          content: TextField(
-            controller: filenameController,
-            style: const TextStyle(color: Colors.white),
-            decoration: const InputDecoration(
-              hintText: '文件名（不含.json）',
-              hintStyle: TextStyle(color: Colors.white54),
-              suffixText: '.json',
-              suffixStyle: TextStyle(color: Colors.white54),
-              enabledBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: Colors.white54),
-              ),
-              focusedBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: Colors.blue),
+        final filename = await showDialog<String>(
+          context: context,
+          builder: (context) => AlertDialog(
+            backgroundColor: const Color(0xFF2C2C2C),
+            title: const Text('输入文件名', style: TextStyle(color: Colors.white)),
+            content: TextField(
+              controller: filenameController,
+              autofocus: true,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                hintText: '脚本名称',
+                hintStyle: TextStyle(color: Colors.white54),
+                suffixText: '.json',
+                suffixStyle: TextStyle(color: Colors.white54),
+                enabledBorder: UnderlineInputBorder(
+                  borderSide: BorderSide(color: Colors.white54),
+                ),
+                focusedBorder: UnderlineInputBorder(
+                  borderSide: BorderSide(color: Colors.blue),
+                ),
               ),
             ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消', style: TextStyle(color: Colors.white)),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context, filenameController.text);
+                },
+                child: const Text('保存', style: TextStyle(color: Colors.blue)),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('取消', style: TextStyle(color: Colors.white)),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context, filenameController.text);
-              },
-              child: const Text('保存', style: TextStyle(color: Colors.blue)),
-            ),
-          ],
-        ),
-      );
+        );
 
-      if (filename == null || filename.isEmpty) return;
+        if (filename == null || filename.isEmpty) return;
 
-      // Create full file path
-      final filePath = path.join(directoryPath, '$filename.json');
-      final file = File(filePath);
+        // Create full file path in default directory
+        filePath = path.join(defaultDir, '$filename.json');
+      } else {
+        // Overwrite existing file
+        filePath = existingFilePath;
+      }
 
       // Get script content and save
       final scriptContent = scriptProvider.exportScript();
+      final file = File(filePath);
       await file.writeAsString(scriptContent);
+
+      // Update file path in provider
+      scriptProvider.updateScriptFilePath(filePath);
 
       // Show success message
       if (context.mounted) {
+        final String message = existingFilePath == null
+            ? '脚本已保存到: Auok/脚本/${path.basename(filePath)}'
+            : '脚本已更新';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('脚本已保存到: $filePath'),
+            content: Text(message),
             backgroundColor: Colors.green,
-            duration: const Duration(seconds: 3),
+            duration: const Duration(seconds: 2),
           ),
         );
       }
@@ -780,34 +793,31 @@ class RightScriptPanel extends StatelessWidget {
   Future<void> _handleShareScript(
       BuildContext context, ScriptProvider scriptProvider) async {
     try {
-      // First, save to a temporary file
-      final tempDir = Directory.systemTemp;
-      final tempFilename =
-          'script_${DateTime.now().millisecondsSinceEpoch}.json';
-      final tempFilePath = path.join(tempDir.path, tempFilename);
-      final tempFile = File(tempFilePath);
+      final String? filePath = scriptProvider.currentScriptFilePath;
 
-      // Get script content and save to temp file
-      final scriptContent = scriptProvider.exportScript();
-      await tempFile.writeAsString(scriptContent);
+      // Check if script is saved
+      if (filePath == null ||
+          filePath.isEmpty ||
+          !await FileManager.fileExists(filePath)) {
+        // Show warning: file not saved
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('你还没有保存文件，请先保存'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+        return;
+      }
 
-      // Share the file
+      // Share the saved file
       final result = await Share.shareXFiles(
-        [XFile(tempFilePath)],
+        [XFile(filePath)],
         subject: '脚本分享',
         text: '这是我的浏览器自动化脚本',
       );
-
-      // Clean up temp file after a delay (to ensure sharing completes)
-      Future.delayed(const Duration(seconds: 5), () {
-        try {
-          if (tempFile.existsSync()) {
-            tempFile.deleteSync();
-          }
-        } catch (e) {
-          // Ignore cleanup errors
-        }
-      });
 
       if (context.mounted && result.status == ShareResultStatus.success) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -834,11 +844,15 @@ class RightScriptPanel extends StatelessWidget {
   Future<void> _handleLoadScript(
       BuildContext context, ScriptProvider scriptProvider) async {
     try {
-      // Let user pick a JSON file
+      // Get default script directory
+      final String defaultDir = await FileManager.getScriptDirectory();
+
+      // Let user pick a JSON file from default directory
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         dialogTitle: '选择脚本文件',
         type: FileType.custom,
         allowedExtensions: ['json'],
+        initialDirectory: defaultDir,
       );
 
       if (result == null || result.files.single.path == null) return;
@@ -852,12 +866,15 @@ class RightScriptPanel extends StatelessWidget {
       // Import script
       scriptProvider.importScript(content);
 
+      // Update file path for this tab
+      scriptProvider.updateScriptFilePath(filePath);
+
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('脚本读取成功'),
+          SnackBar(
+            content: Text('已加载: ${path.basename(filePath)}'),
             backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
+            duration: const Duration(seconds: 2),
           ),
         );
       }

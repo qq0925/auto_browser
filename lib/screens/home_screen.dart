@@ -65,6 +65,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
       for (var data in browserProvider.restoredTabsData!) {
         final url = data['url'] as String;
         final title = data['title'] as String;
+        final scriptFilePath =
+            data['scriptFilePath'] as String?; // Restore script file path
 
         final controller = _createWebViewController(
             browserProvider, scriptProvider,
@@ -74,6 +76,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
           initialUrl: url,
           initialTitle: title,
           controller: controller,
+          scriptFilePath: scriptFilePath, // Pass script file path
         );
       }
 

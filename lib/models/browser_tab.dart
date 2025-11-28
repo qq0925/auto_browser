@@ -15,6 +15,7 @@ class BrowserTab {
   int remainingLoopCount = 1; // 剩余循环次数
   List<Script> scripts = []; // 添加每个标签页自己的脚本列表
   double progress; // 网页加载进度
+  String? scriptFilePath; // 脚本的物理文件路径，null表示未保存
 
   // Auto Refresh
   Timer? _autoRefreshTimer;
