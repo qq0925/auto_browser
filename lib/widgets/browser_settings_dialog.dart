@@ -61,13 +61,25 @@ class BrowserSettingsDialog extends StatelessWidget {
             const SizedBox(height: 12),
             Consumer<BrowserProvider>(
               builder: (context, provider, child) {
-                return SwitchListTile(
-                  title: const Text('夜间模式',
-                      style: TextStyle(color: Colors.black87)),
-                  value: provider.isDarkMode,
-                  onChanged: (value) => provider.toggleDarkMode(value),
-                  activeColor: Colors.blue,
-                  contentPadding: EdgeInsets.zero,
+                return Column(
+                  children: [
+                    SwitchListTile(
+                      title: const Text('夜间模式',
+                          style: TextStyle(color: Colors.black87)),
+                      value: provider.isDarkMode,
+                      onChanged: (value) => provider.toggleDarkMode(value),
+                      activeColor: Colors.blue,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    SwitchListTile(
+                      title: const Text('屏幕常亮',
+                          style: TextStyle(color: Colors.black87)),
+                      value: provider.keepScreenOn,
+                      onChanged: (value) => provider.toggleKeepScreenOn(value),
+                      activeColor: Colors.blue,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ],
                 );
               },
             ),

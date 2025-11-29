@@ -6,6 +6,8 @@ import '../models/browser_tab.dart';
 import '../providers/browser_provider.dart';
 import '../providers/script_provider.dart';
 
+import '../utils/welcome_manager.dart';
+
 class BrowserView extends StatefulWidget {
   final BrowserTab tab;
 
@@ -46,6 +48,16 @@ class _BrowserViewState extends State<BrowserView> {
         ]),
         onWebViewCreated: (controller) {
           widget.tab.setController(controller);
+
+          // Check if we need to load welcome page (new tab or empty url)
+          if (widget.tab.url == 'about:blank' || widget.tab.url.isEmpty) {
+            WelcomeManager.getWelcomeContent().then((content) {
+              controller.loadData(
+                data: content,
+                baseUrl: WebUri('file:///welcome.html'),
+              );
+            });
+          }
 
           // Add JavaScript Handler for ScriptRunner
           controller.addJavaScriptHandler(
