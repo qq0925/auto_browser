@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../providers/browser_provider.dart';
 import '../providers/script_provider.dart';
 import '../models/script.dart';
 import '../widgets/right_script_panel.dart';
 import '../widgets/add_script_dialog.dart';
 import '../widgets/global_settings_dialog.dart';
+import '../widgets/browser_view.dart';
 
 import 'dart:async';
 import 'dart:io';
@@ -70,14 +71,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
         final scriptFilePath =
             data['scriptFilePath'] as String?; // Restore script file path
 
-        final controller = _createWebViewController(
-            browserProvider, scriptProvider,
-            initialUrl: url);
-
         await browserProvider.addTab(
           initialUrl: url,
           initialTitle: title,
-          controller: controller,
           scriptFilePath: scriptFilePath, // Pass script file path
         );
       }
@@ -94,213 +90,20 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
     }
   }
 
-  WebViewController _createWebViewController(
-      BrowserProvider browserProvider, ScriptProvider scriptProvider,
-      {String? initialUrl}) {
-    final controller = WebViewController();
-
-    controller.setJavaScriptMode(JavaScriptMode.unrestricted);
-    controller.setBackgroundColor(
-        browserProvider.isDarkMode ? Colors.black : Colors.white);
-
-    controller.setNavigationDelegate(
-      NavigationDelegate(
-        onProgress: (int progress) {
-          final index = browserProvider.tabs
-              .indexWhere((t) => t.controller == controller);
-          if (index != -1) {
-            if (index == browserProvider.currentIndex) {
-              browserProvider.updateTabProgress(progress / 100.0);
-            } else {
-              browserProvider.tabs[index].progress = progress / 100.0;
-            }
-          }
-        },
-        onPageStarted: (String url) {
-          final index = browserProvider.tabs
-              .indexWhere((t) => t.controller == controller);
-          if (index != -1) {
-            final tab = browserProvider.tabs[index];
-            tab.isLoading = true;
-            if (index == browserProvider.currentIndex) {
-              browserProvider.updateTabProgress(0.0);
-            }
-
-            // Pre-inject night mode CSS before page content loads
-            browserProvider.injectNightModeIfEnabled(controller);
-
-            if (url != 'about:blank' && !url.endsWith('welcome.html')) {
-              tab.url = url;
-              try {
-                final historyItem = browserProvider.history.firstWhere(
-                  (item) => item.url == url,
-                );
-                tab.title = historyItem.title;
-              } catch (_) {}
-            }
-
-            if (url.startsWith('http')) {
-              tab.url = url;
-              if (index == browserProvider.currentIndex &&
-                  !FocusScope.of(context).hasFocus) {
-                final displayUrl = url.startsWith('file://') ? '' : url;
-                _urlController.text = displayUrl;
-              }
-            }
-          }
-        },
-        onPageFinished: (String url) async {
-          final index = browserProvider.tabs
-              .indexWhere((t) => t.controller == controller);
-          if (index != -1) {
-            final tab = browserProvider.tabs[index];
-            tab.isLoading = false;
-            if (index == browserProvider.currentIndex) {
-              browserProvider.updateTabProgress(1.0);
-            }
-
-            browserProvider.injectNightModeIfEnabled(controller);
-
-            if (scriptProvider.isRecording &&
-                index == browserProvider.currentIndex) {
-              controller.runJavaScript(ScriptProvider.recordingJs);
-            }
-
-            // Get title with retry for background tabs
-            String? title = await controller.getTitle();
-
-            // Retry if title is null or empty (common for background tabs)
-            if ((title == null || title.isEmpty) && url.startsWith('http')) {
-              for (int i = 0; i < 3; i++) {
-                await Future.delayed(const Duration(milliseconds: 500));
-                title = await controller.getTitle();
-                if (title != null && title.isNotEmpty) break;
-              }
-            }
-
-            // Use URL as fallback if still no title
-            if (title == null || title.isEmpty) {
-              title = url;
-            }
-
-            browserProvider.updateTabInfo(index, url, title);
-            if (url.startsWith('http')) {
-              browserProvider.addToHistory(url, title);
-            }
-
-            // Update navigation state for forward/back buttons
-            _updateNavigationState();
-          }
-        },
-        onNavigationRequest: (NavigationRequest request) {
-          return NavigationDecision.navigate;
-        },
-      ),
-    );
-
-    controller.addJavaScriptChannel(
-      'ScriptRunner',
-      onMessageReceived: (JavaScriptMessage message) {
-        scriptProvider.handleScriptMessage(message.message);
-      },
-    );
-
-    controller.setOnJavaScriptAlertDialog(
-        (JavaScriptAlertDialogRequest request) async {
-      await showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          content: Text(request.message),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('确定'),
-            ),
-          ],
-        ),
-      );
-    });
-
-    controller.setOnJavaScriptConfirmDialog(
-        (JavaScriptConfirmDialogRequest request) async {
-      return await showDialog<bool>(
-            context: context,
-            builder: (context) => AlertDialog(
-              content: Text(request.message),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: const Text('取消'),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.pop(context, true),
-                  child: const Text('确定'),
-                ),
-              ],
-            ),
-          ) ??
-          false;
-    });
-
-    controller.setOnJavaScriptTextInputDialog(
-        (JavaScriptTextInputDialogRequest request) async {
-      final textController = TextEditingController(text: request.defaultText);
-      return await showDialog<String>(
-            context: context,
-            builder: (context) => AlertDialog(
-              content: TextField(
-                controller: textController,
-                decoration: InputDecoration(hintText: request.message),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('取消'),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.pop(context, textController.text),
-                  child: const Text('确定'),
-                ),
-              ],
-            ),
-          ) ??
-          '';
-    });
-
-    if (initialUrl != null && initialUrl.isNotEmpty) {
-      controller.loadRequest(Uri.parse(initialUrl));
-    } else {
-      // Load welcome.html by default for new tabs
-      // Use updated version if available, fallback to bundled asset
-      WelcomeManager.getWelcomeContent().then((content) {
-        // Use file:// URL to ensure proper navigation history
-        controller.loadHtmlString(content, baseUrl: 'file:///welcome.html');
-      });
-    }
-
-    return controller;
-  }
-
   Future<void> _addNewTab({String? initialUrl, String? initialTitle}) async {
     final browserProvider = context.read<BrowserProvider>();
-    final scriptProvider = context.read<ScriptProvider>();
-
-    final controller = _createWebViewController(browserProvider, scriptProvider,
-        initialUrl: initialUrl);
 
     await browserProvider.addTab(
-        initialUrl: initialUrl ?? '',
-        initialTitle: initialTitle,
-        controller: controller);
+        initialUrl: initialUrl ?? '', initialTitle: initialTitle);
   }
 
   Future<void> _updateNavigationState() async {
     final browserProvider = context.read<BrowserProvider>();
     if (browserProvider.currentTab != null && mounted) {
       final canGoBack =
-          await browserProvider.currentTab!.controller.canGoBack();
+          await browserProvider.currentTab!.controller!.canGoBack();
       final canGoForward =
-          await browserProvider.currentTab!.controller.canGoForward();
+          await browserProvider.currentTab!.controller!.canGoForward();
 
       setState(() {
         _canGoBack = canGoBack;
@@ -438,8 +241,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                                           if (url == 'welcome.html') {
                                             await browserProvider
                                                 .currentTab!.controller
-                                                .loadFlutterAsset(
-                                                    'assets/welcome.html');
+                                                ?.loadData(
+                                                    data:
+                                                        'assets/welcome.html');
                                           } else {
                                             if (!url.startsWith('http://') &&
                                                 !url.startsWith('https://') &&
@@ -479,7 +283,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
 
                                             await browserProvider
                                                 .currentTab!.controller
-                                                .loadRequest(Uri.parse(url));
+                                                ?.loadUrl(
+                                                    urlRequest: URLRequest(
+                                                        url: WebUri(url)));
                                           }
                                           Future.delayed(
                                               const Duration(milliseconds: 500),
@@ -534,20 +340,23 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                             // Smart refresh: check if on welcome page
                             final currentUrl = await browserProvider
                                 .currentTab?.controller
-                                .currentUrl();
+                                ?.getUrl();
                             if (currentUrl == null ||
-                                currentUrl == 'about:blank' ||
-                                currentUrl == 'file:///welcome.html') {
+                                currentUrl.toString() == 'about:blank' ||
+                                currentUrl.toString() ==
+                                    'file:///welcome.html') {
                               // Reload welcome content with latest version
                               WelcomeManager.getWelcomeContent()
                                   .then((content) {
                                 browserProvider.currentTab?.controller
-                                    .loadHtmlString(content,
-                                        baseUrl: 'file:///welcome.html');
+                                    ?.loadData(
+                                        data: content,
+                                        baseUrl:
+                                            WebUri('file:///welcome.html'));
                               });
                             } else {
                               // Normal page reload
-                              browserProvider.currentTab?.controller.reload();
+                              browserProvider.currentTab?.controller?.reload();
                             }
                           },
                         ),
@@ -712,8 +521,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                   : IndexedStack(
                       index: browserProvider.currentIndex,
                       children: browserProvider.tabs
-                          .map((tab) =>
-                              WebViewWidget(controller: tab.controller))
+                          .map((tab) => BrowserView(tab: tab))
                           .toList(),
                     ),
 
@@ -808,9 +616,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                             if (scriptProvider.isExecuting) {
                               scriptProvider.stopExecution();
                             } else {
-                              if (browserProvider.currentTab != null) {
+                              if (browserProvider.currentTab != null &&
+                                  browserProvider.currentTab!.controller !=
+                                      null) {
                                 scriptProvider.startExecution(
-                                  browserProvider.currentTab!.controller,
+                                  browserProvider.currentTab!.controller!,
                                 );
                               }
                             }
@@ -822,7 +632,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                             if (browserProvider.currentTab != null) {
                               scriptProvider.startRecording();
                               browserProvider.currentTab!.controller
-                                  .runJavaScript(ScriptProvider.recordingJs);
+                                  ?.evaluateJavascript(
+                                      source: ScriptProvider.recordingJs);
                             }
                           },
                         ),
@@ -861,7 +672,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                     if (scriptProvider.isRecording) {
                       scriptProvider.recordAction('网页后退');
                     }
-                    await browser.currentTab!.controller.goBack();
+                    await browser.currentTab!.controller?.goBack();
                     await _updateNavigationState();
                   }
                 : null,
@@ -876,7 +687,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                     if (scriptProvider.isRecording) {
                       scriptProvider.recordAction('网页前进');
                     }
-                    await browser.currentTab!.controller.goForward();
+                    await browser.currentTab!.controller?.goForward();
                     await _updateNavigationState();
                   }
                 : null,
@@ -932,8 +743,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                     if (browser.currentTab != null) {
                       scriptProvider.startRecording();
                       // Inject script immediately
-                      await browser.currentTab!.controller
-                          .runJavaScript(ScriptProvider.recordingJs);
+                      await browser.currentTab!.controller?.evaluateJavascript(
+                          source: ScriptProvider.recordingJs);
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('开始录制脚本...')),
@@ -969,8 +780,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                 ? () {
                     // AU按钮功能 - 回到初始页面
                     WelcomeManager.getWelcomeContent().then((content) {
-                      browser.currentTab!.controller.loadHtmlString(content,
-                          baseUrl: 'file:///welcome.html');
+                      browser.currentTab!.controller?.loadData(
+                          data: content,
+                          baseUrl: WebUri('file:///welcome.html'));
                     });
                   }
                 : null, // Disabled when on welcome page

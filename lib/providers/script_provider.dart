@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../models/script.dart';
 import '../services/script_executor.dart';
 import 'dart:convert';
@@ -284,7 +284,7 @@ class ScriptProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> startExecution(WebViewController controller) async {
+  Future<void> startExecution(InAppWebViewController controller) async {
     if (_currentTab == null || _currentTab!.scripts.isEmpty || _isRecording) {
       return;
     }

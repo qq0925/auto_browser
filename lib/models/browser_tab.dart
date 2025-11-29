@@ -1,10 +1,10 @@
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'script.dart';
 import 'dart:async';
 
 class BrowserTab {
   final String id;
-  final WebViewController controller;
+  InAppWebViewController? controller;
   String title; // 网页标题
   String url; // 网页URL
   bool isLoading; // 加载状态
@@ -26,13 +26,17 @@ class BrowserTab {
 
   BrowserTab({
     required this.id,
-    required this.controller,
+    this.controller,
     this.title = 'New Tab',
     this.url = 'about:blank',
     this.isLoading = false,
     this.isExecutingScript = false,
     this.progress = 0.0,
   });
+
+  void setController(InAppWebViewController newController) {
+    controller = newController;
+  }
 
   void startAutoRefresh(int intervalSeconds, int count) {
     stopAutoRefresh();
@@ -47,7 +51,7 @@ class BrowserTab {
         stopAutoRefresh();
         return;
       }
-      controller.reload();
+      controller?.reload();
       _currentRefreshCount++;
     });
   }

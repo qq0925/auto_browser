@@ -170,9 +170,10 @@ class ScriptPanel extends StatelessWidget {
                               : CupertinoColors.black,
                         ),
                         onPressed: () {
-                          if (browserProvider.currentTab != null) {
+                          if (browserProvider.currentTab != null &&
+                              browserProvider.currentTab!.controller != null) {
                             scriptProvider.startExecution(
-                                browserProvider.currentTab!.controller);
+                                browserProvider.currentTab!.controller!);
                           }
                         },
                       ),

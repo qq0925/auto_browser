@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/browser_provider.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 class BookmarksHistoryDialog extends StatefulWidget {
   const BookmarksHistoryDialog({super.key});
@@ -102,8 +103,8 @@ class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis),
               onTap: () {
-                provider.currentTab?.controller
-                    .loadRequest(Uri.parse(bookmark.url));
+                provider.currentTab?.controller?.loadUrl(
+                    urlRequest: URLRequest(url: WebUri(bookmark.url)));
                 Navigator.of(context).pop();
               },
               trailing: IconButton(
@@ -159,7 +160,7 @@ class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
               isThreeLine: true,
               onTap: () {
                 provider.currentTab?.controller
-                    .loadRequest(Uri.parse(item.url));
+                    ?.loadUrl(urlRequest: URLRequest(url: WebUri(item.url)));
                 Navigator.of(context).pop();
               },
             );

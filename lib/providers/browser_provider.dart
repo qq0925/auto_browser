@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import '../models/browser_tab.dart';
@@ -74,17 +74,22 @@ class BrowserProvider extends ChangeNotifier {
 
     // Apply to all tabs
     for (var tab in _tabs) {
-      tab.controller.setBackgroundColor(value ? Colors.black : Colors.white);
+      tab.controller?.setSettings(
+          settings: InAppWebViewSettings(
+        preferredContentMode: _getPreferredContentMode(userAgent),
+      ));
       if (value) {
-        _injectNightMode(tab.controller);
+        if (tab.controller != null) {
+          _injectNightMode(tab.controller!);
+        }
       } else {
-        tab.controller.runJavaScript(
-            "document.getElementById('auok-night-mode')?.remove();");
+        tab.controller?.evaluateJavascript(
+            source: "document.getElementById('auok-night-mode')?.remove();");
       }
     }
   }
 
-  void _injectNightMode(WebViewController controller) {
+  void _injectNightMode(InAppWebViewController controller) {
     if (_nightCssContent != null) {
       final js = """
         (function() {
@@ -95,11 +100,11 @@ class BrowserProvider extends ChangeNotifier {
           document.head.appendChild(style);
         })();
       """;
-      controller.runJavaScript(js);
+      controller.evaluateJavascript(source: js);
     }
   }
 
-  void injectNightModeIfEnabled(WebViewController controller) {
+  void injectNightModeIfEnabled(InAppWebViewController controller) {
     if (_isDarkMode) {
       _injectNightMode(controller);
     }
@@ -124,11 +129,10 @@ class BrowserProvider extends ChangeNotifier {
   Future<void> addTab(
       {String? initialUrl,
       String? initialTitle,
-      String? scriptFilePath,
-      required WebViewController controller}) async {
+      String? scriptFilePath}) async {
     final tab = BrowserTab(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      controller: controller,
+      controller: null,
       title: initialTitle ?? 'New Tab',
       url: initialUrl ?? 'about:blank',
     );
@@ -160,8 +164,8 @@ class BrowserProvider extends ChangeNotifier {
         return; // Caller should show error message
       }
 
-      tab.controller.clearCache();
-      tab.controller.clearLocalStorage();
+      InAppWebViewController.clearAllCache();
+      // tab.controller.clearLocalStorage(); // InAppWebView handles this differently or globally
 
       _tabs.removeAt(index);
       if (_currentIndex >= index) {
@@ -176,8 +180,8 @@ class BrowserProvider extends ChangeNotifier {
         return; // Prevent removal
       }
       // Allow removal - caller will create new default tab
-      tab.controller.clearCache();
-      tab.controller.clearLocalStorage();
+      InAppWebViewController.clearAllCache();
+      // tab.controller.clearLocalStorage();
       _tabs.removeAt(index);
       notifyListeners();
       _saveTabsState();
@@ -422,8 +426,13 @@ class BrowserProvider extends ChangeNotifier {
       _saveTabsState();
       // Apply to current tab if exists
       if (currentTab != null) {
-        currentTab!.controller.setUserAgent(_uaMap[type]);
-        currentTab!.controller.reload();
+        if (currentTab != null && currentTab!.controller != null) {
+          currentTab!.controller!.setSettings(
+              settings: InAppWebViewSettings(
+                  userAgent: _uaMap[type] ?? '',
+                  preferredContentMode: _getPreferredContentMode(type)));
+          currentTab!.controller!.reload();
+        }
       }
     }
   }
@@ -445,5 +454,12 @@ class BrowserProvider extends ChangeNotifier {
   void clearRestoredData() {
     _restoredTabsData = null;
     _restoredIndex = null;
+  }
+
+  UserPreferredContentMode _getPreferredContentMode(String userAgentType) {
+    if (userAgentType == 'Desktop') {
+      return UserPreferredContentMode.DESKTOP;
+    }
+    return UserPreferredContentMode.MOBILE;
   }
 }

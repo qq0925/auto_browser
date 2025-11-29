@@ -1,4 +1,4 @@
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import '../models/script.dart';
 import 'dart:convert';
@@ -6,7 +6,7 @@ import 'dart:async';
 
 class ScriptExecutor {
   // Execute a script on the given controller
-  Future<bool> execute(WebViewController controller, Script script,
+  Future<bool> execute(InAppWebViewController controller, Script script,
       {int executionDelay = 1000,
       Function(ScriptStatus status, String? message, double? progress)?
           onStatusChanged,
@@ -106,7 +106,7 @@ class ScriptExecutor {
   }
 
   Future<bool> _executeIntervalScript(
-      WebViewController controller,
+      InAppWebViewController controller,
       Script script,
       Function(ScriptStatus status, String? message, double? progress)?
           onStatusChanged) async {
@@ -129,7 +129,7 @@ class ScriptExecutor {
   }
 
   Future<bool> _executeClickScript(
-      WebViewController controller, Script script) async {
+      InAppWebViewController controller, Script script) async {
     final params = script.getClickParams();
     final clickText = params['点击文本'] ?? '';
     if (clickText.isEmpty) return false;
@@ -148,7 +148,7 @@ class ScriptExecutor {
       await Future.delayed(Duration(milliseconds: delay * multiplier));
     }
 
-    final result = await controller.runJavaScriptReturningResult('''
+    final result = await controller.evaluateJavascript(source: '''
       (function() {
         ${_buildClickScriptLogic(script.mode, params)}
       })();
@@ -158,7 +158,7 @@ class ScriptExecutor {
   }
 
   Future<bool> _executeFormSubmit(
-      WebViewController controller, Script script) async {
+      InAppWebViewController controller, Script script) async {
     final params = script.params;
     if (params.isEmpty) return false;
 
@@ -171,7 +171,7 @@ class ScriptExecutor {
     final jsonFormData = jsonEncode(formData);
     final jsonButtonText = jsonEncode(buttonText);
 
-    final result = await controller.runJavaScriptReturningResult('''
+    final result = await controller.evaluateJavascript(source: '''
       (function() {
         try {
           const formData = $jsonFormData;
@@ -226,13 +226,13 @@ class ScriptExecutor {
   }
 
   Future<bool> _executeCustomJs(
-      WebViewController controller, Script script) async {
+      InAppWebViewController controller, Script script) async {
     final jsContent = script.params['js内容'] ?? '';
     if (jsContent.isEmpty) return true; // Empty script considered success
 
     try {
       // Wrap in try-catch block to prevent crashing
-      final result = await controller.runJavaScriptReturningResult('''
+      final result = await controller.evaluateJavascript(source: '''
         (function() {
           try {
             $jsContent
@@ -381,12 +381,12 @@ class ScriptExecutor {
   }
 
   Future<bool> _executeNavigate(
-      WebViewController controller, Script script) async {
+      InAppWebViewController controller, Script script) async {
     final url = script.params['网址'] as String? ?? '';
     if (url.isEmpty) return false;
 
     try {
-      await controller.loadRequest(Uri.parse(url));
+      await controller.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
       return true;
     } catch (e) {
       debugPrint('Navigate error: $e');
@@ -395,11 +395,11 @@ class ScriptExecutor {
   }
 
   Future<bool> _executeClickImage(
-      WebViewController controller, Script script) async {
+      InAppWebViewController controller, Script script) async {
     final imageSrc = script.params['图片地址'] as String? ?? '';
 
     // If no specific image src, click first clickable image
-    final result = await controller.runJavaScriptReturningResult('''
+    final result = await controller.evaluateJavascript(source: '''
       (function() {
         try {
           let img = null;

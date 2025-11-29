@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 class PageInfoDialog extends StatefulWidget {
   final String title;
   final String url;
-  final WebViewController controller;
+  final InAppWebViewController? controller;
 
   const PageInfoDialog({
     super.key,
@@ -38,8 +38,8 @@ class _PageInfoDialogState extends State<PageInfoDialog> {
   Future<void> _loadPageSource() async {
     try {
       // Get the full HTML content
-      final Object result = await widget.controller
-          .runJavaScriptReturningResult("document.documentElement.outerHTML");
+      final Object? result = await widget.controller
+          ?.evaluateJavascript(source: "document.documentElement.outerHTML");
 
       String source = result.toString();
       // Clean up the result if it's a quoted string (common in some webview implementations)
@@ -83,7 +83,7 @@ class _PageInfoDialogState extends State<PageInfoDialog> {
   Future<void> _applySource() async {
     try {
       final newSource = _sourceController.text;
-      await widget.controller.loadHtmlString(newSource);
+      await widget.controller?.loadData(data: newSource);
       if (mounted) {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
