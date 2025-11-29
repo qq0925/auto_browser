@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'dart:collection';
 import 'package:provider/provider.dart';
 import '../models/browser_tab.dart';
 import '../providers/browser_provider.dart';
@@ -36,6 +37,26 @@ class _BrowserViewState extends State<BrowserView> {
             : UserPreferredContentMode.MOBILE,
         useHybridComposition: true,
       ),
+      initialUserScripts: UnmodifiableListView<UserScript>([
+        if (browserProvider.isDarkMode &&
+            browserProvider.nightCssContent != null)
+          UserScript(
+            source: """
+              (function() {
+                if (document.getElementById('auok-night-mode')) return;
+                var style = document.createElement('style');
+                style.id = 'auok-night-mode';
+                style.innerHTML = `${browserProvider.nightCssContent!.replaceAll('\n', ' ')}`;
+                if (document.head) {
+                  document.head.appendChild(style);
+                } else {
+                  document.documentElement.appendChild(style);
+                }
+              })();
+            """,
+            injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+          ),
+      ]),
       onWebViewCreated: (controller) {
         widget.tab.setController(controller);
 
@@ -60,8 +81,6 @@ class _BrowserViewState extends State<BrowserView> {
             if (index == browserProvider.currentIndex) {
               browserProvider.updateTabProgress(0.0);
             }
-
-            browserProvider.injectNightModeIfEnabled(controller);
 
             if (urlString != 'about:blank' &&
                 !urlString.endsWith('welcome.html')) {

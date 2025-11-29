@@ -134,9 +134,9 @@ class ScriptExecutor {
     final clickText = params['点击文本'] ?? '';
     if (clickText.isEmpty) return false;
 
-    // Handle delay for non-simple modes
-    if (script.mode != ScriptMode.simple) {
-      final delay = params['执行延迟'] ?? 0;
+    // Always handle delay if present, regardless of mode
+    final delay = params['执行延迟'] ?? 0;
+    if (delay > 0) {
       final timeUnit = params['时间单位'] ?? '毫秒';
       final multiplier = TimeUnit.values
           .firstWhere(
@@ -250,134 +250,92 @@ class ScriptExecutor {
   }
 
   String _buildClickScriptLogic(ScriptMode mode, Map<String, dynamic> params) {
-    switch (mode) {
-      case ScriptMode.simple:
-        return '''
-          const text = "${params['点击文本']}";
-          const links = Array.from(document.querySelectorAll('a')).filter(a => 
-            a.textContent.trim() === text.trim()
-          );
-          if (links.length > 0) {
-            links[0].click();
-            return true;
-          }
-          return false;
-        ''';
-
-      case ScriptMode.normal:
-        return '''
-          const triggerTexts = "${params['出现文字'] ?? ''}".split(';').filter(t => t.trim());
-          if (triggerTexts.length > 0) {
-            const pageText = document.body.textContent;
-            const hasText = triggerTexts.some(text => 
-              text && pageText.includes(text.trim())
-            );
-            if (!hasText) return false;
-          }
+    // Unified logic: Always use Expert Mode features with Fuzzy Matching
+    return '''
+      const triggerTexts = "${params['出现文字'] ?? ''}".split(';').filter(t => t.trim());
+      if (triggerTexts.length > 0) {
+        const pageText = document.body.textContent;
+        const hasText = triggerTexts.some(text => 
+          text && pageText.includes(text.trim())
+        );
+        if (!hasText) return false;
+      }
+      
+      // Get all links in the document
+      const allLinks = Array.from(document.querySelectorAll('a'));
+      
+      // Filter by position constraints if specified
+      const afterText = "${params['在此之后'] ?? ''}".trim();
+      const beforeText = "${params['在此之前'] ?? ''}".trim();
+      
+      let candidateLinks = allLinks;
+      
+      if (afterText || beforeText) {
+        candidateLinks = allLinks.filter(link => {
+          const linkHTML = link.outerHTML;
+          const bodyHTML = document.body.innerHTML;
+          const linkPosition = bodyHTML.indexOf(linkHTML);
           
-          const clickTexts = "${params['点击文本']}".split(';').filter(t => t.trim());
-          const isExactMatch = ${params['完全匹配'] ? 'true' : 'false'};
+          if (linkPosition === -1) return false;
           
-          for (const text of clickTexts) {
-            const links = Array.from(document.querySelectorAll('a')).filter(a => {
-              const linkText = a.textContent.trim();
-              return isExactMatch ? linkText === text.trim() : linkText.includes(text.trim());
-            });
-            
-            if (links.length > 0) {
-              links[0].click();
-              return true;
-            }
-          }
-          return false;
-        ''';
-
-      case ScriptMode.expert:
-        return '''
-          const triggerTexts = "${params['出现文字'] ?? ''}".split(';').filter(t => t.trim());
-          if (triggerTexts.length > 0) {
-            const pageText = document.body.textContent;
-            const hasText = triggerTexts.some(text => 
-              text && pageText.includes(text.trim())
-            );
-            if (!hasText) return false;
-          }
-          
-          // Get all links in the document
-          const allLinks = Array.from(document.querySelectorAll('a'));
-          
-          // Filter by position constraints if specified
-          const afterText = "${params['在此之后'] ?? ''}".trim();
-          const beforeText = "${params['在此之前'] ?? ''}".trim();
-          
-          let candidateLinks = allLinks;
-          
-          if (afterText || beforeText) {
-            candidateLinks = allLinks.filter(link => {
-              const linkHTML = link.outerHTML;
-              const bodyHTML = document.body.innerHTML;
-              const linkPosition = bodyHTML.indexOf(linkHTML);
-              
-              if (linkPosition === -1) return false;
-              
-              // Check "在此之后" constraint
-              if (afterText) {
-                const afterPosition = bodyHTML.indexOf(afterText);
-                if (afterPosition === -1 || linkPosition <= afterPosition) {
-                  return false;
-                }
-              }
-              
-              // Check "在此之前" constraint
-              if (beforeText) {
-                const beforePosition = bodyHTML.lastIndexOf(beforeText, linkPosition);
-                if (beforePosition === -1) {
-                  // If beforeText not found before this link, check if it exists after
-                  const beforePositionAfter = bodyHTML.indexOf(beforeText, linkPosition);
-                  if (beforePositionAfter === -1 || beforePositionAfter <= linkPosition) {
-                    return false;
-                  }
-                }
-              }
-              
-              return true;
-            });
-          }
-          
-          // Filter by click text
-          const clickTexts = "${params['点击文本']}".split(';').filter(t => t.trim());
-          const isExactMatch = ${params['完全匹配'] ? 'true' : 'false'};
-          
-          for (const text of clickTexts) {
-            const matchedLinks = candidateLinks.filter(a => {
-              const linkText = a.textContent.trim();
-              return isExactMatch ? linkText === text.trim() : linkText.includes(text.trim());
-            });
-            
-            if (matchedLinks.length > 0) {
-              // Apply selection index
-              const selectionIndex = ${params['多个筛选'] ?? 1};
-              let targetIndex = 0;
-              
-              if (selectionIndex === 0) {
-                // Random selection
-                targetIndex = Math.floor(Math.random() * matchedLinks.length);
-              } else if (selectionIndex > 0) {
-                // Positive index (1-based)
-                targetIndex = Math.min(selectionIndex - 1, matchedLinks.length - 1);
-              } else {
-                // Negative index (-1 means last)
-                targetIndex = Math.max(0, matchedLinks.length + selectionIndex);
-              }
-              
-              matchedLinks[targetIndex].click();
-              return true;
+          // Check "在此之后" constraint
+          if (afterText) {
+            const afterPosition = bodyHTML.indexOf(afterText);
+            if (afterPosition === -1 || linkPosition <= afterPosition) {
+              return false;
             }
           }
           
-          return false;
-        ''';
-    }
+          // Check "在此之前" constraint
+          if (beforeText) {
+            const beforePosition = bodyHTML.lastIndexOf(beforeText, linkPosition);
+            if (beforePosition === -1) {
+              // If beforeText not found before this link, check if it exists after
+              const beforePositionAfter = bodyHTML.indexOf(beforeText, linkPosition);
+              if (beforePositionAfter === -1 || beforePositionAfter <= linkPosition) {
+                return false;
+              }
+            }
+          }
+          
+          return true;
+        });
+      }
+      
+      // Filter by click text
+      const clickTexts = "${params['点击文本']}".split(';').filter(t => t.trim());
+      // Forced fuzzy matching as per user request
+      const isExactMatch = false; 
+      
+      for (const text of clickTexts) {
+        const matchedLinks = candidateLinks.filter(a => {
+          const linkText = a.textContent.trim();
+          return isExactMatch ? linkText === text.trim() : linkText.includes(text.trim());
+        });
+        
+        if (matchedLinks.length > 0) {
+          // Apply selection index
+          const selectionIndex = ${params['多个筛选'] ?? 1};
+          let targetIndex = 0;
+          
+          if (selectionIndex === 0) {
+            // Random selection
+            targetIndex = Math.floor(Math.random() * matchedLinks.length);
+          } else if (selectionIndex > 0) {
+            // Positive index (1-based)
+            targetIndex = Math.min(selectionIndex - 1, matchedLinks.length - 1);
+          } else {
+            // Negative index (-1 means last)
+            targetIndex = Math.max(0, matchedLinks.length + selectionIndex);
+          }
+          
+          matchedLinks[targetIndex].click();
+          return true;
+        }
+      }
+      
+      return false;
+    ''';
   }
 
   Future<bool> _executeNavigate(

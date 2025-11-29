@@ -247,13 +247,13 @@ class ScriptProvider extends ChangeNotifier {
         try {
           final data = json.decode(content) as Map<String, dynamic>;
           final buttonText = data['按钮文本'] as String? ?? '提交';
-          final inputValue = data['输入框值'] as String? ?? '';
+          final formData = data['表单数据'];
 
           addScript(Script(
             type: '输入框提交',
             params: {
               '提交按钮文字': buttonText,
-              '输入框值': inputValue,
+              '表单数据': formData ?? {},
             },
             isEnabled: true,
           ));
@@ -567,7 +567,7 @@ class ScriptProvider extends ChangeNotifier {
           if (form) {
             // Collect form data
             let formData = {};
-            let inputs = form.querySelectorAll('input, textarea');
+            let inputs = form.querySelectorAll('input, textarea, select');
             
             inputs.forEach(function(input) {
               // Skip hidden, button, submit, reset, image, search types
@@ -575,13 +575,13 @@ class ScriptProvider extends ChangeNotifier {
                   input.type === 'button' || 
                   input.type === 'submit' ||
                   input.type === 'reset' ||
-                  input.type === 'image' ||
-                  input.type === 'search') {
+                  input.type === 'image') {
                 return;
               }
               
               // Only save fields with name attribute (not id)
-              if (input.name && input.value) {
+              // Allow empty values to support clearing fields
+              if (input.name) {
                 formData[input.name] = input.value;
               }
             });

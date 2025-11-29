@@ -32,6 +32,7 @@ class BrowserProvider extends ChangeNotifier {
   bool get autoLeaveMode => _autoLeaveMode;
   bool get isScriptPanelExpanded => _isScriptPanelExpanded;
   String get searchEngine => _searchEngine;
+  String? get nightCssContent => _nightCssContent;
 
   BrowserTab? get currentTab =>
       _tabs.isNotEmpty && _currentIndex >= 0 && _currentIndex < _tabs.length
