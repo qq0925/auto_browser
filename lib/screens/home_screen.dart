@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../providers/browser_provider.dart';
 import '../providers/script_provider.dart';
+import '../models/script.dart';
 import '../widgets/right_script_panel.dart';
 import '../widgets/add_script_dialog.dart';
 import '../widgets/global_settings_dialog.dart';
@@ -770,11 +771,14 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                           bottomLeft: Radius.circular(20),
                         ),
                         child: RightScriptPanel(
-                          onAddScript: () {
-                            showDialog(
+                          onAddScript: () async {
+                            final result = await showDialog<Script>(
                               context: context,
                               builder: (context) => const AddScriptDialog(),
                             );
+                            if (result != null && mounted) {
+                              scriptProvider.addScript(result);
+                            }
                           },
                           onGlobalSettings: () {
                             showDialog(

@@ -1050,11 +1050,10 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     if (widget.script != null && widget.index != null) {
       // Update existing script
       scriptProvider.updateScript(widget.index!, newScript);
+      Navigator.pop(context);
     } else {
-      // Add new script
-      scriptProvider.addScript(newScript);
+      // Return new script for external handling (insertScript or addScript)
+      Navigator.pop(context, newScript);
     }
-
-    Navigator.pop(context);
   }
 }
