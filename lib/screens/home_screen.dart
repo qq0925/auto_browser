@@ -183,6 +183,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
             if (url.startsWith('http')) {
               browserProvider.addToHistory(url, title);
             }
+
+            // Update navigation state for forward/back buttons
+            _updateNavigationState();
           }
         },
         onNavigationRequest: (NavigationRequest request) {
@@ -371,6 +374,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                             size: 28, // Larger star icon
                           ),
                           onPressed: browserProvider.currentTab != null &&
+                                  browserProvider.currentTab!.url !=
+                                      'about:blank' &&
                                   !browserProvider.currentTab!.url
                                       .endsWith('welcome.html') &&
                                   !browserProvider.currentTab!.url

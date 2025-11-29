@@ -59,7 +59,7 @@ class _UrlSearchOverlayState extends State<UrlSearchOverlay> {
             color: Colors.grey[700],
             borderRadius: BorderRadius.circular(8),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           child: TextField(
             controller: _controller,
             focusNode: _focusNode,
@@ -73,7 +73,7 @@ class _UrlSearchOverlayState extends State<UrlSearchOverlay> {
               hintStyle: TextStyle(color: Colors.white54),
               border: InputBorder.none,
               isDense: true,
-              contentPadding: EdgeInsets.symmetric(vertical: 10),
+              contentPadding: EdgeInsets.symmetric(vertical: 14),
             ),
             onSubmitted: (value) {
               // Logic is handled in home_screen, just pass back

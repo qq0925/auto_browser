@@ -238,17 +238,17 @@ class ScriptProvider extends ChangeNotifier {
         try {
           final data = json.decode(content) as Map<String, dynamic>;
           final buttonText = data['按钮文本'] as String? ?? '提交';
-          final formData = data['表单数据'] as Map<String, dynamic>? ?? {};
+          final inputValue = data['输入框值'] as String? ?? '';
 
           addScript(Script(
-            type: '点击提交按钮',
+            type: '输入框提交',
             params: {
-              '按钮文本': buttonText,
-              '表单数据': formData,
+              '提交按钮文字': buttonText,
+              '输入框值': inputValue,
             },
             isEnabled: true,
           ));
-          _lastRecordedActionController.add('点击提交按钮: $buttonText');
+          _lastRecordedActionController.add('输入框提交: $buttonText');
         } catch (e) {
           debugPrint('Parse submit button data error: $e');
         }
