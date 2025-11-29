@@ -394,8 +394,9 @@ class BrowserProvider extends ChangeNotifier {
         // Let's parse the tabs data and expose it so the UI can call addTab
         _restoredTabsData = List<Map<String, dynamic>>.from(data['tabs']);
         _restoredIndex = data['currentIndex'] as int;
+
+        notifyListeners(); // Notify after loading settings
       }
-      notifyListeners();
     } catch (e) {
       debugPrint('Restore tabs state error: $e');
     }

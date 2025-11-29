@@ -10,7 +10,7 @@ import '../models/browser_tab.dart';
 class ScriptProvider extends ChangeNotifier {
   BrowserTab? _currentTab;
   bool _isRecording = false;
-  bool _isExecuting = false;
+  // Removed global _isExecuting - now using per-tab isExecutingScript
   bool _isPaused = false;
   int _currentScriptIndex = 0;
   int _executionDelay = 1000;
@@ -30,7 +30,8 @@ class ScriptProvider extends ChangeNotifier {
   BrowserTab? get currentTab =>
       _currentTab; // Expose current tab for comparison
   bool get isRecording => _isRecording;
-  bool get isExecuting => _isExecuting;
+  // Use per-tab execution state instead of global state
+  bool get isExecuting => _currentTab?.isExecutingScript ?? false;
   bool get isPaused => _isPaused;
   int get currentScriptIndex => _currentScriptIndex;
   int get executionDelay => _executionDelay;
@@ -105,7 +106,8 @@ class ScriptProvider extends ChangeNotifier {
   }
 
   void startRecording() {
-    if (_isExecuting) return; // Prevent recording while executing
+    // Prevent recording while any tab is executing
+    if (_currentTab?.isExecutingScript ?? false) return;
     _isRecording = true;
     notifyListeners();
   }
@@ -291,13 +293,11 @@ class ScriptProvider extends ChangeNotifier {
     final executingTab = _currentTab!;
     final executingController = controller;
 
-    _isExecuting = true;
+    // Mark tab as executing (use tab-specific state)
+    executingTab.isExecutingScript = true;
     _isPaused = false;
     _currentScriptIndex = 0;
     _remainingLoopCount = _originalLoopCount;
-
-    // Mark tab as executing
-    executingTab.isExecutingScript = true;
     executingTab.currentScriptIndex = 0;
     executingTab.successCount = 0;
     executingTab.failureCount = 0;
@@ -313,13 +313,13 @@ class ScriptProvider extends ChangeNotifier {
     notifyListeners();
 
     // Loop execution: 0 means infinite loop, otherwise loop the specified times
-    while (
-        _isExecuting && (_originalLoopCount == 0 || _remainingLoopCount > 0)) {
+    while (executingTab.isExecutingScript &&
+        (_originalLoopCount == 0 || _remainingLoopCount > 0)) {
       for (var i = 0; i < executingTab.scripts.length; i++) {
-        if (!_isExecuting) break;
+        if (!executingTab.isExecutingScript) break;
 
         // Handle pause
-        while (_isPaused && _isExecuting) {
+        while (_isPaused && executingTab.isExecutingScript) {
           await Future.delayed(const Duration(milliseconds: 100));
         }
 
@@ -357,14 +357,14 @@ class ScriptProvider extends ChangeNotifier {
       }
 
       // Only decrement if not in infinite loop mode (0 = infinite)
-      if (_isExecuting && _originalLoopCount > 0) {
+      if (executingTab.isExecutingScript && _originalLoopCount > 0) {
         _remainingLoopCount--;
         executingTab.remainingLoopCount = _remainingLoopCount;
         notifyListeners();
       }
     }
 
-    _isExecuting = false;
+    // Clear execution state
     _currentScriptIndex = 0;
     executingTab.isExecutingScript = false;
     executingTab.currentScriptIndex = 0;
@@ -372,7 +372,9 @@ class ScriptProvider extends ChangeNotifier {
   }
 
   void stopExecution() {
-    _isExecuting = false;
+    if (_currentTab != null) {
+      _currentTab!.isExecutingScript = false;
+    }
     _isPaused = false;
     notifyListeners();
   }

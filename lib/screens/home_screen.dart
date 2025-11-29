@@ -126,6 +126,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
               browserProvider.updateTabProgress(0.0);
             }
 
+            // Pre-inject night mode CSS before page content loads
+            browserProvider.injectNightModeIfEnabled(controller);
+
             if (url != 'about:blank' && !url.endsWith('welcome.html')) {
               tab.url = url;
               try {
@@ -960,19 +963,26 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
             },
           ),
           TextButton(
-            onPressed: () {
-              // AU按钮功能 - 回到初始页面
-              if (browser.currentTab != null) {
-                WelcomeManager.getWelcomeContent().then((content) {
-                  browser.currentTab!.controller
-                      .loadHtmlString(content, baseUrl: 'file:///welcome.html');
-                });
-              }
-            },
-            child: const Text(
+            onPressed: (browser.currentTab != null &&
+                    !browser.currentTab!.url.endsWith('welcome.html') &&
+                    browser.currentTab!.url != 'file:///welcome.html')
+                ? () {
+                    // AU按钮功能 - 回到初始页面
+                    WelcomeManager.getWelcomeContent().then((content) {
+                      browser.currentTab!.controller.loadHtmlString(content,
+                          baseUrl: 'file:///welcome.html');
+                    });
+                  }
+                : null, // Disabled when on welcome page
+            child: Text(
               'AU',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                  color: (browser.currentTab != null &&
+                          !browser.currentTab!.url.endsWith('welcome.html') &&
+                          browser.currentTab!.url != 'file:///welcome.html')
+                      ? Colors.white
+                      : Colors.white38,
+                  fontWeight: FontWeight.bold),
             ),
           ),
         ],
