@@ -143,41 +143,55 @@ class ScriptExecutor {
     final params = script.params;
     if (params.isEmpty) return false;
 
-    final jsonParams = jsonEncode(params);
+    // Get formData map and button text
+    final formData = params['表单数据'] as Map<String, dynamic>? ?? {};
+    final buttonText = params['提交按钮文字'] as String? ?? '提交';
+
+    if (formData.isEmpty) return false;
+
+    final jsonFormData = jsonEncode(formData);
+    final jsonButtonText = jsonEncode(buttonText);
 
     final result = await controller.runJavaScriptReturningResult('''
       (function() {
         try {
-          const data = $jsonParams;
-          const inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]), textarea'))
-            .filter(input => {
-              const rect = input.getBoundingClientRect();
-              return rect.width > 0 && rect.height > 0;
-            });
-            
+          const formData = $jsonFormData;
+          const buttonText = $jsonButtonText;
           let filledCount = 0;
           
-          inputs.forEach((input, index) => {
-            const key = '输入框' + (index + 1);
-            if (data[key]) {
-              input.value = data[key];
+          for (const [fieldName, value] of Object.entries(formData)) {
+            let input = document.querySelector("[name='" + fieldName + "']") || 
+                       document.querySelector("#" + fieldName);
+            
+            if (input && input.type !== 'hidden' && input.type !== 'submit') {
+              input.value = value;
               input.dispatchEvent(new Event('input', { bubbles: true }));
               input.dispatchEvent(new Event('change', { bubbles: true }));
               filledCount++;
             }
-          });
+          }
           
           if (filledCount > 0) {
-            const submitBtn = document.querySelector('input[type="submit"], button[type="submit"]');
+            let submitBtn = null;
+            const buttons = Array.from(document.querySelectorAll('button, input[type="submit"]'));
+            submitBtn = buttons.find(btn => {
+              const text = btn.innerText || btn.textContent || btn.value || '';
+              return text.trim() === buttonText;
+            });
+            
+            if (!submitBtn) {
+              submitBtn = document.querySelector('input[type="submit"], button[type="submit"]');
+            }
+            
             if (submitBtn) {
               submitBtn.click();
               return true;
             }
             
-            // Try form submit if no button found
-            const form = inputs[0].form;
-            if (form) {
-              form.submit();
+            const firstFieldName = Object.keys(formData)[0];
+            const firstInput = document.querySelector("[name='" + firstFieldName + "']");
+            if (firstInput && firstInput.form) {
+              firstInput.form.submit();
               return true;
             }
           }

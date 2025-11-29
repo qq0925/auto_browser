@@ -60,7 +60,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   // 输入框提交 fields
   final TextEditingController _submitButtonTextController =
       TextEditingController();
-  final TextEditingController _inputValueController = TextEditingController();
+  Map<String, String> _formData = {}; // Dynamic form fields
 
   // 进入网址 field
   final TextEditingController _urlController = TextEditingController();
@@ -106,7 +106,13 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
       _urlController.text = params['网址'] ?? '';
       _submitButtonTextController.text = params['提交按钮文字'] ?? '';
-      _inputValueController.text = params['输入框值'] ?? '';
+      // Load formData map
+      final loadedFormData = params['表单数据'];
+      if (loadedFormData is Map) {
+        _formData = Map<String, String>.from(loadedFormData.map(
+          (key, value) => MapEntry(key.toString(), value.toString()),
+        ));
+      }
 
       _scriptNameController.text = params['脚本名称'] ?? '';
       _targetValueController.text = params['目标值'] ?? '';
@@ -145,7 +151,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     _intervalMinutesController.dispose();
     _intervalSecondsController.dispose();
     _submitButtonTextController.dispose();
-    _inputValueController.dispose();
+    // _formData is a Map, no need to dispose
     _urlController.dispose();
     _scriptNameController.dispose();
     _targetValueController.dispose();
@@ -391,7 +397,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         return [
           delayField,
           _buildFieldRow('提交按钮文字', _submitButtonTextController, ''),
-          _buildFieldRow('输入框值', _inputValueController, ''),
+          _buildFormDataFields(),
         ];
       case '脚本替换':
       case '脚本停止':
@@ -665,6 +671,111 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     );
   }
 
+  Widget _buildFormDataFields() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(bottom: 8),
+          child: Text(
+            '表单字段',
+            style: TextStyle(color: Colors.white, fontSize: 13),
+          ),
+        ),
+        ..._formData.entries.map((entry) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: TextField(
+                      controller: TextEditingController(text: entry.key),
+                      decoration: const InputDecoration(
+                        hintText: '字段名 (name/id)',
+                        border: InputBorder.none,
+                        contentPadding:
+                            EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                        isDense: true,
+                      ),
+                      style: const TextStyle(fontSize: 13),
+                      onChanged: (newKey) {
+                        if (newKey.isNotEmpty && newKey != entry.key) {
+                          setState(() {
+                            final value = _formData.remove(entry.key);
+                            if (value != null) {
+                              _formData[newKey] = value;
+                            }
+                          });
+                        }
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 3,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: TextField(
+                      controller: TextEditingController(text: entry.value),
+                      decoration: const InputDecoration(
+                        hintText: '字段值',
+                        border: InputBorder.none,
+                        contentPadding:
+                            EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                        isDense: true,
+                      ),
+                      style: const TextStyle(fontSize: 13),
+                      onChanged: (newValue) {
+                        setState(() {
+                          _formData[entry.key] = newValue;
+                        });
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () {
+                    setState(() {
+                      _formData.remove(entry.key);
+                    });
+                  },
+                ),
+              ],
+            ),
+          );
+        }),
+        TextButton.icon(
+          onPressed: () {
+            setState(() {
+              final newKey = 'field${_formData.length + 1}';
+              _formData[newKey] = '';
+            });
+          },
+          icon: const Icon(Icons.add, color: Colors.white, size: 18),
+          label: const Text('添加字段',
+              style: TextStyle(color: Colors.white, fontSize: 13)),
+          style: TextButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildNestedScriptTile(String label, String type) {
     final script = type == 'beforeScript' ? _beforeScript : _afterScript;
 
@@ -820,8 +931,8 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         if (_submitButtonTextController.text.isNotEmpty) {
           params['提交按钮文字'] = _submitButtonTextController.text;
         }
-        if (_inputValueController.text.isNotEmpty) {
-          params['输入框值'] = _inputValueController.text;
+        if (_formData.isNotEmpty) {
+          params['表单数据'] = Map<String, dynamic>.from(_formData);
         }
         break;
 

@@ -434,12 +434,32 @@ class RightScriptPanel extends StatelessWidget {
                     style: TextStyle(color: Colors.white)),
                 onTap: () async {
                   Navigator.pop(context);
+
+                  // Show index info on screen
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('准备在位置 $index 插入 (序号${index + 1}之前)'),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+
                   final result = await showDialog<Script>(
                     context: context,
                     builder: (context) => const AddScriptDialog(),
                   );
                   if (result != null) {
                     scriptProvider.insertScript(index, result);
+
+                    // Show result
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                              '已插入到位置 $index，现在共${scriptProvider.scripts.length}个脚本'),
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                    }
                   }
                 },
               ),

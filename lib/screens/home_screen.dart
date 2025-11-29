@@ -269,7 +269,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
       // Load welcome.html by default for new tabs
       // Use updated version if available, fallback to bundled asset
       WelcomeManager.getWelcomeContent().then((content) {
-        controller.loadHtmlString(content, baseUrl: 'about:blank');
+        // Use file:// URL to ensure proper navigation history
+        controller.loadHtmlString(content, baseUrl: 'file:///welcome.html');
       });
     }
 
@@ -421,6 +422,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                                       initialUrl: browserProvider
                                                       .currentTab!.url ==
                                                   'about:blank' ||
+                                              browserProvider.currentTab!.url ==
+                                                  'file:///welcome.html' ||
                                               browserProvider.currentTab!.url
                                                   .endsWith('welcome.html')
                                           ? ''
@@ -482,6 +485,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                               child: Text(
                                 (browserProvider.currentTab?.url ==
                                             'about:blank' ||
+                                        browserProvider.currentTab?.url ==
+                                            'file:///welcome.html' ||
                                         (browserProvider.currentTab?.url
                                                 .endsWith('welcome.html') ??
                                             false))
@@ -513,13 +518,14 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                                 .currentTab?.controller
                                 .currentUrl();
                             if (currentUrl == null ||
-                                currentUrl == 'about:blank') {
+                                currentUrl == 'about:blank' ||
+                                currentUrl == 'file:///welcome.html') {
                               // Reload welcome content with latest version
                               WelcomeManager.getWelcomeContent()
                                   .then((content) {
                                 browserProvider.currentTab?.controller
                                     .loadHtmlString(content,
-                                        baseUrl: 'about:blank');
+                                        baseUrl: 'file:///welcome.html');
                               });
                             } else {
                               // Normal page reload
@@ -825,7 +831,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
           IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            icon: Icon(
+              Icons.arrow_back,
+              color: _canGoBack ? Colors.white : Colors.white38,
+            ),
             onPressed: _canGoBack && browser.currentTab != null
                 ? () async {
                     if (scriptProvider.isRecording) {
@@ -837,7 +846,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                 : null,
           ),
           IconButton(
-            icon: const Icon(Icons.arrow_forward, color: Colors.white),
+            icon: Icon(
+              Icons.arrow_forward,
+              color: _canGoForward ? Colors.white : Colors.white38,
+            ),
             onPressed: _canGoForward && browser.currentTab != null
                 ? () async {
                     if (scriptProvider.isRecording) {
@@ -935,7 +947,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
               if (browser.currentTab != null) {
                 WelcomeManager.getWelcomeContent().then((content) {
                   browser.currentTab!.controller
-                      .loadHtmlString(content, baseUrl: 'about:blank');
+                      .loadHtmlString(content, baseUrl: 'file:///welcome.html');
                 });
               }
             },
