@@ -242,8 +242,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                                             await browserProvider
                                                 .currentTab!.controller
                                                 ?.loadData(
-                                                    data:
-                                                        'assets/welcome.html');
+                                                    data: 'assets/welcome.html',
+                                                    mimeType: 'text/html',
+                                                    encoding: 'utf-8');
                                           } else {
                                             if (!url.startsWith('http://') &&
                                                 !url.startsWith('https://') &&
@@ -351,6 +352,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                                 browserProvider.currentTab?.controller
                                     ?.loadData(
                                         data: content,
+                                        mimeType: 'text/html',
+                                        encoding: 'utf-8',
                                         baseUrl:
                                             WebUri('file:///welcome.html'));
                               });
@@ -521,7 +524,10 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                   : IndexedStack(
                       index: browserProvider.currentIndex,
                       children: browserProvider.tabs
-                          .map((tab) => BrowserView(tab: tab))
+                          .map((tab) => BrowserView(
+                                key: ValueKey(tab.id),
+                                tab: tab,
+                              ))
                           .toList(),
                     ),
 
@@ -778,6 +784,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                     WelcomeManager.getWelcomeContent().then((content) {
                       browser.currentTab!.controller?.loadData(
                           data: content,
+                          mimeType: 'text/html',
+                          encoding: 'utf-8',
                           baseUrl: WebUri('file:///welcome.html'));
                     });
                   }

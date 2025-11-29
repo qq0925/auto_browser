@@ -164,7 +164,7 @@ class BrowserProvider extends ChangeNotifier {
     final tab = BrowserTab(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       controller: null,
-      title: initialTitle ?? 'Auok浏览器',
+      title: initialTitle ?? 'New Tab',
       url: initialUrl ?? 'about:blank',
     );
 
@@ -375,27 +375,33 @@ class BrowserProvider extends ChangeNotifier {
   Future<void> _saveTabsState() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+
+      // Ensure we have valid data to save
       final tabsData = await Future.wait(_tabs.map((tab) async {
-        // Note: We can't easily get current URL from controller here synchronously,
-        // so we rely on the stored url in BrowserTab which should be updated via updateTabInfo
+        String url = tab.url;
+        // If url is file path (welcome page), save as about:blank to trigger welcome logic on restore
+        if (url.startsWith('file:///')) {
+          url = 'about:blank';
+        }
+
         return {
-          'url': tab.url.startsWith('file:///') ? 'about:blank' : tab.url,
+          'url': url,
           'title': tab.title,
-          'scriptFilePath': tab.scriptFilePath, // Save script file path
+          'scriptFilePath': tab.scriptFilePath,
         };
       }));
 
-      await prefs.setString(
-          'last_tabs',
-          jsonEncode({
-            'tabs': tabsData,
-            'currentIndex': _currentIndex,
-            'isDarkMode': _isDarkMode,
-            'keepScreenOn': _keepScreenOn,
-            'isScriptPanelExpanded': _isScriptPanelExpanded,
-            'searchEngine': _searchEngine,
-            'userAgent': _userAgent,
-          }));
+      final dataToSave = {
+        'tabs': tabsData,
+        'currentIndex': _currentIndex,
+        'isDarkMode': _isDarkMode,
+        'keepScreenOn': _keepScreenOn,
+        'isScriptPanelExpanded': _isScriptPanelExpanded,
+        'searchEngine': _searchEngine,
+        'userAgent': _userAgent, // Save UserAgent
+      };
+
+      await prefs.setString('last_tabs', jsonEncode(dataToSave));
     } catch (e) {
       debugPrint('Save tabs state error: $e');
     }
@@ -408,31 +414,22 @@ class BrowserProvider extends ChangeNotifier {
 
       if (tabsJson != null) {
         final data = jsonDecode(tabsJson);
-        // We can't restore tabs fully here because we need to create WebViewControllers
-        // which might need context or platform view initialization.
-        // So we will just expose the data and let the UI/Main initialize the tabs.
-        // However, for this Provider, we might need a way to signal "restore needed".
 
         _isDarkMode = data['isDarkMode'] ?? false;
         _keepScreenOn = data['keepScreenOn'] ?? false;
         _searchEngine = data['searchEngine'] ?? 'Baidu';
-        _userAgent = data['userAgent'] ?? 'Mobile';
-        // _isScriptPanelExpanded = data['isScriptPanelExpanded'] ?? true; // Do not restore state
+        _userAgent = data['userAgent'] ?? 'Mobile'; // Restore UserAgent
 
         if (_keepScreenOn) {
           await WakelockPlus.enable();
         }
 
-        // The actual tab creation will happen in the UI when it sees empty tabs or via a specific method
-        // For now, we'll store the restored data in a temporary variable if needed,
-        // or better yet, we just notify listeners that we have settings.
-        // The tabs themselves need to be recreated with controllers.
+        if (data['tabs'] != null) {
+          _restoredTabsData = List<Map<String, dynamic>>.from(data['tabs']);
+          _restoredIndex = data['currentIndex'] as int?;
+        }
 
-        // Let's parse the tabs data and expose it so the UI can call addTab
-        _restoredTabsData = List<Map<String, dynamic>>.from(data['tabs']);
-        _restoredIndex = data['currentIndex'] as int;
-
-        notifyListeners(); // Notify after loading settings
+        notifyListeners();
       }
     } catch (e) {
       debugPrint('Restore tabs state error: $e');

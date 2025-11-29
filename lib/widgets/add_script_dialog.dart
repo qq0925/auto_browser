@@ -3,6 +3,20 @@ import 'package:provider/provider.dart';
 import '../providers/script_provider.dart';
 import '../models/script.dart';
 
+class _FormDataItem {
+  final TextEditingController keyController;
+  final TextEditingController valueController;
+
+  _FormDataItem(String key, String value)
+      : keyController = TextEditingController(text: key),
+        valueController = TextEditingController(text: value);
+
+  void dispose() {
+    keyController.dispose();
+    valueController.dispose();
+  }
+}
+
 class AddScriptDialog extends StatefulWidget {
   final Script? script;
   final int? index;
@@ -60,7 +74,9 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   // 输入框提交 fields
   final TextEditingController _submitButtonTextController =
       TextEditingController();
-  Map<String, String> _formData = {}; // Dynamic form fields
+
+  // Dynamic form fields managed by persistent controllers
+  final List<_FormDataItem> _formItems = [];
 
   // 进入网址 field
   final TextEditingController _urlController = TextEditingController();
@@ -106,12 +122,13 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
       _urlController.text = params['网址'] ?? '';
       _submitButtonTextController.text = params['提交按钮文字'] ?? '';
+
       // Load formData map
       final loadedFormData = params['表单数据'];
       if (loadedFormData is Map) {
-        _formData = Map<String, String>.from(loadedFormData.map(
-          (key, value) => MapEntry(key.toString(), value.toString()),
-        ));
+        loadedFormData.forEach((key, value) {
+          _formItems.add(_FormDataItem(key.toString(), value.toString()));
+        });
       }
 
       _scriptNameController.text = params['脚本名称'] ?? '';
@@ -151,7 +168,9 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     _intervalMinutesController.dispose();
     _intervalSecondsController.dispose();
     _submitButtonTextController.dispose();
-    // _formData is a Map, no need to dispose
+    for (var item in _formItems) {
+      item.dispose();
+    }
     _urlController.dispose();
     _scriptNameController.dispose();
     _targetValueController.dispose();
@@ -682,7 +701,10 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
             style: TextStyle(color: Colors.white, fontSize: 13),
           ),
         ),
-        ..._formData.entries.map((entry) {
+        ..._formItems.asMap().entries.map((entry) {
+          final index = entry.key;
+          final item = entry.value;
+
           return Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: Row(
@@ -695,7 +717,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: TextField(
-                      controller: TextEditingController(text: entry.key),
+                      controller: item.keyController,
                       decoration: const InputDecoration(
                         hintText: '字段名 (name/id)',
                         border: InputBorder.none,
@@ -704,16 +726,6 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                         isDense: true,
                       ),
                       style: const TextStyle(fontSize: 13),
-                      onChanged: (newKey) {
-                        if (newKey.isNotEmpty && newKey != entry.key) {
-                          setState(() {
-                            final value = _formData.remove(entry.key);
-                            if (value != null) {
-                              _formData[newKey] = value;
-                            }
-                          });
-                        }
-                      },
                     ),
                   ),
                 ),
@@ -726,7 +738,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: TextField(
-                      controller: TextEditingController(text: entry.value),
+                      controller: item.valueController,
                       decoration: const InputDecoration(
                         hintText: '字段值',
                         border: InputBorder.none,
@@ -735,11 +747,6 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                         isDense: true,
                       ),
                       style: const TextStyle(fontSize: 13),
-                      onChanged: (newValue) {
-                        setState(() {
-                          _formData[entry.key] = newValue;
-                        });
-                      },
                     ),
                   ),
                 ),
@@ -750,7 +757,8 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                   constraints: const BoxConstraints(),
                   onPressed: () {
                     setState(() {
-                      _formData.remove(entry.key);
+                      _formItems[index].dispose();
+                      _formItems.removeAt(index);
                     });
                   },
                 ),
@@ -761,8 +769,8 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         TextButton.icon(
           onPressed: () {
             setState(() {
-              final newKey = 'field${_formData.length + 1}';
-              _formData[newKey] = '';
+              _formItems
+                  .add(_FormDataItem('field${_formItems.length + 1}', ''));
             });
           },
           icon: const Icon(Icons.add, color: Colors.white, size: 18),
@@ -931,8 +939,17 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         if (_submitButtonTextController.text.isNotEmpty) {
           params['提交按钮文字'] = _submitButtonTextController.text;
         }
-        if (_formData.isNotEmpty) {
-          params['表单数据'] = Map<String, dynamic>.from(_formData);
+        // Reconstruct formData from _formItems
+        if (_formItems.isNotEmpty) {
+          final formDataMap = <String, String>{};
+          for (var item in _formItems) {
+            if (item.keyController.text.isNotEmpty) {
+              formDataMap[item.keyController.text] = item.valueController.text;
+            }
+          }
+          if (formDataMap.isNotEmpty) {
+            params['表单数据'] = Map<String, dynamic>.from(formDataMap);
+          }
         }
         break;
 

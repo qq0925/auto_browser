@@ -54,6 +54,8 @@ class _BrowserViewState extends State<BrowserView> {
             WelcomeManager.getWelcomeContent().then((content) {
               controller.loadData(
                 data: content,
+                mimeType: 'text/html',
+                encoding: 'utf-8',
                 baseUrl: WebUri('file:///welcome.html'),
               );
             });
@@ -125,29 +127,9 @@ class _BrowserViewState extends State<BrowserView> {
               }
 
               String? title = await controller.getTitle();
-
-              // If title is null or empty for http pages, retry a few times
-              // This handles pages where the title is set dynamically by JavaScript
-              if ((title == null || title.isEmpty) &&
-                  url.toString().startsWith('http')) {
-                for (int retry = 0;
-                    retry < 3 && (title == null || title.isEmpty);
-                    retry++) {
-                  await Future.delayed(const Duration(milliseconds: 200));
-                  title = await controller.getTitle();
-                }
-              }
-
-              // Fallback to URL if still no title
               if ((title == null || title.isEmpty) &&
                   url.toString().startsWith('http')) {
                 title = url.toString();
-              }
-
-              // For welcome.html, ensure we have a proper title
-              if ((title == null || title.isEmpty) &&
-                  url.toString().endsWith('welcome.html')) {
-                title = 'Auok浏览器';
               }
 
               if (title != null) {
@@ -172,6 +154,11 @@ class _BrowserViewState extends State<BrowserView> {
         onTitleChanged: (controller, title) {
           if (title != null) {
             widget.tab.title = title;
+            final index = browserProvider.tabs.indexOf(widget.tab);
+            if (index != -1) {
+              // Update provider to notify listeners (UI update) and persist state
+              browserProvider.updateTabInfo(index, widget.tab.url, title);
+            }
           }
         },
         shouldOverrideUrlLoading: (controller, navigationAction) async {
