@@ -105,15 +105,36 @@ class ScriptProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  UserScript? _recordingUserScript;
+
+  UserScript get recordingUserScript {
+    _recordingUserScript ??= UserScript(
+      source: recordingJs,
+      injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+    );
+    return _recordingUserScript!;
+  }
+
   void startRecording() {
     // Prevent recording while any tab is executing
     if (_currentTab?.isExecutingScript ?? false) return;
     _isRecording = true;
+
+    // Inject recording script immediately if controller is available
+    if (_currentTab?.controller != null) {
+      _currentTab!.controller!.evaluateJavascript(source: recordingJs);
+      _currentTab!.controller!.addUserScript(userScript: recordingUserScript);
+    }
+
     notifyListeners();
   }
 
   void stopRecording() {
     _isRecording = false;
+    if (_currentTab?.controller != null) {
+      _currentTab!.controller!
+          .removeUserScript(userScript: recordingUserScript);
+    }
     notifyListeners();
   }
 
@@ -226,11 +247,11 @@ class ScriptProvider extends ChangeNotifier {
   void handleScriptMessage(String message) {
     if (!_isRecording) return;
 
-    final parts = message.split('|');
-    if (parts.length != 2) return;
+    final separatorIndex = message.indexOf('|');
+    if (separatorIndex == -1) return;
 
-    final type = parts[0];
-    final content = parts[1];
+    final type = message.substring(0, separatorIndex);
+    final content = message.substring(separatorIndex + 1);
 
     switch (type) {
       case '点击文字':
@@ -607,28 +628,4 @@ class ScriptProvider extends ChangeNotifier {
       }, true);
     })();
   ''';
-
-  // Recording helper methods for browser controls
-  void recordNavigateScript(String url) {
-    if (!isRecording || _currentTab == null) return;
-    addScript(Script(
-      type: '进入网址',
-      params: {'网址': url},
-    ));
-  }
-
-  void recordRefreshScript() {
-    if (!isRecording || _currentTab == null) return;
-    addScript(Script(type: '刷新网页', params: {}));
-  }
-
-  void recordBackScript() {
-    if (!isRecording || _currentTab == null) return;
-    addScript(Script(type: '网页后退', params: {}));
-  }
-
-  void recordForwardScript() {
-    if (!isRecording || _currentTab == null) return;
-    addScript(Script(type: '网页前进', params: {}));
-  }
 }

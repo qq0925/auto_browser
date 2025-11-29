@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import '../models/browser_tab.dart';
@@ -47,13 +48,20 @@ class BrowserProvider extends ChangeNotifier {
     await _loadBookmarksAndHistory();
     await _restoreTabsState();
     try {
-      if (navigatorKey.currentContext != null) {
-        _nightCssContent =
-            await DefaultAssetBundle.of(navigatorKey.currentContext!)
-                .loadString('assets/night.css');
-      }
+      _nightCssContent = await rootBundle.loadString('assets/night.css');
+      notifyListeners();
     } catch (e) {
       debugPrint('Error loading night.css: $e');
+    }
+
+    // Apply restored dark mode to any existing tabs (handling race condition)
+    if (_isDarkMode && _nightCssContent != null) {
+      for (var tab in _tabs) {
+        if (tab.controller != null && nightModeUserScript != null) {
+          tab.controller!.addUserScript(userScript: nightModeUserScript!);
+          _injectNightMode(tab.controller!);
+        }
+      }
     }
 
     // Start background welcome.html update (fire-and-forget)
@@ -68,6 +76,34 @@ class BrowserProvider extends ChangeNotifier {
     }
   }
 
+  UserScript? _nightModeUserScript;
+
+  String _getNightModeJs() {
+    if (_nightCssContent == null) return '';
+    return """
+      (function() {
+        if (document.getElementById('auok-night-mode')) return;
+        var style = document.createElement('style');
+        style.id = 'auok-night-mode';
+        style.innerHTML = `${_nightCssContent!.replaceAll('\n', ' ')}`;
+        if (document.head) {
+          document.head.appendChild(style);
+        } else {
+          document.documentElement.appendChild(style);
+        }
+      })();
+    """;
+  }
+
+  UserScript? get nightModeUserScript {
+    if (_nightCssContent == null) return null;
+    _nightModeUserScript ??= UserScript(
+      source: _getNightModeJs(),
+      injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+    );
+    return _nightModeUserScript;
+  }
+
   void toggleDarkMode(bool value) {
     _isDarkMode = value;
     notifyListeners();
@@ -79,35 +115,29 @@ class BrowserProvider extends ChangeNotifier {
           settings: InAppWebViewSettings(
         preferredContentMode: _getPreferredContentMode(userAgent),
       ));
+
       if (value) {
-        if (tab.controller != null) {
+        if (tab.controller != null && nightModeUserScript != null) {
+          // Add UserScript for future navigations
+          tab.controller!.addUserScript(userScript: nightModeUserScript!);
+          // Inject immediately for current page
           _injectNightMode(tab.controller!);
         }
       } else {
-        tab.controller?.evaluateJavascript(
-            source: "document.getElementById('auok-night-mode')?.remove();");
+        if (tab.controller != null && nightModeUserScript != null) {
+          // Remove UserScript
+          tab.controller!.removeUserScript(userScript: nightModeUserScript!);
+          // Remove style from current page
+          tab.controller!.evaluateJavascript(
+              source: "document.getElementById('auok-night-mode')?.remove();");
+        }
       }
     }
   }
 
   void _injectNightMode(InAppWebViewController controller) {
     if (_nightCssContent != null) {
-      final js = """
-        (function() {
-          if (document.getElementById('auok-night-mode')) return;
-          var style = document.createElement('style');
-          style.id = 'auok-night-mode';
-          style.innerHTML = `${_nightCssContent!.replaceAll('\n', ' ')}`;
-          document.head.appendChild(style);
-        })();
-      """;
-      controller.evaluateJavascript(source: js);
-    }
-  }
-
-  void injectNightModeIfEnabled(InAppWebViewController controller) {
-    if (_isDarkMode) {
-      _injectNightMode(controller);
+      controller.evaluateJavascript(source: _getNightModeJs());
     }
   }
 

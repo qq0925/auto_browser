@@ -631,9 +631,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                           onRecordScript: () {
                             if (browserProvider.currentTab != null) {
                               scriptProvider.startRecording();
-                              browserProvider.currentTab!.controller
-                                  ?.evaluateJavascript(
-                                      source: ScriptProvider.recordingJs);
+                              // Injection is now handled automatically by ScriptProvider
                             }
                           },
                         ),
@@ -742,9 +740,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                     Navigator.pop(context);
                     if (browser.currentTab != null) {
                       scriptProvider.startRecording();
-                      // Inject script immediately
-                      await browser.currentTab!.controller?.evaluateJavascript(
-                          source: ScriptProvider.recordingJs);
+                      // Injection is now handled automatically by ScriptProvider
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('开始录制脚本...')),
