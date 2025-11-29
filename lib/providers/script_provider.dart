@@ -516,7 +516,10 @@ class ScriptProvider extends ChangeNotifier {
       window._auokRecorderInjected = true;
 
       function postMessage(msg) {
-        if (window.ScriptRunner) {
+        if (window.flutter_inappwebview && window.flutter_inappwebview.callHandler) {
+          window.flutter_inappwebview.callHandler('ScriptRunner', msg);
+        } else if (window.ScriptRunner) {
+          // Fallback for older versions or different configs
           window.ScriptRunner.postMessage(msg);
         }
       }
