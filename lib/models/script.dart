@@ -1,11 +1,5 @@
 import 'dart:convert';
 
-enum ScriptMode {
-  simple, // 简单模式：只记录点击和输入
-  normal, // 普通模式：记录更多交互
-  expert, // 专家模式：允许自定义JS
-}
-
 enum TimeUnit {
   milliseconds,
   seconds,
@@ -40,6 +34,8 @@ enum ScriptStatus {
   success,
   failure,
   waiting,
+  stopped,
+  paused,
 }
 
 class Script {
@@ -63,22 +59,6 @@ class Script {
 
   Map<String, dynamic> getClickParams() {
     return params;
-  }
-
-  ScriptMode get mode {
-    if (params.containsKey('mode')) {
-      final modeStr = params['mode'];
-      if (modeStr == 'expert') return ScriptMode.expert;
-      if (modeStr == 'normal') return ScriptMode.normal;
-    }
-    // Fallback based on params presence
-    if (params.containsKey('出现文字') || params.containsKey('在此之后')) {
-      return ScriptMode.expert;
-    }
-    if (params.containsKey('出现文字')) {
-      return ScriptMode.normal;
-    }
-    return ScriptMode.simple;
   }
 
   factory Script.fromMap(Map<String, dynamic> map) {

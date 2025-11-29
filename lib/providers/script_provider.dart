@@ -365,6 +365,10 @@ class ScriptProvider extends ChangeNotifier {
               } else if (status == ScriptStatus.failure) {
                 _failureCount++;
                 executingTab.failureCount++;
+              } else if (status == ScriptStatus.stopped) {
+                executingTab.isExecutingScript = false;
+              } else if (status == ScriptStatus.paused) {
+                _isPaused = true;
               }
 
               notifyListeners();

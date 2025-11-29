@@ -38,7 +38,22 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
   void initState() {
     super.initState();
     _initPermissions();
-    _initTabs();
+
+    // Wait for provider to be initialized
+    final browserProvider = context.read<BrowserProvider>();
+    if (browserProvider.isInitialized) {
+      _initTabs();
+    } else {
+      browserProvider.addListener(_onProviderInitialized);
+    }
+  }
+
+  void _onProviderInitialized() {
+    final browserProvider = context.read<BrowserProvider>();
+    if (browserProvider.isInitialized) {
+      browserProvider.removeListener(_onProviderInitialized);
+      _initTabs();
+    }
   }
 
   Future<void> _initPermissions() async {

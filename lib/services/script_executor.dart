@@ -46,6 +46,27 @@ class ScriptExecutor {
             ScriptStatus.running, '正在执行第 ${i + 1}/$repeatCount 次', null);
       }
 
+      // Execute "Before" Script
+      if (script.params['执行每个脚本前执行'] != null) {
+        final beforeScriptMap = script.params['执行每个脚本前执行'];
+        if (beforeScriptMap is Map<String, dynamic>) {
+          final beforeScript = Script.fromUserMap(beforeScriptMap);
+          // Execute recursively, but maybe without delay/wait to keep it tight?
+          // Or just standard execute. Let's use standard execute but maybe 0 delay default?
+          // User might want delay in before script too.
+          await execute(controller, beforeScript,
+              executionDelay:
+                  0, // Nested scripts might not inherit global delay by default?
+              onStatusChanged: (status, msg, prog) {
+            // Optional: bubble up status or ignore?
+            // For now, let's just log or ignore to keep main status clean
+            if (status == ScriptStatus.failure) {
+              debugPrint('Before script failed: $msg');
+            }
+          });
+        }
+      }
+
       switch (script.type) {
         case "点击文字":
           result = await _executeClickScript(controller, script);
@@ -78,11 +99,33 @@ class ScriptExecutor {
           result = await controller.canGoForward();
           if (result) await controller.goForward();
           break;
+        case "脚本停止":
+          onStatusChanged?.call(ScriptStatus.stopped, '脚本已停止', null);
+          result = true;
+          break;
+        case "脚本暂停":
+          onStatusChanged?.call(ScriptStatus.paused, '脚本已暂停', null);
+          result = true;
+          break;
         default:
           // For other scripts, assume success for now or implement specific logic
           // Some scripts like '脚本停止' might be handled outside or just return true
           result = true;
           break;
+      }
+
+      // Execute "After" Script
+      if (script.params['执行每个脚本后执行'] != null) {
+        final afterScriptMap = script.params['执行每个脚本后执行'];
+        if (afterScriptMap is Map<String, dynamic>) {
+          final afterScript = Script.fromUserMap(afterScriptMap);
+          await execute(controller, afterScript, executionDelay: 0,
+              onStatusChanged: (status, msg, prog) {
+            if (status == ScriptStatus.failure) {
+              debugPrint('After script failed: $msg');
+            }
+          });
+        }
       }
 
       if (!result) {
@@ -150,7 +193,7 @@ class ScriptExecutor {
 
     final result = await controller.evaluateJavascript(source: '''
       (function() {
-        ${_buildClickScriptLogic(script.mode, params)}
+        ${_buildClickScriptLogic(params)}
       })();
     ''');
 
@@ -249,7 +292,7 @@ class ScriptExecutor {
     }
   }
 
-  String _buildClickScriptLogic(ScriptMode mode, Map<String, dynamic> params) {
+  String _buildClickScriptLogic(Map<String, dynamic> params) {
     // Unified logic: Always use Expert Mode features with Fuzzy Matching
     return '''
       const triggerTexts = "${params['出现文字'] ?? ''}".split(';').filter(t => t.trim());
@@ -298,22 +341,6 @@ class ScriptExecutor {
             }
           }
           
-          return true;
-        });
-      }
-      
-      // Filter by click text
-      const clickTexts = "${params['点击文本']}".split(';').filter(t => t.trim());
-      // Forced fuzzy matching as per user request
-      const isExactMatch = false; 
-      
-      for (const text of clickTexts) {
-        const matchedLinks = candidateLinks.filter(a => {
-          const linkText = a.textContent.trim();
-          return isExactMatch ? linkText === text.trim() : linkText.includes(text.trim());
-        });
-        
-        if (matchedLinks.length > 0) {
           // Apply selection index
           const selectionIndex = ${params['多个筛选'] ?? 1};
           let targetIndex = 0;

@@ -66,7 +66,13 @@ class BrowserProvider extends ChangeNotifier {
 
     // Start background welcome.html update (fire-and-forget)
     WelcomeManager.updateWelcomeInBackground();
+
+    _isInitialized = true;
+    notifyListeners();
   }
+
+  bool _isInitialized = false;
+  bool get isInitialized => _isInitialized;
 
   void setCurrentIndex(int index) {
     if (index >= 0 && index < _tabs.length) {
@@ -424,10 +430,11 @@ class BrowserProvider extends ChangeNotifier {
           await WakelockPlus.enable();
         }
 
-        if (data['tabs'] != null) {
-          _restoredTabsData = List<Map<String, dynamic>>.from(data['tabs']);
-          _restoredIndex = data['currentIndex'] as int?;
-        }
+        // Disable tab restoration as per user request
+        // if (data['tabs'] != null) {
+        //   _restoredTabsData = List<Map<String, dynamic>>.from(data['tabs']);
+        //   _restoredIndex = data['currentIndex'] as int?;
+        // }
 
         notifyListeners();
       }
