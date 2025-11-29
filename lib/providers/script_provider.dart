@@ -515,6 +515,7 @@ class ScriptProvider extends ChangeNotifier {
       if (window._auokRecorderInjected) return;
       window._auokRecorderInjected = true;
 
+      // Use capture phase to intercept events before default behavior
       document.addEventListener('click', function(e) {
         let target = e.target;
         
@@ -549,20 +550,32 @@ class ScriptProvider extends ChangeNotifier {
         }
 
         // Priority 2: Check if it's a link (or element within a link)
+        // Search up the DOM tree for any link element
         let linkElement = target.closest('a');
         if (linkElement && linkElement.href) {
-          let linkText = linkElement.innerText || linkElement.textContent || '';
-          linkText = linkText.trim().substring(0, 50);
+          // Get link text from the actual clicked element or the link itself
+          let linkText = target.innerText || target.textContent || '';
+          if (!linkText || linkText.trim() === '') {
+            linkText = linkElement.innerText || linkElement.textContent || '';
+          }
+          linkText = linkText.trim();
+          
+          // Limit to first 50 characters
+          if (linkText.length > 50) {
+            linkText = linkText.substring(0, 50);
+          }
+          
           if (linkText) {
             ScriptRunner.postMessage('点击文字|' + linkText);
             return;
           }
         }
 
-        // Priority 3: Check if it's a submit button
+        // Priority 3: Check if it's a submit button or form submission
         let isSubmitButton = false;
         let submitElement = null;
         
+        // Direct button/input check
         if (target.tagName === 'BUTTON') {
           if (target.type === 'submit' || !target.type) {
             isSubmitButton = true;
@@ -575,7 +588,8 @@ class ScriptProvider extends ChangeNotifier {
           // Check if clicked element is inside a submit button
           submitElement = target.closest('button[type="submit"], input[type="submit"]');
           if (!submitElement) {
-            submitElement = target.closest('button:not([type])');
+            // Default button type is submit
+            submitElement = target.closest('button:not([type]), button[type=""]');
           }
           if (submitElement) {
             isSubmitButton = true;
@@ -591,7 +605,7 @@ class ScriptProvider extends ChangeNotifier {
             let inputs = form.querySelectorAll('input, textarea, select');
             
             inputs.forEach(function(input) {
-              // Skip hidden, button, submit, reset, image, search types
+              // Skip hidden, button, submit, reset, image types
               if (input.type === 'hidden' || 
                   input.type === 'button' || 
                   input.type === 'submit' ||
@@ -600,10 +614,11 @@ class ScriptProvider extends ChangeNotifier {
                 return;
               }
               
-              // Only save fields with name attribute (not id)
-              // Allow empty values to support clearing fields
+              // Collect by name (preferred) or id as fallback
               if (input.name) {
                 formData[input.name] = input.value;
+              } else if (input.id) {
+                formData[input.id] = input.value;
               }
             });
 
@@ -625,7 +640,7 @@ class ScriptProvider extends ChangeNotifier {
             return;
           }
         }
-      }, true);
+      }, true); // Use capture phase (true) to catch events early
     })();
   ''';
 }

@@ -164,7 +164,7 @@ class BrowserProvider extends ChangeNotifier {
     final tab = BrowserTab(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       controller: null,
-      title: initialTitle ?? 'New Tab',
+      title: initialTitle ?? 'Auok浏览器',
       url: initialUrl ?? 'about:blank',
     );
 
@@ -394,6 +394,7 @@ class BrowserProvider extends ChangeNotifier {
             'keepScreenOn': _keepScreenOn,
             'isScriptPanelExpanded': _isScriptPanelExpanded,
             'searchEngine': _searchEngine,
+            'userAgent': _userAgent,
           }));
     } catch (e) {
       debugPrint('Save tabs state error: $e');
@@ -415,6 +416,7 @@ class BrowserProvider extends ChangeNotifier {
         _isDarkMode = data['isDarkMode'] ?? false;
         _keepScreenOn = data['keepScreenOn'] ?? false;
         _searchEngine = data['searchEngine'] ?? 'Baidu';
+        _userAgent = data['userAgent'] ?? 'Mobile';
         // _isScriptPanelExpanded = data['isScriptPanelExpanded'] ?? true; // Do not restore state
 
         if (_keepScreenOn) {

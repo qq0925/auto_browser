@@ -125,9 +125,29 @@ class _BrowserViewState extends State<BrowserView> {
               }
 
               String? title = await controller.getTitle();
+
+              // If title is null or empty for http pages, retry a few times
+              // This handles pages where the title is set dynamically by JavaScript
+              if ((title == null || title.isEmpty) &&
+                  url.toString().startsWith('http')) {
+                for (int retry = 0;
+                    retry < 3 && (title == null || title.isEmpty);
+                    retry++) {
+                  await Future.delayed(const Duration(milliseconds: 200));
+                  title = await controller.getTitle();
+                }
+              }
+
+              // Fallback to URL if still no title
               if ((title == null || title.isEmpty) &&
                   url.toString().startsWith('http')) {
                 title = url.toString();
+              }
+
+              // For welcome.html, ensure we have a proper title
+              if ((title == null || title.isEmpty) &&
+                  url.toString().endsWith('welcome.html')) {
+                title = 'Auok浏览器';
               }
 
               if (title != null) {
