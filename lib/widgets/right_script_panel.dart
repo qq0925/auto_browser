@@ -633,7 +633,11 @@ class RightScriptPanel extends StatelessWidget {
       case '点击图片':
         return '点击图片';
       case '输入框提交':
-        return '输入: ${params['输入框值'] ?? ''}';
+        final formData = params['表单数据'];
+        if (formData is Map && formData.isNotEmpty) {
+          return formData.entries.map((e) => '${e.key}: ${e.value}').join('\n');
+        }
+        return '提交: ${params['提交按钮文字'] ?? ''}';
       case '进入网址':
         return '网址: ${params['网址'] ?? ''}';
       case '间隔时间':

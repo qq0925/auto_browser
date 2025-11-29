@@ -203,6 +203,13 @@ class ScriptProvider extends ChangeNotifier {
         addScript(Script(type: '刷新网页', params: {}, isEnabled: true));
         actionDescription = '刷新网页';
         break;
+      case '进入网址':
+        if (detail != null && detail.isNotEmpty) {
+          addScript(
+              Script(type: '进入网址', params: {'网址': detail}, isEnabled: true));
+          actionDescription = '进入网址: $detail';
+        }
+        break;
       case '点击图片':
         addScript(Script(type: '点击图片', params: {}, isEnabled: true));
         actionDescription = '点击图片';
@@ -561,19 +568,19 @@ class ScriptProvider extends ChangeNotifier {
             let inputs = form.querySelectorAll('input, textarea');
             
             inputs.forEach(function(input) {
-              // Skip hidden, button, submit, reset, image types
+              // Skip hidden, button, submit, reset, image, search types
               if (input.type === 'hidden' || 
                   input.type === 'button' || 
                   input.type === 'submit' ||
                   input.type === 'reset' ||
-                  input.type === 'image') {
+                  input.type === 'image' ||
+                  input.type === 'search') {
                 return;
               }
               
-              // Use name or id as key
-              let key = input.name || input.id;
-              if (key && input.value) {
-                formData[key] = input.value;
+              // Only save fields with name attribute (not id)
+              if (input.name && input.value) {
+                formData[input.name] = input.value;
               }
             });
 
@@ -598,4 +605,28 @@ class ScriptProvider extends ChangeNotifier {
       }, true);
     })();
   ''';
+
+  // Recording helper methods for browser controls
+  void recordNavigateScript(String url) {
+    if (!isRecording || _currentTab == null) return;
+    addScript(Script(
+      type: '进入网址',
+      params: {'网址': url},
+    ));
+  }
+
+  void recordRefreshScript() {
+    if (!isRecording || _currentTab == null) return;
+    addScript(Script(type: '刷新网页', params: {}));
+  }
+
+  void recordBackScript() {
+    if (!isRecording || _currentTab == null) return;
+    addScript(Script(type: '网页后退', params: {}));
+  }
+
+  void recordForwardScript() {
+    if (!isRecording || _currentTab == null) return;
+    addScript(Script(type: '网页前进', params: {}));
+  }
 }

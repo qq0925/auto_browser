@@ -1,4 +1,5 @@
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import '../models/script.dart';
 import 'dart:convert';
 import 'dart:async';
@@ -58,6 +59,24 @@ class ScriptExecutor {
           break;
         case "自定义JS":
           result = await _executeCustomJs(controller, script);
+          break;
+        case "进入网址":
+          result = await _executeNavigate(controller, script);
+          break;
+        case "点击图片":
+          result = await _executeClickImage(controller, script);
+          break;
+        case "刷新网页":
+          await controller.reload();
+          result = true;
+          break;
+        case "网页后退":
+          result = await controller.canGoBack();
+          if (result) await controller.goBack();
+          break;
+        case "网页前进":
+          result = await controller.canGoForward();
+          if (result) await controller.goForward();
           break;
         default:
           // For other scripts, assume success for now or implement specific logic
@@ -359,5 +378,60 @@ class ScriptExecutor {
           return false;
         ''';
     }
+  }
+
+  Future<bool> _executeNavigate(
+      WebViewController controller, Script script) async {
+    final url = script.params['网址'] as String? ?? '';
+    if (url.isEmpty) return false;
+
+    try {
+      await controller.loadRequest(Uri.parse(url));
+      return true;
+    } catch (e) {
+      debugPrint('Navigate error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> _executeClickImage(
+      WebViewController controller, Script script) async {
+    final imageSrc = script.params['图片地址'] as String? ?? '';
+
+    // If no specific image src, click first clickable image
+    final result = await controller.runJavaScriptReturningResult('''
+      (function() {
+        try {
+          let img = null;
+          
+          if ('$imageSrc') {
+            // Find image by src
+            img = document.querySelector('img[src*="$imageSrc"]');
+          }
+          
+          if (!img) {
+            // Find first clickable image (with link or onclick)
+            const images = Array.from(document.querySelectorAll('img'));
+            img = images.find(i => i.onclick || i.parentElement.tagName === 'A');
+          }
+          
+          if (!img) {
+            // Last resort: click first image
+            img = document.querySelector('img');
+          }
+          
+          if (img) {
+            img.click();
+            return true;
+          }
+          return false;
+        } catch (e) {
+          console.error(e);
+          return false;
+        }
+      })();
+    ''');
+
+    return result.toString() == 'true';
   }
 }

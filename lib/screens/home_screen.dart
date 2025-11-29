@@ -460,6 +460,20 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                                                 }
                                               }
                                             }
+
+                                            // Record navigation for real URLs (not file:// or searches)
+                                            if (scriptProvider.isRecording &&
+                                                (value.trim().startsWith(
+                                                        'http://') ||
+                                                    value.trim().startsWith(
+                                                        'https://') ||
+                                                    value
+                                                        .trim()
+                                                        .contains('.'))) {
+                                              scriptProvider.recordAction(
+                                                  '进入网址', url);
+                                            }
+
                                             await browserProvider
                                                 .currentTab!.controller
                                                 .loadRequest(Uri.parse(url));
