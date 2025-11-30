@@ -33,6 +33,16 @@ class ScriptProvider extends ChangeNotifier {
       macOS: initializationSettingsDarwin,
     );
     await _flutterLocalNotificationsPlugin.initialize(initializationSettings);
+
+    // Request permissions for iOS
+    final platform =
+        _flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin>();
+    await platform?.requestPermissions(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
   }
 
   bool _isRecording = false;

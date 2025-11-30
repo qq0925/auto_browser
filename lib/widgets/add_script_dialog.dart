@@ -54,7 +54,9 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     '逻辑脚本-时间对比',
     '逻辑脚本-数值对比',
     '数学运算',
+    '延时脚本',
     '数值对比-点击文字',
+    '新建窗口并执行脚本',
     '跳转脚本',
   ];
 
@@ -530,12 +532,18 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           _buildFormDataFields(),
         ];
       case '脚本替换':
+      case '执行本地脚本集':
+        return [
+          _buildScriptPathField(),
+        ];
       case '脚本停止':
       case '脚本暂停':
       case '刷新网页':
       case '网页后退':
       case '网页前进':
       case '重置限制次数':
+      case '延时脚本':
+        return [];
       case '逻辑脚本-出现文字':
         return [
           _buildFieldRow('出现文字', _appearTextController, '', required: true),
@@ -572,10 +580,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
             if (val != null) setState(() => _compareMethod = val);
           }),
         ];
-      case '执行本地脚本集':
-        return [
-          _buildFieldRow('脚本集名称', _scriptSetController, '', required: true),
-        ];
+
       case '通知栏提醒':
         return [
           _buildFieldRow('提醒内容', _notificationContentController, '',
@@ -846,6 +851,74 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildScriptPathField() {
+    final isDarkMode = context.read<BrowserProvider>().isDarkMode;
+    final labelColor = isDarkMode ? Colors.white : Colors.black87;
+    final inputFillColor = isDarkMode
+        ? Colors.white.withValues(alpha: 0.05)
+        : Colors.grey.shade100;
+    final borderColor = isDarkMode ? Colors.white24 : Colors.grey.shade300;
+    final textColor = isDarkMode ? Colors.white : Colors.black87;
+    final hintColor = isDarkMode ? Colors.white38 : Colors.black38;
+    final iconColor = isDarkMode ? Colors.white : Colors.black54;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text(
+            '目标脚本集',
+            style: TextStyle(color: labelColor, fontSize: 13),
+          ),
+        ),
+        Row(
+          children: [
+            Expanded(
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                decoration: BoxDecoration(
+                  color: inputFillColor,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: borderColor),
+                ),
+                child: Text(
+                  _targetScriptPath != null
+                      ? _targetScriptPath!.split(Platform.pathSeparator).last
+                      : '未选择文件',
+                  style: TextStyle(
+                    color: _targetScriptPath != null ? textColor : hintColor,
+                    fontSize: 13,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              onPressed: () async {
+                FilePickerResult? result = await FilePicker.platform.pickFiles(
+                  type: FileType.custom,
+                  allowedExtensions: ['json'],
+                );
+
+                if (result != null) {
+                  setState(() {
+                    _targetScriptPath = result.files.single.path;
+                  });
+                }
+              },
+              icon: Icon(Icons.folder_open, color: iconColor),
+              tooltip: '选择脚本集文件',
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -1167,8 +1240,9 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         break;
 
       case '延时脚本':
-        if (_delayController.text.isEmpty) return;
-        params['延时时间'] = int.tryParse(_delayController.text) ?? 0;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
         break;
 
       case '控制脚本开关':

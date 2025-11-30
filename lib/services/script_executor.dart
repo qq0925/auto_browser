@@ -128,6 +128,9 @@ class ScriptExecutor {
             onStatusChanged?.call(ScriptStatus.failure, '未指定提醒内容', null);
             return false;
           }
+        case "延时脚本":
+          // Delay is handled by the common logic at the beginning of the loop
+          return true;
 
         default:
           result = true;

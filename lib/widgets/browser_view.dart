@@ -129,7 +129,8 @@ class _BrowserViewState extends State<BrowserView> {
               String? title = await controller.getTitle();
 
               // Handle default page title
-              if (url.toString().endsWith('welcome.html')) {
+              if (url.toString().endsWith('welcome.html') ||
+                  url.toString() == 'about:blank') {
                 title = '欢迎使用';
               } else if ((title == null || title.isEmpty) &&
                   url.toString().startsWith('http')) {
