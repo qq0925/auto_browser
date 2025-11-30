@@ -36,6 +36,9 @@ enum ScriptStatus {
   waiting,
   stopped,
   paused,
+  replaced,
+  callSubroutine,
+  notification,
 }
 
 class Script {
@@ -47,6 +50,7 @@ class Script {
   ScriptStatus status = ScriptStatus.idle;
   String? statusMessage;
   double? progress;
+  String? targetScriptPath; // For '脚本替换'
 
   Script({
     required this.type,
@@ -55,6 +59,7 @@ class Script {
     this.status = ScriptStatus.idle,
     this.statusMessage,
     this.progress,
+    this.targetScriptPath,
   });
 
   Map<String, dynamic> getClickParams() {
@@ -66,6 +71,7 @@ class Script {
       type: map['type'],
       params: Map<String, dynamic>.from(map['params']),
       isEnabled: map['isEnabled'] ?? true,
+      targetScriptPath: map['targetScriptPath'],
     );
   }
 
@@ -74,10 +80,18 @@ class Script {
     final type = map['脚本类型'] as String? ?? '未知类型';
     final params = Map<String, dynamic>.from(map);
     params.remove('脚本类型'); // Remove type from params
+
+    String? targetScriptPath;
+    if ((type == '脚本替换' || type == '执行本地脚本集') && params.containsKey('脚本集')) {
+      targetScriptPath = params['脚本集'];
+      params.remove('脚本集');
+    }
+
     return Script(
       type: type,
       params: params,
       isEnabled: true,
+      targetScriptPath: targetScriptPath,
     );
   }
 
@@ -86,6 +100,7 @@ class Script {
       'type': type,
       'params': params,
       'isEnabled': isEnabled,
+      'targetScriptPath': targetScriptPath,
       // status and statusMessage are runtime only, not persisted
     };
   }
@@ -94,6 +109,9 @@ class Script {
   Map<String, dynamic> toUserMap() {
     final map = Map<String, dynamic>.from(params);
     map['脚本类型'] = type;
+    if (targetScriptPath != null) {
+      map['脚本集'] = targetScriptPath;
+    }
     return map;
   }
 

@@ -1,14 +1,40 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../models/script.dart';
 import '../services/script_executor.dart';
 import 'dart:convert';
 import 'dart:async';
+import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/browser_tab.dart';
 
 class ScriptProvider extends ChangeNotifier {
   BrowserTab? _currentTab;
+  final ScriptExecutor _executor = ScriptExecutor();
+  final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin =
+      FlutterLocalNotificationsPlugin();
+
+  ScriptProvider() {
+    _init();
+    _loadScripts();
+  }
+
+  Future<void> _init() async {
+    // Initialize Local Notifications
+    const AndroidInitializationSettings initializationSettingsAndroid =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+    final DarwinInitializationSettings initializationSettingsDarwin =
+        DarwinInitializationSettings();
+    final InitializationSettings initializationSettings =
+        InitializationSettings(
+      android: initializationSettingsAndroid,
+      iOS: initializationSettingsDarwin,
+      macOS: initializationSettingsDarwin,
+    );
+    await _flutterLocalNotificationsPlugin.initialize(initializationSettings);
+  }
+
   bool _isRecording = false;
   // Removed global _isExecuting - now using per-tab isExecutingScript
   bool _isPaused = false;
@@ -23,14 +49,11 @@ class ScriptProvider extends ChangeNotifier {
 
   Future<void> Function()? _waitForPageLoadCallback;
 
-  final ScriptExecutor _executor = ScriptExecutor();
-
   // Get scripts from current tab
   List<Script> get scripts => _currentTab?.scripts ?? [];
-  BrowserTab? get currentTab =>
-      _currentTab; // Expose current tab for comparison
+  BrowserTab? get currentTab => _currentTab;
   bool get isRecording => _isRecording;
-  // Use per-tab execution state instead of global state
+
   bool get isExecuting => _currentTab?.isExecutingScript ?? false;
   bool get isPaused => _isPaused;
   int get currentScriptIndex => _currentScriptIndex;
@@ -49,10 +72,6 @@ class ScriptProvider extends ChangeNotifier {
   void setCurrentTab(BrowserTab? tab) {
     _currentTab = tab;
     notifyListeners();
-  }
-
-  ScriptProvider() {
-    _loadScripts();
   }
 
   Future<void> _loadScripts() async {
@@ -304,7 +323,8 @@ class ScriptProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> startExecution(InAppWebViewController controller) async {
+  Future<void> startExecution(
+      InAppWebViewController controller, int tabIndex) async {
     if (_currentTab == null || _currentTab!.scripts.isEmpty || _isRecording) {
       return;
     }
@@ -333,58 +353,189 @@ class ScriptProvider extends ChangeNotifier {
     notifyListeners();
 
     // Loop execution: 0 means infinite loop, otherwise loop the specified times
-    while (executingTab.isExecutingScript &&
-        (_originalLoopCount == 0 || _remainingLoopCount > 0)) {
-      for (var i = 0; i < executingTab.scripts.length; i++) {
-        if (!executingTab.isExecutingScript) break;
+    int startScriptIndex = 0;
 
-        // Handle pause
-        while (_isPaused && executingTab.isExecutingScript) {
-          await Future.delayed(const Duration(milliseconds: 100));
-        }
+    while (executingTab.isExecutingScript) {
+      // Inner loop for current script set
+      while (executingTab.isExecutingScript &&
+          (_originalLoopCount == 0 || _remainingLoopCount > 0)) {
+        for (var i = startScriptIndex; i < executingTab.scripts.length; i++) {
+          if (!executingTab.isExecutingScript) break;
 
-        _currentScriptIndex = i;
-        executingTab.currentScriptIndex = i;
-        notifyListeners();
+          // Handle pause
+          while (_isPaused && executingTab.isExecutingScript) {
+            await Future.delayed(const Duration(milliseconds: 100));
+          }
 
-        final script = executingTab.scripts[i];
-        if (script.isEnabled) {
-          await _executor.execute(
-            executingController,
-            script,
-            executionDelay: _executionDelay,
-            onStatusChanged: (status, message, progress) {
-              script.status = status;
-              script.statusMessage = message;
-              script.progress = progress;
+          _currentScriptIndex = i;
+          executingTab.currentScriptIndex = i;
+          notifyListeners();
 
-              if (status == ScriptStatus.success) {
-                _successCount++;
-                executingTab.successCount++;
-              } else if (status == ScriptStatus.failure) {
-                _failureCount++;
-                executingTab.failureCount++;
-              } else if (status == ScriptStatus.stopped) {
-                executingTab.isExecutingScript = false;
-              } else if (status == ScriptStatus.paused) {
-                _isPaused = true;
+          final script = executingTab.scripts[i];
+          if (script.isEnabled) {
+            await _executor.execute(
+              executingController,
+              script,
+              executionDelay: _executionDelay,
+              onStatusChanged: (status, message, progress) async {
+                script.status = status;
+                script.statusMessage = message;
+                script.progress = progress;
+
+                if (status == ScriptStatus.success) {
+                  _successCount++;
+                  executingTab.successCount++;
+                } else if (status == ScriptStatus.failure) {
+                  _failureCount++;
+                  executingTab.failureCount++;
+                } else if (status == ScriptStatus.stopped) {
+                  executingTab.isExecutingScript = false;
+                } else if (status == ScriptStatus.paused) {
+                  _isPaused = true;
+                } else if (status == ScriptStatus.notification) {
+                  // Handle Notification
+                  try {
+                    const AndroidNotificationDetails
+                        androidPlatformChannelSpecifics =
+                        AndroidNotificationDetails(
+                      'script_notification_channel',
+                      'Script Notifications',
+                      channelDescription: 'Notifications from scripts',
+                      importance: Importance.max,
+                      priority: Priority.high,
+                      ticker: 'Script Notification',
+                    );
+                    const NotificationDetails platformChannelSpecifics =
+                        NotificationDetails(
+                            android: androidPlatformChannelSpecifics);
+                    await _flutterLocalNotificationsPlugin.show(
+                      DateTime.now().millisecondsSinceEpoch ~/ 1000,
+                      'Auok浏览器窗口${tabIndex + 1}',
+                      message,
+                      platformChannelSpecifics,
+                    );
+                  } catch (e) {
+                    debugPrint('Notification failed: $e');
+                  }
+                }
+
+                notifyListeners();
+              },
+              waitForPageLoad: _waitForPageLoadCallback,
+            );
+
+            // Handle Script Replacement
+            if (script.status == ScriptStatus.replaced &&
+                script.statusMessage != null) {
+              try {
+                final newPath = script.statusMessage!;
+                final file = File(newPath);
+                if (await file.exists()) {
+                  final content = await file.readAsString();
+                  final jsonList = jsonDecode(content) as List;
+                  final newScripts =
+                      jsonList.map((e) => Script.fromUserMap(e)).toList();
+
+                  executingTab.scripts = newScripts;
+                  i = -1; // Restart loop from beginning of new list
+                  notifyListeners();
+                } else {
+                  debugPrint('Replacement script file not found: $newPath');
+                }
+              } catch (e) {
+                debugPrint('Script replacement failed: $e');
               }
+            }
+            // Handle Script Call Subroutine
+            else if (script.status == ScriptStatus.callSubroutine &&
+                script.statusMessage != null) {
+              try {
+                final newPath = script.statusMessage!;
+                final file = File(newPath);
+                if (await file.exists()) {
+                  final content = await file.readAsString();
+                  final jsonList = jsonDecode(content) as List;
+                  final newScripts =
+                      jsonList.map((e) => Script.fromUserMap(e)).toList();
 
-              notifyListeners();
-            },
-            waitForPageLoad: _waitForPageLoadCallback,
-          );
+                  // Push current state to stack
+                  executingTab.executionStack.add(ExecutionState(
+                    scripts: List.from(executingTab.scripts),
+                    currentScriptIndex: i,
+                    remainingLoopCount: _remainingLoopCount,
+                    scriptFilePath: executingTab.scriptFilePath,
+                  ));
+
+                  // Switch to new scripts
+                  executingTab.scripts = newScripts;
+                  executingTab.scriptFilePath = newPath;
+
+                  // Reset counters for new script set
+                  // Try to find '全局设置' to get loop count, otherwise default to 1
+                  int newLoopCount = 1;
+                  try {
+                    final globalSettingScript = newScripts.firstWhere(
+                      (s) => s.type == '全局设置',
+                      orElse: () => Script(type: 'temp', params: {}),
+                    );
+                    if (globalSettingScript.type == '全局设置') {
+                      newLoopCount =
+                          globalSettingScript.params['循环次数'] as int? ?? 1;
+                    }
+                  } catch (e) {
+                    debugPrint('Error parsing global settings: $e');
+                  }
+
+                  _remainingLoopCount = newLoopCount;
+                  executingTab.remainingLoopCount = newLoopCount;
+                  // Note: _originalLoopCount should also be updated if we support infinite loops in subroutines
+                  // But for now let's keep it simple.
+
+                  i = -1; // Restart loop from beginning of new list
+                  notifyListeners();
+                } else {
+                  debugPrint('Subroutine script file not found: $newPath');
+                }
+              } catch (e) {
+                debugPrint('Script subroutine call failed: $e');
+              }
+            }
+          }
+
+          // Global delay between scripts is now handled inside execute (before execution)
+          // so we don't need it here.
         }
 
-        // Global delay between scripts is now handled inside execute (before execution)
-        // so we don't need it here.
+        // Reset startScriptIndex for next loop iteration
+        startScriptIndex = 0;
+
+        // Only decrement if not in infinite loop mode (0 = infinite)
+        if (executingTab.isExecutingScript && _originalLoopCount > 0) {
+          _remainingLoopCount--;
+          executingTab.remainingLoopCount = _remainingLoopCount;
+          notifyListeners();
+        }
       }
 
-      // Only decrement if not in infinite loop mode (0 = infinite)
-      if (executingTab.isExecutingScript && _originalLoopCount > 0) {
-        _remainingLoopCount--;
-        executingTab.remainingLoopCount = _remainingLoopCount;
+      // Current script set finished. Check stack.
+      if (executingTab.isExecutingScript &&
+          executingTab.executionStack.isNotEmpty) {
+        final state = executingTab.executionStack.removeLast();
+        executingTab.scripts = state.scripts;
+        _remainingLoopCount = state.remainingLoopCount;
+        executingTab.remainingLoopCount = state.remainingLoopCount;
+        executingTab.scriptFilePath = state.scriptFilePath;
+
+        // Resume from next script
+        startScriptIndex = state.currentScriptIndex + 1;
+
+        // Restore original loop count context if we changed it?
+        // We didn't change _originalLoopCount in this implementation,
+        // assuming subroutines don't use infinite loops for now.
+
         notifyListeners();
+      } else {
+        break; // Really finished
       }
     }
 
@@ -392,6 +543,7 @@ class ScriptProvider extends ChangeNotifier {
     _currentScriptIndex = 0;
     executingTab.isExecutingScript = false;
     executingTab.currentScriptIndex = 0;
+    executingTab.executionStack.clear(); // Clear stack
     notifyListeners();
   }
 

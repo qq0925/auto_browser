@@ -31,8 +31,6 @@ class BrowserHomePage extends StatefulWidget {
 
 class _BrowserHomePageState extends State<BrowserHomePage> {
   final TextEditingController _urlController = TextEditingController();
-  bool _canGoBack = false;
-  bool _canGoForward = false;
 
   @override
   void initState() {
@@ -110,21 +108,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
 
     await browserProvider.addTab(
         initialUrl: initialUrl ?? '', initialTitle: initialTitle);
-  }
-
-  Future<void> _updateNavigationState() async {
-    final browserProvider = context.read<BrowserProvider>();
-    if (browserProvider.currentTab != null && mounted) {
-      final canGoBack =
-          await browserProvider.currentTab!.controller!.canGoBack();
-      final canGoForward =
-          await browserProvider.currentTab!.controller!.canGoForward();
-
-      setState(() {
-        _canGoBack = canGoBack;
-        _canGoForward = canGoForward;
-      });
-    }
   }
 
   @override
@@ -303,13 +286,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                                                     urlRequest: URLRequest(
                                                         url: WebUri(url)));
                                           }
-                                          Future.delayed(
-                                              const Duration(milliseconds: 500),
-                                              () {
-                                            if (mounted) {
-                                              _updateNavigationState();
-                                            }
-                                          });
                                         }
                                       },
                                     ),
@@ -642,6 +618,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                                       null) {
                                 scriptProvider.startExecution(
                                   browserProvider.currentTab!.controller!,
+                                  browserProvider.currentIndex,
                                 );
                               }
                             }
@@ -684,30 +661,34 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
           IconButton(
             icon: Icon(
               Icons.arrow_back,
-              color: _canGoBack ? Colors.white : Colors.white38,
+              color: (browser.currentTab?.canGoBack ?? false)
+                  ? Colors.white
+                  : Colors.white38,
             ),
-            onPressed: _canGoBack && browser.currentTab != null
+            onPressed: (browser.currentTab?.canGoBack ?? false)
                 ? () async {
                     if (scriptProvider.isRecording) {
                       scriptProvider.recordAction('网页后退');
                     }
                     await browser.currentTab!.controller?.goBack();
-                    await _updateNavigationState();
+                    // Navigation state will be updated by BrowserView callback
                   }
                 : null,
           ),
           IconButton(
             icon: Icon(
               Icons.arrow_forward,
-              color: _canGoForward ? Colors.white : Colors.white38,
+              color: (browser.currentTab?.canGoForward ?? false)
+                  ? Colors.white
+                  : Colors.white38,
             ),
-            onPressed: _canGoForward && browser.currentTab != null
+            onPressed: (browser.currentTab?.canGoForward ?? false)
                 ? () async {
                     if (scriptProvider.isRecording) {
                       scriptProvider.recordAction('网页前进');
                     }
                     await browser.currentTab!.controller?.goForward();
-                    await _updateNavigationState();
+                    // Navigation state will be updated by BrowserView callback
                   }
                 : null,
           ),

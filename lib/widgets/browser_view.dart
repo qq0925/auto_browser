@@ -145,6 +145,12 @@ class _BrowserViewState extends State<BrowserView> {
                   browserProvider.addToHistory(url.toString(), title);
                 }
               }
+
+              // Update navigation state
+              final canGoBack = await controller.canGoBack();
+              final canGoForward = await controller.canGoForward();
+              browserProvider.updateTabNavigationState(
+                  index, canGoBack, canGoForward);
             }
           }
         },
@@ -174,6 +180,15 @@ class _BrowserViewState extends State<BrowserView> {
               // Also update history title if it's the current page
               browserProvider.updateHistoryTitle(widget.tab.url, displayTitle);
             }
+          }
+        },
+        onUpdateVisitedHistory: (controller, url, androidIsReload) async {
+          final index = browserProvider.tabs.indexOf(widget.tab);
+          if (index != -1) {
+            final canGoBack = await controller.canGoBack();
+            final canGoForward = await controller.canGoForward();
+            browserProvider.updateTabNavigationState(
+                index, canGoBack, canGoForward);
           }
         },
         shouldOverrideUrlLoading: (controller, navigationAction) async {

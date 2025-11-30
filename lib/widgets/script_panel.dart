@@ -173,7 +173,8 @@ class ScriptPanel extends StatelessWidget {
                           if (browserProvider.currentTab != null &&
                               browserProvider.currentTab!.controller != null) {
                             scriptProvider.startExecution(
-                                browserProvider.currentTab!.controller!);
+                                browserProvider.currentTab!.controller!,
+                                browserProvider.currentIndex);
                           }
                         },
                       ),

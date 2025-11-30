@@ -47,7 +47,9 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     '脚本替换',
     '脚本停止',
     '脚本暂停',
+    '执行本地脚本集',
     '控制脚本开关',
+    '通知栏提醒',
     '逻辑脚本-出现文字',
     '逻辑脚本-时间对比',
     '逻辑脚本-数值对比',
@@ -93,8 +95,11 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   final TextEditingController _targetValueController = TextEditingController();
   final TextEditingController _compareValueController = TextEditingController();
   final TextEditingController _jumpLabelController = TextEditingController();
+  final TextEditingController _notificationContentController =
+      TextEditingController();
 
   bool _exactMatch = false;
+  bool _enableRegex = false;
 
   // Additional controllers
   final TextEditingController _variableNameController = TextEditingController();
@@ -105,6 +110,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   bool _switchState = true;
   String _delayTimeUnit = '毫秒'; // Time unit for delay field
   String? _jsFilePath; // Path to selected JS file
+  String? _targetScriptPath; // Path to target script set for replacement
 
   // Nested scripts state
   Script? _beforeScript;
@@ -124,6 +130,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       _beforeSearchController.text = params['在此之前'] ?? '';
       _multipleSelectionController.text = (params['多个筛选'] ?? 1).toString();
       _exactMatch = params['完全匹配'] ?? false;
+      _enableRegex = params['启用正则'] ?? false;
 
       _intervalHoursController.text = (params['时间间隔-小时'] ?? '').toString();
       _intervalMinutesController.text = (params['时间间隔-分钟'] ?? '').toString();
@@ -132,6 +139,8 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       _urlController.text = params['网址'] ?? '';
       _customJsController.text = params['代码'] ?? '';
       _jsFilePath = params['jsFilePath'];
+      _targetScriptPath =
+          params['脚本集']; // Load target script path for replacement
       _submitButtonTextController.text = params['提交按钮文字'] ?? '';
 
       // Load formData map
@@ -152,6 +161,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       _scriptSetController.text = params['脚本集名称'] ?? '';
       _compareMethod = params['对比方式'] ?? '>';
       _switchState = params['开关状态'] ?? true;
+      _notificationContentController.text = params['提醒内容'] ?? '';
 
       if (params['执行每个脚本前执行'] != null) {
         _beforeScript =
@@ -192,6 +202,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     _variableNameController.dispose();
     _operationController.dispose();
     _scriptSetController.dispose();
+    _notificationContentController.dispose();
     super.dispose();
   }
 
@@ -491,10 +502,6 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          // Read-only preview of the code
-          _buildFieldRow('代码预览', _customJsController, '选择文件后自动读取',
-              required: true),
         ];
       case '进入网址':
       case '新建标签页并执行脚本':
@@ -504,6 +511,22 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       case '输入框提交':
         return [
           _buildFieldRow('提交按钮文字', _submitButtonTextController, ''),
+          _buildFieldRow('多个筛选', _multipleSelectionController, '1',
+              hint: '0:随机, >0:第几个, <0:倒数第几个'),
+          _buildCheckboxRow('启用正则', _enableRegex, (value) {
+            setState(() => _enableRegex = value ?? false);
+          }),
+          if (_enableRegex)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12.0),
+              child: Text(
+                '*勾起代表输入内容为正则表达式，提交时会生成匹配的一个随机字符串\n例如：输入 [0-9]{6} 代表6位随机数字\n输入 [a-z]{3} 代表3位随机小写字母\n输入 ab[a-zA-Z]{2}[0-9]{3} 代表ab跟上2个字母和3个数字',
+                style: TextStyle(
+                  color: Colors.grey[400],
+                  fontSize: 12,
+                ),
+              ),
+            ),
           _buildFormDataFields(),
         ];
       case '脚本替换':
@@ -513,22 +536,6 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       case '网页后退':
       case '网页前进':
       case '重置限制次数':
-        return [];
-      case '跳转脚本':
-        return [
-          _buildFieldRow('跳转标签', _jumpLabelController, '', required: true),
-        ];
-      case '延时脚本':
-        return [
-          _buildFieldRow('延时时间', _delayController, '',
-              hint: '毫秒', required: true),
-        ];
-      case '控制脚本开关':
-        return [
-          _buildCheckboxRow('开关状态', _switchState, (value) {
-            setState(() => _switchState = value ?? true);
-          }),
-        ];
       case '逻辑脚本-出现文字':
         return [
           _buildFieldRow('出现文字', _appearTextController, '', required: true),
@@ -568,6 +575,11 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       case '执行本地脚本集':
         return [
           _buildFieldRow('脚本集名称', _scriptSetController, '', required: true),
+        ];
+      case '通知栏提醒':
+        return [
+          _buildFieldRow('提醒内容', _notificationContentController, '',
+              required: true),
         ];
       default:
         return [];
@@ -1114,6 +1126,8 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         if (_submitButtonTextController.text.isNotEmpty) {
           params['提交按钮文字'] = _submitButtonTextController.text;
         }
+        params['多个筛选'] = int.tryParse(_multipleSelectionController.text) ?? 1;
+        params['启用正则'] = _enableRegex;
         // Reconstruct formData from _formItems
         if (_formItems.isNotEmpty) {
           final formDataMap = <String, String>{};
@@ -1125,6 +1139,22 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           if (formDataMap.isNotEmpty) {
             params['表单数据'] = Map<String, dynamic>.from(formDataMap);
           }
+        }
+        break;
+
+      case '脚本替换':
+      case '执行本地脚本集':
+        if (_targetScriptPath == null) return;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
+        params['脚本集'] = _targetScriptPath;
+        break;
+
+      case '脚本停止':
+      case '脚本暂停':
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
         }
         break;
 
@@ -1204,12 +1234,12 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         params['对比方式'] = _compareMethod;
         break;
 
-      case '执行本地脚本集':
-        if (_scriptSetController.text.isEmpty) return;
+      case '通知栏提醒':
+        if (_notificationContentController.text.isEmpty) return;
         if (_delayController.text.isNotEmpty) {
           params['执行延迟'] = _convertDelayToMilliseconds();
         }
-        params['脚本集名称'] = _scriptSetController.text;
+        params['提醒内容'] = _notificationContentController.text;
         break;
 
       default:

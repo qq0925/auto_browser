@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import '../models/script.dart';
 import 'dart:convert';
 import 'dart:async';
+import 'dart:math';
 
 class ScriptExecutor {
   // Execute a script on the given controller
@@ -96,12 +97,38 @@ class ScriptExecutor {
           break;
         case "脚本停止":
           onStatusChanged?.call(ScriptStatus.stopped, '脚本已停止', null);
-          result = true;
-          break;
+          return true; // Return true to indicate successful execution of the "stop" command itself
         case "脚本暂停":
           onStatusChanged?.call(ScriptStatus.paused, '脚本已暂停', null);
-          result = true;
-          break;
+          return true;
+        case "脚本替换":
+          if (script.targetScriptPath != null) {
+            onStatusChanged?.call(
+                ScriptStatus.replaced, script.targetScriptPath, null);
+            return true;
+          } else {
+            onStatusChanged?.call(ScriptStatus.failure, '未指定替换脚本集', null);
+            return false;
+          }
+        case "执行本地脚本集":
+          if (script.targetScriptPath != null) {
+            onStatusChanged?.call(
+                ScriptStatus.callSubroutine, script.targetScriptPath, null);
+            return true;
+          } else {
+            onStatusChanged?.call(ScriptStatus.failure, '未指定脚本集', null);
+            return false;
+          }
+        case "通知栏提醒":
+          if (script.params['提醒内容'] != null) {
+            onStatusChanged?.call(
+                ScriptStatus.notification, script.params['提醒内容'], null);
+            return true;
+          } else {
+            onStatusChanged?.call(ScriptStatus.failure, '未指定提醒内容', null);
+            return false;
+          }
+
         default:
           result = true;
           break;
@@ -198,10 +225,22 @@ class ScriptExecutor {
     // Get formData map and button text
     final formData = params['表单数据'] as Map<String, dynamic>? ?? {};
     final buttonText = params['提交按钮文字'] as String? ?? '提交';
+    final multipleSelection = params['多个筛选'] as int? ?? 1;
+    final enableRegex = params['启用正则'] as bool? ?? false;
 
     if (formData.isEmpty) return false;
 
-    final jsonFormData = jsonEncode(formData);
+    // Process Regex if enabled
+    Map<String, dynamic> processedFormData = Map.from(formData);
+    if (enableRegex) {
+      processedFormData.forEach((key, value) {
+        if (value is String) {
+          processedFormData[key] = _generateStringFromPattern(value);
+        }
+      });
+    }
+
+    final jsonFormData = jsonEncode(processedFormData);
     final jsonButtonText = jsonEncode(buttonText);
 
     final result = await controller.evaluateJavascript(source: '''
@@ -209,11 +248,40 @@ class ScriptExecutor {
         try {
           const formData = $jsonFormData;
           const buttonText = $jsonButtonText;
+          const multipleSelection = $multipleSelection;
           let filledCount = 0;
           
+          // Find target form based on multipleSelection
+          const forms = document.querySelectorAll('form');
+          let targetForm = null;
+          
+          if (forms.length > 0) {
+            if (multipleSelection === 0) {
+              // Random
+              const randomIndex = Math.floor(Math.random() * forms.length);
+              targetForm = forms[randomIndex];
+            } else if (multipleSelection > 0) {
+              // Index (1-based)
+              const index = multipleSelection - 1;
+              if (index < forms.length) targetForm = forms[index];
+            } else {
+              // Reverse Index
+              const index = forms.length + multipleSelection;
+              if (index >= 0) targetForm = forms[index];
+            }
+          }
+          
+          // Helper to find input within scope (form or document)
+          function findInput(fieldName, scope) {
+            return scope.querySelector("[name='" + fieldName + "']") || 
+                   scope.querySelector("#" + fieldName) ||
+                   scope.querySelector("[placeholder='" + fieldName + "']");
+          }
+
+          const scope = targetForm || document;
+
           for (const [fieldName, value] of Object.entries(formData)) {
-            let input = document.querySelector("[name='" + fieldName + "']") || 
-                       document.querySelector("#" + fieldName);
+            let input = findInput(fieldName, scope);
             
             if (input && input.type !== 'hidden' && input.type !== 'submit') {
               input.value = value;
@@ -225,28 +293,24 @@ class ScriptExecutor {
           
           if (filledCount > 0) {
             let submitBtn = null;
-            const buttons = Array.from(document.querySelectorAll('button, input[type="submit"]'));
+            // Search button within form first, then globally if not found
+            const btnScope = targetForm || document;
+            const buttons = Array.from(btnScope.querySelectorAll('button, input[type="submit"]'));
             submitBtn = buttons.find(btn => {
               const text = btn.innerText || btn.textContent || btn.value || '';
               return text.trim() === buttonText;
             });
             
-            if (!submitBtn) {
-              submitBtn = document.querySelector('input[type="submit"], button[type="submit"]');
-            }
-            
             if (submitBtn) {
               submitBtn.click();
               return true;
-            }
-            
-            const firstFieldName = Object.keys(formData)[0];
-            const firstInput = document.querySelector("[name='" + firstFieldName + "']");
-            if (firstInput && firstInput.form) {
-              firstInput.form.submit();
+            } else if (targetForm) {
+              // If no button found but form found, try submit()
+              targetForm.submit();
               return true;
             }
           }
+          
           return false;
         } catch (e) {
           console.error(e);
@@ -433,5 +497,47 @@ class ScriptExecutor {
     ''');
 
     return result.toString() == 'true';
+  }
+
+  String _generateStringFromPattern(String pattern) {
+    String result = pattern;
+    final random = Random();
+
+    // Replace [0-9]{n}
+    result = result.replaceAllMapped(RegExp(r'\[0-9\]\{(\d+)\}'), (match) {
+      int count = int.parse(match.group(1)!);
+      String generated = '';
+      for (int i = 0; i < count; i++) {
+        generated += random.nextInt(10).toString();
+      }
+      return generated;
+    });
+
+    // Replace [a-z]{n}
+    result = result.replaceAllMapped(RegExp(r'\[a-z\]\{(\d+)\}'), (match) {
+      int count = int.parse(match.group(1)!);
+      return _getRandomString(count, 'abcdefghijklmnopqrstuvwxyz');
+    });
+
+    // Replace [A-Z]{n}
+    result = result.replaceAllMapped(RegExp(r'\[A-Z\]\{(\d+)\}'), (match) {
+      int count = int.parse(match.group(1)!);
+      return _getRandomString(count, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ');
+    });
+
+    // Replace [a-zA-Z]{n}
+    result = result.replaceAllMapped(RegExp(r'\[a-zA-Z\]\{(\d+)\}'), (match) {
+      int count = int.parse(match.group(1)!);
+      return _getRandomString(
+          count, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ');
+    });
+
+    return result;
+  }
+
+  String _getRandomString(int length, String chars) {
+    final random = Random();
+    return String.fromCharCodes(Iterable.generate(
+        length, (_) => chars.codeUnitAt(random.nextInt(chars.length))));
   }
 }

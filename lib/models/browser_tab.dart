@@ -16,6 +16,11 @@ class BrowserTab {
   List<Script> scripts = []; // 添加每个标签页自己的脚本列表
   double progress; // 网页加载进度
   String? scriptFilePath; // 脚本的物理文件路径，null表示未保存
+  bool canGoBack = false;
+  bool canGoForward = false;
+
+  // Call Stack for Subroutines
+  List<ExecutionState> executionStack = [];
 
   // Auto Refresh
   Timer? _autoRefreshTimer;
@@ -61,4 +66,18 @@ class BrowserTab {
     _autoRefreshTimer = null;
     isAutoRefreshActive = false;
   }
+}
+
+class ExecutionState {
+  final List<Script> scripts;
+  final int currentScriptIndex;
+  final int remainingLoopCount;
+  final String? scriptFilePath;
+
+  ExecutionState({
+    required this.scripts,
+    required this.currentScriptIndex,
+    required this.remainingLoopCount,
+    this.scriptFilePath,
+  });
 }

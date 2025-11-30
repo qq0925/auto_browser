@@ -228,6 +228,14 @@ class BrowserProvider extends ChangeNotifier {
     }
   }
 
+  void updateTabNavigationState(int index, bool canGoBack, bool canGoForward) {
+    if (index >= 0 && index < _tabs.length) {
+      _tabs[index].canGoBack = canGoBack;
+      _tabs[index].canGoForward = canGoForward;
+      notifyListeners();
+    }
+  }
+
   void updateTabProgress(double progress) {
     if (_currentIndex >= 0 && _currentIndex < _tabs.length) {
       _tabs[_currentIndex].progress = progress;
