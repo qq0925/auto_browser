@@ -24,7 +24,6 @@ class ScriptExecutor {
       }
 
       // 2. Wait for delay (Script specific or Global)
-      // If script has its own delay, use it, otherwise use global executionDelay
       int delay = executionDelay;
       if (script.params.containsKey('执行延迟')) {
         delay = script.params['执行延迟'] as int;
@@ -40,7 +39,6 @@ class ScriptExecutor {
 
       bool result = false;
 
-      // Update status for repetition if needed
       if (repeatCount > 1) {
         onStatusChanged?.call(
             ScriptStatus.running, '正在执行第 ${i + 1}/$repeatCount 次', null);
@@ -51,16 +49,13 @@ class ScriptExecutor {
         final beforeScriptMap = script.params['执行每个脚本前执行'];
         if (beforeScriptMap is Map<String, dynamic>) {
           final beforeScript = Script.fromUserMap(beforeScriptMap);
-          // Execute recursively, but maybe without delay/wait to keep it tight?
-          // Or just standard execute. Let's use standard execute but maybe 0 delay default?
-          // User might want delay in before script too.
           await execute(controller, beforeScript,
-              executionDelay:
-                  0, // Nested scripts might not inherit global delay by default?
+              executionDelay: executionDelay,
               onStatusChanged: (status, msg, prog) {
-            // Optional: bubble up status or ignore?
-            // For now, let's just log or ignore to keep main status clean
-            if (status == ScriptStatus.failure) {
+            if (status == ScriptStatus.running ||
+                status == ScriptStatus.waiting) {
+              onStatusChanged?.call(status, '前置: ${msg ?? "正在执行..."}', prog);
+            } else if (status == ScriptStatus.failure) {
               debugPrint('Before script failed: $msg');
             }
           });
@@ -108,8 +103,6 @@ class ScriptExecutor {
           result = true;
           break;
         default:
-          // For other scripts, assume success for now or implement specific logic
-          // Some scripts like '脚本停止' might be handled outside or just return true
           result = true;
           break;
       }
@@ -119,9 +112,12 @@ class ScriptExecutor {
         final afterScriptMap = script.params['执行每个脚本后执行'];
         if (afterScriptMap is Map<String, dynamic>) {
           final afterScript = Script.fromUserMap(afterScriptMap);
-          await execute(controller, afterScript, executionDelay: 0,
+          await execute(controller, afterScript, executionDelay: executionDelay,
               onStatusChanged: (status, msg, prog) {
-            if (status == ScriptStatus.failure) {
+            if (status == ScriptStatus.running ||
+                status == ScriptStatus.waiting) {
+              onStatusChanged?.call(status, '后置: ${msg ?? "正在执行..."}', prog);
+            } else if (status == ScriptStatus.failure) {
               debugPrint('After script failed: $msg');
             }
           });
@@ -133,12 +129,6 @@ class ScriptExecutor {
         onStatusChanged?.call(ScriptStatus.failure, '执行失败', null);
         break;
       }
-
-      // If not the last repetition, we might want a small delay or just continue
-      // The requirement says "wait for page load and delay BEFORE execution",
-      // so we handled it at the start of the loop.
-      // We don't need an extra delay here unless it's specifically for repetition interval.
-      // But for now, let's stick to the "Before Execution" rule.
     }
 
     if (success) {

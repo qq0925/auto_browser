@@ -1058,6 +1058,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
       case '点击文字':
         if (_clickTextController.text.isEmpty) return;
+        params['点击文本'] = _clickTextController.text;
         if (_delayController.text.isNotEmpty) {
           params['执行延迟'] = _convertDelayToMilliseconds();
         }

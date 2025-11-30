@@ -127,14 +127,21 @@ class _BrowserViewState extends State<BrowserView> {
               }
 
               String? title = await controller.getTitle();
-              if ((title == null || title.isEmpty) &&
+
+              // Handle default page title
+              if (url.toString().endsWith('welcome.html')) {
+                title = '欢迎使用';
+              } else if ((title == null || title.isEmpty) &&
                   url.toString().startsWith('http')) {
                 title = url.toString();
               }
 
               if (title != null) {
                 browserProvider.updateTabInfo(index, url.toString(), title);
-                if (url.toString().startsWith('http')) {
+                // Allow http/https and welcome.html to be added to history
+                // The provider's addToHistory method has further filtering for other file:// URLs
+                if (url.toString().startsWith('http') ||
+                    url.toString().endsWith('welcome.html')) {
                   browserProvider.addToHistory(url.toString(), title);
                 }
               }
@@ -153,11 +160,19 @@ class _BrowserViewState extends State<BrowserView> {
         },
         onTitleChanged: (controller, title) {
           if (title != null) {
-            widget.tab.title = title;
+            String displayTitle = title;
+            if (displayTitle.isEmpty) {
+              displayTitle =
+                  widget.tab.url; // Fallback to URL if title is empty
+            }
+            widget.tab.title = displayTitle;
             final index = browserProvider.tabs.indexOf(widget.tab);
             if (index != -1) {
               // Update provider to notify listeners (UI update) and persist state
-              browserProvider.updateTabInfo(index, widget.tab.url, title);
+              browserProvider.updateTabInfo(
+                  index, widget.tab.url, displayTitle);
+              // Also update history title if it's the current page
+              browserProvider.updateHistoryTitle(widget.tab.url, displayTitle);
             }
           }
         },

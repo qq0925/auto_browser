@@ -27,7 +27,11 @@ class BrowserProvider extends ChangeNotifier {
   List<BrowserTab> get tabs => _tabs;
   int get currentIndex => _currentIndex;
   List<Bookmark> get bookmarks => _bookmarks;
-  List<HistoryItem> get history => _history;
+
+  // Filter welcome.html from visible history
+  List<HistoryItem> get history =>
+      _history.where((item) => !item.url.endsWith('welcome.html')).toList();
+
   bool get isDarkMode => _isDarkMode;
   bool get keepScreenOn => _keepScreenOn;
   bool get autoLeaveMode => _autoLeaveMode;
@@ -48,8 +52,8 @@ class BrowserProvider extends ChangeNotifier {
     await _loadBookmarksAndHistory();
     await _restoreTabsState();
     try {
-      _nightCssContent = await rootBundle.loadString('assets/night.css');
-      notifyListeners();
+      final String content = await rootBundle.loadString('assets/night.css');
+      _nightCssContent = content;
     } catch (e) {
       debugPrint('Error loading night.css: $e');
     }
@@ -74,29 +78,19 @@ class BrowserProvider extends ChangeNotifier {
   bool _isInitialized = false;
   bool get isInitialized => _isInitialized;
 
-  void setCurrentIndex(int index) {
-    if (index >= 0 && index < _tabs.length) {
-      _currentIndex = index;
-      notifyListeners();
-      _saveTabsState();
-    }
-  }
-
   UserScript? _nightModeUserScript;
 
   String _getNightModeJs() {
     if (_nightCssContent == null) return '';
+    // Escape the CSS content to be safe for JS string
+    final css = _nightCssContent!.replaceAll('\n', '').replaceAll("'", "\\'");
     return """
       (function() {
         if (document.getElementById('auok-night-mode')) return;
         var style = document.createElement('style');
         style.id = 'auok-night-mode';
-        style.innerHTML = `${_nightCssContent!.replaceAll('\n', ' ')}`;
-        if (document.head) {
-          document.head.appendChild(style);
-        } else {
-          document.documentElement.appendChild(style);
-        }
+        style.innerHTML = '$css';
+        document.head.appendChild(style);
       })();
     """;
   }
@@ -241,8 +235,22 @@ class BrowserProvider extends ChangeNotifier {
     }
   }
 
+  void setCurrentIndex(int index) {
+    if (index >= 0 && index < _tabs.length) {
+      _currentIndex = index;
+      notifyListeners();
+      _saveTabsState();
+    }
+  }
+
   void addToHistory(String url, String title) {
-    if (url.startsWith('file:///') || url == 'about:blank') return;
+    // Allow welcome.html to be recorded, but exclude other file URLs and about:blank
+    // We allow welcome.html so it's in the history list (for potential internal use)
+    // but we filter it out in the 'history' getter so it's not shown in UI.
+    if ((url.startsWith('file:///') && !url.endsWith('welcome.html')) ||
+        url == 'about:blank') {
+      return;
+    }
 
     _history.insert(
         0,
@@ -253,6 +261,22 @@ class BrowserProvider extends ChangeNotifier {
         ));
     notifyListeners();
     _saveBookmarksAndHistory();
+  }
+
+  void updateHistoryTitle(String url, String title) {
+    if (_history.isEmpty) return;
+
+    // Check if the most recent item matches the URL
+    if (_history.first.url == url) {
+      final oldItem = _history.first;
+      _history[0] = HistoryItem(
+        title: title,
+        url: oldItem.url,
+        visitedAt: oldItem.visitedAt,
+      );
+      notifyListeners();
+      _saveBookmarksAndHistory();
+    }
   }
 
   void addBookmark(String url, String title) {
@@ -431,16 +455,33 @@ class BrowserProvider extends ChangeNotifier {
         }
 
         // Disable tab restoration as per user request
-        // if (data['tabs'] != null) {
-        //   _restoredTabsData = List<Map<String, dynamic>>.from(data['tabs']);
-        //   _restoredIndex = data['currentIndex'] as int?;
-        // }
-
-        notifyListeners();
+        /*
+        if (data['tabs'] != null) {
+          final List<dynamic> tabsData = data['tabs'];
+          _tabs.clear();
+          for (var tabData in tabsData) {
+            final tab = BrowserTab(
+              id: DateTime.now().millisecondsSinceEpoch.toString() +
+                  _tabs.length.toString(),
+              url: tabData['url'],
+              title: tabData['title'],
+              scriptFilePath: tabData['scriptFilePath'],
+            );
+            _tabs.add(tab);
+          }
+          _currentIndex = data['currentIndex'] ?? 0;
+        }
+        */
       }
     } catch (e) {
       debugPrint('Restore tabs state error: $e');
     }
+
+    // Ensure at least one tab exists
+    if (_tabs.isEmpty) {
+      await addTab();
+    }
+    notifyListeners();
   }
 
   // User Agent

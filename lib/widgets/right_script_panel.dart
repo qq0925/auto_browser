@@ -278,8 +278,6 @@ class RightScriptPanel extends StatelessWidget {
                     color: Colors.grey,
                     fontSize: 10,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
                 if (index < scriptProvider.scripts.length - 1)
                   const Divider(color: Colors.grey, height: 8),
@@ -633,11 +631,16 @@ class RightScriptPanel extends StatelessWidget {
       case '点击图片':
         return '点击图片';
       case '输入框提交':
+        final List<String> parts = [];
+        if (params['提交按钮文字'] != null &&
+            params['提交按钮文字'].toString().isNotEmpty) {
+          parts.add('提交: ${params['提交按钮文字']}');
+        }
         final formData = params['表单数据'];
         if (formData is Map && formData.isNotEmpty) {
-          return formData.entries.map((e) => '${e.key}: ${e.value}').join('\n');
+          parts.addAll(formData.entries.map((e) => '${e.key}: ${e.value}'));
         }
-        return '提交: ${params['提交按钮文字'] ?? ''}';
+        return parts.join('\n');
       case '进入网址':
         return '网址: ${params['网址'] ?? ''}';
       case '间隔时间':

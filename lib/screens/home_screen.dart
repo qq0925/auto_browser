@@ -793,7 +793,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
           TextButton(
             onPressed: (browser.currentTab != null &&
                     !browser.currentTab!.url.endsWith('welcome.html') &&
-                    browser.currentTab!.url != 'file:///welcome.html')
+                    browser.currentTab!.url != 'file:///welcome.html' &&
+                    browser.currentTab!.title != '欢迎使用')
                 ? () {
                     // AU按钮功能 - 回到初始页面
                     WelcomeManager.getWelcomeContent().then((content) {
@@ -810,7 +811,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
               style: TextStyle(
                   color: (browser.currentTab != null &&
                           !browser.currentTab!.url.endsWith('welcome.html') &&
-                          browser.currentTab!.url != 'file:///welcome.html')
+                          browser.currentTab!.url != 'file:///welcome.html' &&
+                          browser.currentTab!.title != '欢迎使用')
                       ? Colors.white
                       : Colors.white38,
                   fontWeight: FontWeight.bold),
