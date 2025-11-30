@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import '../providers/script_provider.dart';
 import '../providers/browser_provider.dart';
 import '../models/script.dart';
+import 'package:file_picker/file_picker.dart';
+import 'dart:io';
 
 class _FormDataItem {
   final TextEditingController keyController;
@@ -102,6 +104,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   String _compareMethod = '>';
   bool _switchState = true;
   String _delayTimeUnit = '毫秒'; // Time unit for delay field
+  String? _jsFilePath; // Path to selected JS file
 
   // Nested scripts state
   Script? _beforeScript;
@@ -128,6 +131,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
       _urlController.text = params['网址'] ?? '';
       _customJsController.text = params['代码'] ?? '';
+      _jsFilePath = params['jsFilePath'];
       _submitButtonTextController.text = params['提交按钮文字'] ?? '';
 
       // Load formData map
@@ -445,7 +449,52 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         ];
       case '自定义JS':
         return [
-          _buildFieldRow('代码', _customJsController, '', required: true),
+          // File Picker Row
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _jsFilePath != null
+                      ? '已选择: ${_jsFilePath!.split(Platform.pathSeparator).last}'
+                      : '未选择文件',
+                  style: TextStyle(
+                    color: _jsFilePath != null ? Colors.green : Colors.grey,
+                    fontSize: 13,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton.icon(
+                onPressed: () async {
+                  FilePickerResult? result =
+                      await FilePicker.platform.pickFiles(
+                    type: FileType.custom,
+                    allowedExtensions: ['js'],
+                  );
+
+                  if (result != null) {
+                    File file = File(result.files.single.path!);
+                    String content = await file.readAsString();
+                    setState(() {
+                      _jsFilePath = result.files.single.path;
+                      _customJsController.text = content;
+                    });
+                  }
+                },
+                icon: const Icon(Icons.folder_open, size: 16),
+                label: const Text('选择JS文件'),
+                style: ElevatedButton.styleFrom(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Read-only preview of the code
+          _buildFieldRow('代码预览', _customJsController, '选择文件后自动读取',
+              required: true),
         ];
       case '进入网址':
       case '新建标签页并执行脚本':
@@ -1043,6 +1092,9 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           params['执行延迟'] = _convertDelayToMilliseconds();
         }
         params['代码'] = _customJsController.text;
+        if (_jsFilePath != null) {
+          params['jsFilePath'] = _jsFilePath;
+        }
         break;
 
       case '进入网址':

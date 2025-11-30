@@ -12,6 +12,7 @@ class GlobalSettingsDialog extends StatefulWidget {
 
 class _GlobalSettingsDialogState extends State<GlobalSettingsDialog> {
   late TextEditingController _delayController;
+  late TextEditingController _loopCountController;
 
   String _timeUnit = '毫秒';
 
@@ -24,6 +25,9 @@ class _GlobalSettingsDialogState extends State<GlobalSettingsDialog> {
               scriptProvider.delayTimeUnit.multiplier)
           .toString(),
     );
+    _loopCountController = TextEditingController(
+      text: scriptProvider.originalLoopCount.toString(),
+    );
 
     _timeUnit = scriptProvider.delayTimeUnit.label;
   }
@@ -31,6 +35,7 @@ class _GlobalSettingsDialogState extends State<GlobalSettingsDialog> {
   @override
   void dispose() {
     _delayController.dispose();
+    _loopCountController.dispose();
 
     super.dispose();
   }
@@ -118,7 +123,38 @@ class _GlobalSettingsDialogState extends State<GlobalSettingsDialog> {
             ),
             const SizedBox(height: 16),
 
-
+            // 循环次数
+            Row(
+              children: [
+                const SizedBox(
+                  width: 80,
+                  child: Text(
+                    '循环次数',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
+                Expanded(
+                  child: TextField(
+                    controller: _loopCountController,
+                    style: const TextStyle(color: Colors.white),
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: Colors.white24,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(4),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
 
             // 按钮
             Row(
@@ -146,7 +182,8 @@ class _GlobalSettingsDialogState extends State<GlobalSettingsDialog> {
                     onPressed: () {
                       final scriptProvider = context.read<ScriptProvider>();
                       final delay = int.tryParse(_delayController.text) ?? 1000;
-
+                      final loopCount =
+                          int.tryParse(_loopCountController.text) ?? 1;
 
                       // Map '分' to TimeUnit
                       TimeUnit unit;
@@ -160,7 +197,7 @@ class _GlobalSettingsDialogState extends State<GlobalSettingsDialog> {
 
                       scriptProvider.setDelayTimeUnit(unit);
                       scriptProvider.setExecutionDelay(delay * unit.multiplier);
-
+                      scriptProvider.setLoopCount(loopCount);
 
                       Navigator.pop(context);
                     },
