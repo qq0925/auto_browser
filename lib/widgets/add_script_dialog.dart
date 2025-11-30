@@ -58,7 +58,8 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
   // Common fields
   final TextEditingController _repeatCountController = TextEditingController();
-  final TextEditingController _loopCountController = TextEditingController();
+  final TextEditingController _customJsController = TextEditingController();
+
   final TextEditingController _delayController = TextEditingController();
   final TextEditingController _appearTextController = TextEditingController();
   final TextEditingController _clickTextController = TextEditingController();
@@ -116,8 +117,8 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       _delayController.text = (params['执行延迟'] ?? '').toString();
       _appearTextController.text = params['出现文字'] ?? '';
       _clickTextController.text = params['点击文本'] ?? '';
-      _afterSearchController.text = params['在...之后搜索'] ?? '';
-      _beforeSearchController.text = params['在...之前搜索'] ?? '';
+      _afterSearchController.text = params['在此之后'] ?? '';
+      _beforeSearchController.text = params['在此之前'] ?? '';
       _multipleSelectionController.text = (params['多个筛选'] ?? 1).toString();
       _exactMatch = params['完全匹配'] ?? false;
 
@@ -126,6 +127,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       _intervalSecondsController.text = (params['时间间隔-秒'] ?? '').toString();
 
       _urlController.text = params['网址'] ?? '';
+      _customJsController.text = params['代码'] ?? '';
       _submitButtonTextController.text = params['提交按钮文字'] ?? '';
 
       // Load formData map
@@ -163,7 +165,8 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   @override
   void dispose() {
     _repeatCountController.dispose();
-    _loopCountController.dispose();
+    _customJsController.dispose();
+
     _delayController.dispose();
     _appearTextController.dispose();
     _clickTextController.dispose();
@@ -323,7 +326,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                _buildLabel('重复次数'),
+                                _buildLabel('循环次数'),
                                 const SizedBox(height: 4),
                                 _buildTextField(_repeatCountController, '1'),
                               ],
@@ -334,28 +337,9 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
                     const SizedBox(height: 12),
 
-                    // Loop Count row (not visible for 全局设置)
-                    if (_selectedScriptType != '全局设置') ...[
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _buildLabel('循环次数'),
-                                const SizedBox(height: 4),
-                                _buildTextField(_loopCountController, '0'),
-                              ],
-                            ),
-                          ),
-                          const Expanded(child: SizedBox()),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-
+                    if (_selectedScriptType != '全局设置')
                       // Execution Delay (Common for all types)
                       _buildDelayFieldWithUnit('执行延迟'),
-                    ],
 
                     if (_selectedScriptType != '全局设置')
                       const SizedBox(height: 16),
@@ -458,6 +442,10 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           _buildFieldRow('时间间隔-小时', _intervalHoursController, ''),
           _buildFieldRow('时间间隔-分钟', _intervalMinutesController, ''),
           _buildFieldRow('时间间隔-秒', _intervalSecondsController, ''),
+        ];
+      case '自定义JS':
+        return [
+          _buildFieldRow('代码', _customJsController, '', required: true),
         ];
       case '进入网址':
       case '新建标签页并执行脚本':
@@ -1024,26 +1012,6 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         if (_delayController.text.isNotEmpty) {
           params['执行延迟'] = _convertDelayToMilliseconds();
         }
-        if (_appearTextController.text.isNotEmpty) {
-          params['出现文字'] = _appearTextController.text;
-        }
-        params['点击文本'] = _clickTextController.text;
-        if (_afterSearchController.text.isNotEmpty) {
-          params['在...之后搜索'] = _afterSearchController.text;
-        }
-        if (_beforeSearchController.text.isNotEmpty) {
-          params['在...之前搜索'] = _beforeSearchController.text;
-        }
-        if (_multipleSelectionController.text.isNotEmpty) {
-          params['多个筛选'] = int.tryParse(_multipleSelectionController.text) ?? 1;
-        }
-        params['完全匹配'] = _exactMatch;
-        break;
-
-      case '间隔时间':
-        if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = _convertDelayToMilliseconds();
-        }
         if (_intervalHoursController.text.isNotEmpty) {
           params['时间间隔-小时'] = int.tryParse(_intervalHoursController.text) ?? 0;
         }
@@ -1054,6 +1022,27 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         if (_intervalSecondsController.text.isNotEmpty) {
           params['时间间隔-秒'] = int.tryParse(_intervalSecondsController.text) ?? 0;
         }
+        break;
+
+      case '间隔时间':
+        if (_intervalHoursController.text.isNotEmpty) {
+          params['时间间隔-小时'] = int.tryParse(_intervalHoursController.text) ?? 0;
+        }
+        if (_intervalMinutesController.text.isNotEmpty) {
+          params['时间间隔-分钟'] =
+              int.tryParse(_intervalMinutesController.text) ?? 0;
+        }
+        if (_intervalSecondsController.text.isNotEmpty) {
+          params['时间间隔-秒'] = int.tryParse(_intervalSecondsController.text) ?? 0;
+        }
+        break;
+
+      case '自定义JS':
+        if (_customJsController.text.isEmpty) return;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
+        params['代码'] = _customJsController.text;
         break;
 
       case '进入网址':

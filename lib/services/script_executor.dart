@@ -304,19 +304,36 @@ class ScriptExecutor {
         if (!hasText) return false;
       }
       
-      // Get all links in the document
-      const allLinks = Array.from(document.querySelectorAll('a'));
+      // Target text to click
+      const clickText = "${params['点击文本'] ?? ''}".trim();
+      if (!clickText) return false;
+
+      // Get all links/buttons/clickable elements
+      // We prioritize 'a' tags but also check buttons and inputs
+      const allElements = Array.from(document.querySelectorAll('a, button, input[type="submit"], input[type="button"], div[role="button"], span[role="button"]'));
       
+      // Filter by text content
+      let matchedLinks = allElements.filter(el => {
+        const text = el.innerText || el.textContent || el.value || '';
+        const exactMatch = ${params['完全匹配'] ?? false};
+        if (exactMatch) {
+          return text.trim() === clickText;
+        } else {
+          return text.includes(clickText);
+        }
+      });
+
       // Filter by position constraints if specified
       const afterText = "${params['在此之后'] ?? ''}".trim();
       const beforeText = "${params['在此之前'] ?? ''}".trim();
       
-      let candidateLinks = allLinks;
-      
       if (afterText || beforeText) {
-        candidateLinks = allLinks.filter(link => {
+        matchedLinks = matchedLinks.filter(link => {
           const linkHTML = link.outerHTML;
           const bodyHTML = document.body.innerHTML;
+          // Use a more robust way to find position if possible, but innerHTML index is a reasonable fallback for now
+          // Note: This is simple string matching on HTML, which can be brittle if HTML structure changes dynamically
+          // A better approach would be traversing the DOM tree, but that's complex to implement in a single injected script.
           const linkPosition = bodyHTML.indexOf(linkHTML);
           
           if (linkPosition === -1) return false;
@@ -331,34 +348,42 @@ class ScriptExecutor {
           
           // Check "在此之前" constraint
           if (beforeText) {
-            const beforePosition = bodyHTML.lastIndexOf(beforeText, linkPosition);
-            if (beforePosition === -1) {
-              // If beforeText not found before this link, check if it exists after
-              const beforePositionAfter = bodyHTML.indexOf(beforeText, linkPosition);
-              if (beforePositionAfter === -1 || beforePositionAfter <= linkPosition) {
-                return false;
-              }
-            }
+            // Find the last occurrence of beforeText that is BEFORE the link? 
+            // Or just any occurrence? Usually "Before X" means the link appears before X.
+            // So we need to find an X that is > linkPosition.
+            const beforePosition = bodyHTML.indexOf(beforeText, linkPosition);
+             if (beforePosition === -1) {
+               // Try searching from beginning if not found after
+               // But strictly "Before Search" usually implies the search text is further down the page
+               return false;
+             }
           }
           
-          // Apply selection index
-          const selectionIndex = ${params['多个筛选'] ?? 1};
-          let targetIndex = 0;
-          
-          if (selectionIndex === 0) {
-            // Random selection
-            targetIndex = Math.floor(Math.random() * matchedLinks.length);
-          } else if (selectionIndex > 0) {
-            // Positive index (1-based)
-            targetIndex = Math.min(selectionIndex - 1, matchedLinks.length - 1);
-          } else {
-            // Negative index (-1 means last)
-            targetIndex = Math.max(0, matchedLinks.length + selectionIndex);
-          }
-          
-          matchedLinks[targetIndex].click();
           return true;
-        }
+        });
+      }
+      
+      if (matchedLinks.length === 0) return false;
+
+      // Apply selection index
+      const selectionIndex = ${params['多个筛选'] ?? 1};
+      let targetIndex = 0;
+      
+      if (selectionIndex === 0) {
+        // Random selection
+        targetIndex = Math.floor(Math.random() * matchedLinks.length);
+      } else if (selectionIndex > 0) {
+        // Positive index (1-based)
+        targetIndex = Math.min(selectionIndex - 1, matchedLinks.length - 1);
+      } else {
+        // Negative index (-1 means last)
+        targetIndex = Math.max(0, matchedLinks.length + selectionIndex);
+      }
+      
+      const targetElement = matchedLinks[targetIndex];
+      if (targetElement) {
+        targetElement.click();
+        return true;
       }
       
       return false;

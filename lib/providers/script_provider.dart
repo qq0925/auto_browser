@@ -46,7 +46,6 @@ class ScriptProvider extends ChangeNotifier {
     _waitForPageLoadCallback = callback;
   }
 
-  // Set current tab to work with
   void setCurrentTab(BrowserTab? tab) {
     _currentTab = tab;
     notifyListeners();
