@@ -401,7 +401,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                                       ),
                                       const SizedBox(height: 24),
                                       const Text(
-                                        '一个支持自动化的iOS浏览器\nBy Lin.',
+                                        '支持自动化的iOS/Android浏览器\nBy Lin.',
                                         textAlign: TextAlign.center,
                                         style: TextStyle(
                                           color: Colors.black87,

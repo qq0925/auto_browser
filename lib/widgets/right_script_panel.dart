@@ -874,12 +874,13 @@ class RightScriptPanel extends StatelessWidget {
       // Get default script directory
       final String defaultDir = await FileManager.getScriptDirectory();
 
-      // Let user pick a JSON file from default directory
+      // Let user pick a JSON file
+      // Note: initialDirectory is not supported on Android, so we only use it on iOS
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         dialogTitle: '选择脚本文件',
         type: FileType.custom,
         allowedExtensions: ['json'],
-        initialDirectory: defaultDir,
+        initialDirectory: Platform.isIOS ? defaultDir : null,
       );
 
       if (result == null || result.files.single.path == null) return;
