@@ -288,7 +288,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                                                 .endsWith('welcome.html') ??
                                             false))
                                     ? 'Auok浏览器'
-                                    : '${browserProvider.currentIndex + 1}. ${browserProvider.currentTab?.customName?.isNotEmpty == true ? browserProvider.currentTab!.customName : ((browserProvider.currentTab?.title.isEmpty ?? true) ? '无标题' : browserProvider.currentTab!.title)}',
+                                    : '${browserProvider.currentIndex + 1}. ${(browserProvider.currentTab?.title.isEmpty ?? true) ? '无标题' : browserProvider.currentTab!.title}',
                                 style: const TextStyle(
                                     color: Colors.white, fontSize: 16),
                                 overflow: TextOverflow.ellipsis,
@@ -822,7 +822,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
 
                   return ListTile(
                     title: Text(
-                      tab.title,
+                      tab.customName != null && tab.customName!.isNotEmpty
+                          ? tab.customName!
+                          : tab.title,
                       style: const TextStyle(color: Colors.white),
                     ),
                     subtitle: Column(

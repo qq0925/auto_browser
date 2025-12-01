@@ -529,7 +529,13 @@ class ScriptExecutor {
 
   Future<bool> _executeNavigate(
       InAppWebViewController controller, Script script) async {
-    final url = script.params['网址'] as String? ?? '';
+    var url = script.params['网址'] as String? ?? '';
+    if (url.isNotEmpty &&
+        !url.startsWith('http://') &&
+        !url.startsWith('https://') &&
+        !url.startsWith('about:')) {
+      url = 'http://$url';
+    }
     if (url.isEmpty) return false;
 
     try {
@@ -901,7 +907,12 @@ class ScriptExecutor {
     try {
       final windowName = script.params['窗口名称'] as String? ?? '';
       final windowUa = script.params['窗口UA'] as String? ?? 'Mobile';
-      final url = script.params['网址'] as String? ?? 'about:blank';
+      var url = script.params['网址'] as String? ?? 'about:blank';
+      if (url != 'about:blank' &&
+          !url.startsWith('http://') &&
+          !url.startsWith('https://')) {
+        url = 'https://$url';
+      }
       final scriptPath = script.params['脚本集'] as String?;
       final executeImmediately = script.params['立即执行'] as bool? ?? false;
 
