@@ -93,7 +93,8 @@ class BrowserProvider extends ChangeNotifier {
         var style = document.createElement('style');
         style.id = 'auok-night-mode';
         style.innerHTML = '$css';
-        document.head.appendChild(style);
+        var target = document.head || document.documentElement;
+        if (target) target.appendChild(style);
       })();
     """;
   }

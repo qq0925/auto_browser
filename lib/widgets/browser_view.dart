@@ -148,17 +148,6 @@ class _BrowserViewState extends State<BrowserView> {
                   if (url.toString().endsWith('welcome.html') ||
                       url.toString() == 'about:blank') {
                     title = '欢迎使用';
-                    // If we are back at about:blank, reload the welcome content
-                    if (url.toString() == 'about:blank') {
-                      WelcomeManager.getWelcomeContent().then((content) {
-                        controller.loadData(
-                          data: content,
-                          mimeType: 'text/html',
-                          encoding: 'utf-8',
-                          baseUrl: WebUri('file:///welcome.html'),
-                        );
-                      });
-                    }
                   } else if ((title == null || title.isEmpty) &&
                       url.toString().startsWith('http')) {
                     title = url.toString();

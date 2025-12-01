@@ -1,5 +1,5 @@
 name: auto_browser
-description: "Auok浏览器 - 一个支持自动化的iOS/Android浏览器"
+description: "Auok浏览器 - 一个支持自动化的跨平台浏览器"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -112,6 +112,10 @@ flutter_launcher_icons:
   android: true
   ios: true
   image_path: "assets/app_icon.png"
+  windows:
+    generate: true
+    image_path: "assets/app_icon.png"
+    icon_size: 256 # 推荐尺寸
   remove_alpha_ios: true  # 自动去除 iOS 图标的透明通道，符合 App Store 要求
   # 可选：Android 自适应图标（从 Android 8.0 开始支持）
   adaptive_icon_background: "#FFFFFF"  # 背景色，可改为您的品牌色
