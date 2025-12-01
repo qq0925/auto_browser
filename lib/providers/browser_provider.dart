@@ -50,7 +50,10 @@ class BrowserProvider extends ChangeNotifier {
 
   Future<void> _init() async {
     await _loadBookmarksAndHistory();
-    await _restoreTabsState();
+    // await _restoreTabsState(); // Removed restoration logic
+    // Instead, just ensure settings are loaded or defaults set, and add a default tab
+    await _loadSettings();
+    await addTab(); // Always start with a new tab
     try {
       final String content = await rootBundle.loadString('assets/night.css');
       _nightCssContent = content;
@@ -155,24 +158,22 @@ class BrowserProvider extends ChangeNotifier {
   void toggleAutoLeaveMode(bool value) {
     _autoLeaveMode = value;
     notifyListeners();
+    _saveTabsState();
   }
 
-  Future<void> addTab(
-      {String? initialUrl,
-      String? initialTitle,
-      String? scriptFilePath}) async {
+  Future<void> addTab({
+    String initialUrl = 'about:blank',
+    String? initialTitle,
+    String? customName,
+    String? customUserAgent,
+  }) async {
     final tab = BrowserTab(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      controller: null,
+      url: initialUrl,
       title: initialTitle ?? 'New Tab',
-      url: initialUrl ?? 'about:blank',
+      customName: customName,
+      customUserAgent: customUserAgent,
     );
-
-    // Set script file path if provided
-    if (scriptFilePath != null) {
-      tab.scriptFilePath = scriptFilePath;
-    }
-
     _tabs.add(tab);
     _currentIndex = _tabs.length - 1;
     notifyListeners();
@@ -437,6 +438,7 @@ class BrowserProvider extends ChangeNotifier {
         'isScriptPanelExpanded': _isScriptPanelExpanded,
         'searchEngine': _searchEngine,
         'userAgent': _userAgent, // Save UserAgent
+        'autoLeaveMode': _autoLeaveMode,
       };
 
       await prefs.setString('last_tabs', jsonEncode(dataToSave));
@@ -445,51 +447,26 @@ class BrowserProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> _restoreTabsState() async {
+  Future<void> _loadSettings() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final tabsJson = prefs.getString('last_tabs');
 
       if (tabsJson != null) {
         final data = jsonDecode(tabsJson);
-
         _isDarkMode = data['isDarkMode'] ?? false;
         _keepScreenOn = data['keepScreenOn'] ?? false;
+        _autoLeaveMode = data['autoLeaveMode'] ?? false;
         _searchEngine = data['searchEngine'] ?? 'Baidu';
-        _userAgent = data['userAgent'] ?? 'Mobile'; // Restore UserAgent
+        _userAgent = data['userAgent'] ?? 'Mobile';
 
         if (_keepScreenOn) {
           await WakelockPlus.enable();
         }
-
-        // Disable tab restoration as per user request
-        /*
-        if (data['tabs'] != null) {
-          final List<dynamic> tabsData = data['tabs'];
-          _tabs.clear();
-          for (var tabData in tabsData) {
-            final tab = BrowserTab(
-              id: DateTime.now().millisecondsSinceEpoch.toString() +
-                  _tabs.length.toString(),
-              url: tabData['url'],
-              title: tabData['title'],
-              scriptFilePath: tabData['scriptFilePath'],
-            );
-            _tabs.add(tab);
-          }
-          _currentIndex = data['currentIndex'] ?? 0;
-        }
-        */
       }
     } catch (e) {
-      debugPrint('Restore tabs state error: $e');
+      debugPrint('Load settings error: $e');
     }
-
-    // Ensure at least one tab exists
-    if (_tabs.isEmpty) {
-      await addTab();
-    }
-    notifyListeners();
   }
 
   // User Agent
@@ -530,17 +507,6 @@ class BrowserProvider extends ChangeNotifier {
   }
 
   String get currentUserAgentString => _uaMap[_userAgent]!;
-
-  List<Map<String, dynamic>>? _restoredTabsData;
-  int? _restoredIndex;
-
-  List<Map<String, dynamic>>? get restoredTabsData => _restoredTabsData;
-  int? get restoredIndex => _restoredIndex;
-
-  void clearRestoredData() {
-    _restoredTabsData = null;
-    _restoredIndex = null;
-  }
 
   UserPreferredContentMode _getPreferredContentMode(String userAgentType) {
     if (userAgentType == 'Desktop') {

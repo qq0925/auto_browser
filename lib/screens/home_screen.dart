@@ -76,28 +76,9 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
       }
     });
 
-    if (browserProvider.restoredTabsData != null &&
-        browserProvider.restoredTabsData!.isNotEmpty) {
-      for (var data in browserProvider.restoredTabsData!) {
-        final url = data['url'] as String;
-        final title = data['title'] as String;
-        final scriptFilePath =
-            data['scriptFilePath'] as String?; // Restore script file path
-
-        await browserProvider.addTab(
-          initialUrl: url,
-          initialTitle: title,
-          scriptFilePath: scriptFilePath, // Pass script file path
-        );
-      }
-
-      if (browserProvider.restoredIndex != null) {
-        browserProvider.setCurrentIndex(browserProvider.restoredIndex!);
-      }
-
-      browserProvider.clearRestoredData();
-    }
-
+    // Restoration logic removed as per user request
+    // Provider now adds a default tab in _init, so we don't need to do anything here
+    // unless the provider's tab list is empty for some reason.
     if (browserProvider.tabs.isEmpty) {
       await _addNewTab();
     }
@@ -307,11 +288,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                                                 .endsWith('welcome.html') ??
                                             false))
                                     ? 'Auok浏览器'
-                                    : (browserProvider
-                                                .currentTab?.title.isEmpty ??
-                                            true)
-                                        ? '无标题'
-                                        : browserProvider.currentTab!.title,
+                                    : '${browserProvider.currentIndex + 1}. ${browserProvider.currentTab?.customName?.isNotEmpty == true ? browserProvider.currentTab!.customName : ((browserProvider.currentTab?.title.isEmpty ?? true) ? '无标题' : browserProvider.currentTab!.title)}',
                                 style: const TextStyle(
                                     color: Colors.white, fontSize: 16),
                                 overflow: TextOverflow.ellipsis,

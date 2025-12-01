@@ -1,17 +1,23 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
-import 'package:flutter/foundation.dart' show debugPrint;
-import '../models/script.dart';
+import 'package:provider/provider.dart';
+import 'dart:io';
 import 'dart:convert';
 import 'dart:async';
 import 'dart:math';
+import '../models/script.dart';
+import '../providers/browser_provider.dart';
+import '../providers/script_provider.dart';
 
 class ScriptExecutor {
+  // Execute a script on the given controller
   // Execute a script on the given controller
   Future<bool> execute(InAppWebViewController controller, Script script,
       {int executionDelay = 1000,
       Function(ScriptStatus status, String? message, double? progress)?
           onStatusChanged,
-      Future<void> Function()? waitForPageLoad}) async {
+      Future<void> Function()? waitForPageLoad,
+      List<Script>? scripts}) async {
     if (!script.isEnabled) return false;
 
     final repeatCount = script.params['重复次数'] ?? 1;
@@ -132,6 +138,73 @@ class ScriptExecutor {
           // Delay is handled by the common logic at the beginning of the loop
           return true;
 
+        case "控制脚本开关":
+          if (scripts != null) {
+            final indicesStr = script.params['脚本序号'] as String?;
+            final action = script.params['开关动作'] as String?; // '禁用', '启用', '反相'
+
+            if (indicesStr != null && action != null) {
+              final indices = indicesStr
+                  .split(' ')
+                  .map((e) => int.tryParse(e))
+                  .where((e) => e != null)
+                  .cast<int>()
+                  .toList();
+
+              for (var index in indices) {
+                // User input is 1-based, convert to 0-based
+                final listIndex = index - 1;
+                if (listIndex >= 0 && listIndex < scripts.length) {
+                  final targetScript = scripts[listIndex];
+                  switch (action) {
+                    case '禁用':
+                      targetScript.isEnabled = false;
+                      break;
+                    case '启用':
+                      targetScript.isEnabled = true;
+                      break;
+                    case '反相':
+                      targetScript.isEnabled = !targetScript.isEnabled;
+                      break;
+                  }
+                }
+              }
+              onStatusChanged?.call(ScriptStatus.success,
+                  '已更新脚本状态: $indicesStr -> $action', null);
+              return true;
+            }
+          }
+          onStatusChanged?.call(ScriptStatus.failure, '控制脚本开关参数错误', null);
+          return false;
+
+        case "逻辑脚本-出现文字":
+          result = await _executeLogicScriptAppearText(
+              controller, script, onStatusChanged);
+          break;
+
+        case "逻辑脚本-时间对比":
+          result = await _executeLogicScriptTimeComparison(
+              controller, script, onStatusChanged);
+          break;
+
+        case "逻辑脚本-数值对比":
+          result = await _executeLogicScriptValueComparison(
+              controller, script, onStatusChanged);
+          break;
+
+        case "新建窗口并执行脚本":
+          result = await _executeNewWindowScript(script, onStatusChanged);
+          break;
+
+        case "跳转脚本":
+          result = await _executeJumpScript(script, onStatusChanged);
+          break;
+
+        case "数值对比-点击文字":
+          result = await _executeValueComparisonClickText(
+              controller, script, onStatusChanged);
+          break;
+
         default:
           result = true;
           break;
@@ -187,6 +260,13 @@ class ScriptExecutor {
       await Future.delayed(const Duration(seconds: 1));
     }
     onStatusChanged?.call(ScriptStatus.waiting, '等待延迟 0s', 1.0);
+
+    if (params['间隔时间后执行脚本'] != null) {
+      final scriptPath = params['间隔时间后执行脚本'] as String;
+      if (scriptPath.isNotEmpty) {
+        onStatusChanged?.call(ScriptStatus.callSubroutine, scriptPath, null);
+      }
+    }
 
     return true;
   }
@@ -464,33 +544,84 @@ class ScriptExecutor {
   Future<bool> _executeClickImage(
       InAppWebViewController controller, Script script) async {
     final imageSrc = script.params['图片地址'] as String? ?? '';
+    final multipleSelection = script.params['多个筛选'] as int? ?? 1;
+    final afterText = script.params['在此之后'] as String? ?? '';
+    final beforeText = script.params['在此之前'] as String? ?? '';
 
     // If no specific image src, click first clickable image
     final result = await controller.evaluateJavascript(source: '''
       (function() {
         try {
-          let img = null;
+          // 1. Find all images
+          let images = Array.from(document.querySelectorAll('img'));
           
+          // 2. Filter by keyword/src if provided
           if ('$imageSrc') {
-            // Find image by src
-            img = document.querySelector('img[src*="$imageSrc"]');
+            const keyword = '$imageSrc'.toLowerCase();
+            images = images.filter(img => {
+              const src = (img.src || '').toLowerCase();
+              const alt = (img.alt || '').toLowerCase();
+              const title = (img.title || '').toLowerCase();
+              return src.includes(keyword) || alt.includes(keyword) || title.includes(keyword);
+            });
           }
           
-          if (!img) {
-            // Find first clickable image (with link or onclick)
-            const images = Array.from(document.querySelectorAll('img'));
-            img = images.find(i => i.onclick || i.parentElement.tagName === 'A');
+          // 3. Filter by position (After/Before)
+          const afterText = "$afterText".trim();
+          const beforeText = "$beforeText".trim();
+          
+          if (afterText || beforeText) {
+            const bodyHTML = document.body.innerHTML;
+            
+            images = images.filter(img => {
+              const imgHTML = img.outerHTML;
+              const imgPosition = bodyHTML.indexOf(imgHTML);
+              
+              if (imgPosition === -1) return false;
+              
+              if (afterText) {
+                const afterPosition = bodyHTML.indexOf(afterText);
+                if (afterPosition === -1 || imgPosition <= afterPosition) return false;
+              }
+              
+              if (beforeText) {
+                const beforePosition = bodyHTML.indexOf(beforeText, imgPosition);
+                if (beforePosition === -1) return false;
+              }
+              
+              return true;
+            });
+          }
+
+          if (images.length === 0) return false;
+
+          // 4. Apply Multiple Selection Logic
+          const selectionIndex = $multipleSelection;
+          let targetImg = null;
+
+          if (selectionIndex === 0) {
+            // Random
+            const randomIndex = Math.floor(Math.random() * images.length);
+            targetImg = images[randomIndex];
+          } else if (selectionIndex > 0) {
+            // Positive Index (1-based)
+            const index = selectionIndex - 1;
+            if (index < images.length) targetImg = images[index];
+          } else {
+            // Negative Index (-1 means last)
+            const index = images.length + selectionIndex;
+            if (index >= 0) targetImg = images[index];
           }
           
-          if (!img) {
-            // Last resort: click first image
-            img = document.querySelector('img');
-          }
-          
-          if (img) {
-            img.click();
+          if (targetImg) {
+            targetImg.click();
+            // Also try clicking parent if image itself isn't clickable but parent is anchor
+            if (!targetImg.onclick && targetImg.parentElement && targetImg.parentElement.tagName === 'A') {
+              targetImg.parentElement.click();
+            }
             return true;
           }
+          
           return false;
         } catch (e) {
           console.error(e);
@@ -500,6 +631,362 @@ class ScriptExecutor {
     ''');
 
     return result.toString() == 'true';
+  }
+
+  Future<bool> _executeLogicScriptAppearText(
+      InAppWebViewController controller,
+      Script script,
+      Function(ScriptStatus status, String? message, double? progress)?
+          onStatusChanged) async {
+    final appearText = script.params['出现文字'] as String? ?? '';
+    final afterText = script.params['在此之后'] as String? ?? '';
+    final beforeText = script.params['在此之前'] as String? ?? '';
+    final trueScriptPath = script.params['出现时执行'] as String?;
+    final falseScriptPath = script.params['未出现时执行'] as String?;
+
+    if (appearText.isEmpty) return false;
+
+    // Check if text exists with constraints
+    final result = await controller.evaluateJavascript(source: '''
+      (function() {
+        try {
+          const targetText = "$appearText".trim();
+          if (!targetText) return false;
+          
+          const bodyHTML = document.body.innerHTML;
+          const bodyText = document.body.innerText || document.body.textContent;
+          
+          // Simple check if no constraints
+          if (!"$afterText" && !"$beforeText") {
+            return bodyText.includes(targetText);
+          }
+          
+          // Constraint check
+          const afterText = "$afterText".trim();
+          const beforeText = "$beforeText".trim();
+          
+          // We need to find the target text position
+          // This is a simplified check using indexOf on HTML/Text
+          // For more complex DOM traversal, we'd need a TreeWalker
+          
+          let searchStartIndex = 0;
+          let searchEndIndex = bodyHTML.length;
+          
+          if (afterText) {
+            const afterIndex = bodyHTML.indexOf(afterText);
+            if (afterIndex !== -1) {
+              searchStartIndex = afterIndex + afterText.length;
+            } else {
+              // After text not found, so condition fails
+              return false;
+            }
+          }
+          
+          if (beforeText) {
+            const beforeIndex = bodyHTML.indexOf(beforeText, searchStartIndex);
+            if (beforeIndex !== -1) {
+              searchEndIndex = beforeIndex;
+            } else {
+              // Before text not found after start index
+              return false;
+            }
+          }
+          
+          if (searchStartIndex >= searchEndIndex) return false;
+          
+          const searchArea = bodyHTML.substring(searchStartIndex, searchEndIndex);
+          // Remove tags to check text content? Or check HTML?
+          // "Appear Text" usually implies visible text.
+          // Let's try to strip tags or just check includes for now.
+          // Stripping tags is safer for "Text" check.
+          const tempDiv = document.createElement('div');
+          tempDiv.innerHTML = searchArea;
+          const searchAreaText = tempDiv.innerText || tempDiv.textContent;
+          
+          return searchAreaText.includes(targetText);
+        } catch (e) {
+          console.error(e);
+          return false;
+        }
+      })();
+    ''');
+
+    final bool exists = result.toString() == 'true';
+
+    if (exists) {
+      if (trueScriptPath != null) {
+        onStatusChanged?.call(
+            ScriptStatus.callSubroutine, trueScriptPath, null);
+      }
+    } else {
+      if (falseScriptPath != null) {
+        onStatusChanged?.call(
+            ScriptStatus.callSubroutine, falseScriptPath, null);
+      }
+    }
+
+    return true; // Logic script itself executed successfully
+  }
+
+  Future<bool> _executeLogicScriptTimeComparison(
+      InAppWebViewController controller,
+      Script script,
+      Function(ScriptStatus status, String? message, double? progress)?
+          onStatusChanged) async {
+    final targetTimeStr = script.params['目标值'] as String? ?? '';
+    final trueScriptPath = script.params['出现时执行'] as String?; // After Time
+    final falseScriptPath = script.params['未出现时执行'] as String?; // Before Time
+
+    if (targetTimeStr.isEmpty) return false;
+
+    try {
+      final now = DateTime.now();
+      final parts = targetTimeStr.split(':');
+      if (parts.length != 3) return false;
+
+      final targetTime = DateTime(
+        now.year,
+        now.month,
+        now.day,
+        int.parse(parts[0]),
+        int.parse(parts[1]),
+        int.parse(parts[2]),
+      );
+
+      if (now.isAfter(targetTime)) {
+        if (trueScriptPath != null) {
+          onStatusChanged?.call(
+              ScriptStatus.callSubroutine, trueScriptPath, null);
+        }
+      } else {
+        if (falseScriptPath != null) {
+          onStatusChanged?.call(
+              ScriptStatus.callSubroutine, falseScriptPath, null);
+        }
+      }
+      return true;
+    } catch (e) {
+      debugPrint('Time comparison error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> _executeLogicScriptValueComparison(
+      InAppWebViewController controller,
+      Script script,
+      Function(ScriptStatus status, String? message, double? progress)?
+          onStatusChanged) async {
+    final targetValueStr = script.params['目标值'] as String? ?? '';
+    final compareMethod = script.params['对比方式'] as String? ?? '>';
+    final multipleSelection = script.params['多个筛选'] as int? ?? 1;
+    final afterText = script.params['在此之后'] as String? ?? '';
+    final beforeText = script.params['在此之前'] as String? ?? '';
+    final trueScriptPath = script.params['出现时执行'] as String?; // Satisfied
+    final falseScriptPath = script.params['未出现时执行'] as String?; // Not Satisfied
+
+    if (targetValueStr.isEmpty) return false;
+    final targetValue = double.tryParse(targetValueStr);
+    if (targetValue == null) return false;
+
+    final result = await controller.evaluateJavascript(source: '''
+      (function() {
+        try {
+          const bodyHTML = document.body.innerHTML;
+          const afterText = "$afterText".trim();
+          const beforeText = "$beforeText".trim();
+          
+          let searchStartIndex = 0;
+          let searchEndIndex = bodyHTML.length;
+          
+          if (afterText) {
+            const afterIndex = bodyHTML.indexOf(afterText);
+            if (afterIndex !== -1) {
+              searchStartIndex = afterIndex + afterText.length;
+            } else {
+              return null; // After text not found
+            }
+          }
+          
+          if (beforeText) {
+            const beforeIndex = bodyHTML.indexOf(beforeText, searchStartIndex);
+            if (beforeIndex !== -1) {
+              searchEndIndex = beforeIndex;
+            } else {
+              return null; // Before text not found
+            }
+          }
+          
+          if (searchStartIndex >= searchEndIndex) return null;
+          
+          const searchArea = bodyHTML.substring(searchStartIndex, searchEndIndex);
+          
+          // Extract numbers from search area
+          // This regex matches integers and floats
+          const regex = /[-+]?[0-9]*\\.?[0-9]+/g;
+          const matches = searchArea.match(regex);
+          
+          if (!matches || matches.length === 0) return null;
+          
+          const numbers = matches.map(Number);
+          
+          // Apply Multiple Selection Logic
+          const selectionIndex = $multipleSelection;
+          let selectedValue = null;
+
+          if (selectionIndex === 0) {
+            // Random
+            const randomIndex = Math.floor(Math.random() * numbers.length);
+            selectedValue = numbers[randomIndex];
+          } else if (selectionIndex > 0) {
+            // Positive Index (1-based)
+            const index = selectionIndex - 1;
+            if (index < numbers.length) selectedValue = numbers[index];
+          } else {
+            // Negative Index (-1 means last)
+            const index = numbers.length + selectionIndex;
+            if (index >= 0) selectedValue = numbers[index];
+          }
+          
+          return selectedValue;
+        } catch (e) {
+          console.error(e);
+          return null;
+        }
+      })();
+    ''');
+
+    if (result == null) return false; // No number found
+
+    final extractedValue = double.tryParse(result.toString());
+    if (extractedValue == null) return false;
+
+    bool conditionMet = false;
+    switch (compareMethod) {
+      case '>':
+        conditionMet = extractedValue > targetValue;
+        break;
+      case '<':
+        conditionMet = extractedValue < targetValue;
+        break;
+      case '=':
+        conditionMet = (extractedValue - targetValue).abs() < 0.0001;
+        break;
+      case '>=':
+        conditionMet = extractedValue >= targetValue;
+        break;
+      case '<=':
+        conditionMet = extractedValue <= targetValue;
+        break;
+    }
+
+    if (conditionMet) {
+      if (trueScriptPath != null) {
+        onStatusChanged?.call(
+            ScriptStatus.callSubroutine, trueScriptPath, null);
+      }
+    } else {
+      if (falseScriptPath != null) {
+        onStatusChanged?.call(
+            ScriptStatus.callSubroutine, falseScriptPath, null);
+      }
+    }
+
+    return true;
+  }
+
+  Future<bool> _executeNewWindowScript(
+      Script script,
+      Function(ScriptStatus status, String? message, double? progress)?
+          onStatusChanged) async {
+    try {
+      final windowName = script.params['窗口名称'] as String? ?? '';
+      final windowUa = script.params['窗口UA'] as String? ?? 'Mobile';
+      final url = script.params['网址'] as String? ?? 'about:blank';
+      final scriptPath = script.params['脚本集'] as String?;
+      final executeImmediately = script.params['立即执行'] as bool? ?? false;
+
+      // Access BrowserProvider via global context or pass it in?
+      // Since ScriptExecutor is a service, it might not have direct access to Provider.
+      // However, we can use the navigator key to get the context.
+      final context = BrowserProvider.navigatorKey.currentContext;
+      if (context == null) {
+        onStatusChanged?.call(ScriptStatus.failure, '无法获取上下文', null);
+        return false;
+      }
+
+      final browserProvider =
+          Provider.of<BrowserProvider>(context, listen: false);
+      final scriptProvider =
+          Provider.of<ScriptProvider>(context, listen: false);
+
+      // Create new tab
+      await browserProvider.addTab(
+        initialUrl: url,
+        customName: windowName,
+        customUserAgent: windowUa,
+      );
+
+      // If script path is provided, load it into the new tab
+      if (scriptPath != null && scriptPath.isNotEmpty) {
+        final newTab = browserProvider.tabs.last;
+        final file = File(scriptPath);
+        if (await file.exists()) {
+          final content = await file.readAsString();
+          final jsonList = jsonDecode(content) as List;
+          final newScripts =
+              jsonList.map((e) => Script.fromUserMap(e)).toList();
+          newTab.scripts = newScripts;
+          newTab.scriptFilePath = scriptPath;
+
+          if (executeImmediately) {
+            // Trigger execution on the new tab
+            // We need to wait a bit for the tab to be ready?
+            // startExecution takes controller, which is set in onWebViewCreated.
+            // So we might need to wait for controller to be available.
+            // But startExecution is usually called from UI.
+            // Here we are calling it programmatically.
+
+            // We can't easily wait for controller here without blocking.
+            // But we can set a flag or try to execute after a short delay.
+            Future.delayed(const Duration(seconds: 1), () {
+              if (newTab.controller != null) {
+                scriptProvider.startExecution(
+                    newTab.controller!, browserProvider.tabs.length - 1);
+              } else {
+                // Retry once more
+                Future.delayed(const Duration(seconds: 2), () {
+                  if (newTab.controller != null) {
+                    scriptProvider.startExecution(
+                        newTab.controller!, browserProvider.tabs.length - 1);
+                  }
+                });
+              }
+            });
+          }
+        }
+      }
+
+      return true;
+    } catch (e) {
+      debugPrint('New window script error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> _executeJumpScript(
+      Script script,
+      Function(ScriptStatus status, String? message, double? progress)?
+          onStatusChanged) async {
+    final targetIndexStr = script.params['跳转的脚本序号'] as String? ?? '';
+    final targetIndex = int.tryParse(targetIndexStr);
+
+    if (targetIndex != null) {
+      onStatusChanged?.call(ScriptStatus.jump, targetIndex.toString(), null);
+      return true;
+    } else {
+      onStatusChanged?.call(ScriptStatus.failure, '无效的跳转序号', null);
+      return false;
+    }
   }
 
   String _generateStringFromPattern(String pattern) {
@@ -542,5 +1029,141 @@ class ScriptExecutor {
     final random = Random();
     return String.fromCharCodes(Iterable.generate(
         length, (_) => chars.codeUnitAt(random.nextInt(chars.length))));
+  }
+
+  Future<bool> _executeValueComparisonClickText(
+      InAppWebViewController controller,
+      Script script,
+      Function(ScriptStatus status, String? message, double? progress)?
+          onStatusChanged) async {
+    final params = script.params;
+    final clickText = params['点击文本'] ?? '';
+    final targetValueStr = params['目标值'] ?? '';
+    final compareMethod = params['对比方式'] ?? '>';
+    final multipleSelection = params['多个筛选'] as int? ?? 1;
+    final afterSearch = params['在此之后'] ?? '';
+    final beforeSearch = params['在此之前'] ?? '';
+
+    if (clickText.isEmpty || targetValueStr.isEmpty) {
+      onStatusChanged?.call(ScriptStatus.failure, '缺少必要参数', null);
+      return false;
+    }
+
+    final targetValue = num.tryParse(targetValueStr);
+    if (targetValue == null) {
+      onStatusChanged?.call(ScriptStatus.failure, '目标值无效', null);
+      return false;
+    }
+
+    // JavaScript logic to find elements, extract value, compare, and click
+    final jsCode = '''
+      (function() {
+        function getElementByXpath(path) {
+          return document.evaluate(path, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+        }
+
+        function getAllElementsByXpath(path) {
+          var result = document.evaluate(path, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+          var nodes = [];
+          for (var i = 0; i < result.snapshotLength; i++) {
+            nodes.push(result.snapshotItem(i));
+          }
+          return nodes;
+        }
+
+        var elements = [];
+        // Simple text match (contains)
+        var xpath = "//*[contains(text(), '" + "$clickText" + "')]";
+        elements = getAllElementsByXpath(xpath);
+
+        // Filter by 'afterSearch' and 'beforeSearch' if provided
+        if ("$afterSearch" !== "") {
+           var afterNode = getElementByXpath("//*[contains(text(), '" + "$afterSearch" + "')]");
+           if (afterNode) {
+             elements = elements.filter(el => {
+               return (el.compareDocumentPosition(afterNode) & Node.DOCUMENT_POSITION_PRECEDING);
+             });
+           }
+        }
+
+        if ("$beforeSearch" !== "") {
+           var beforeNode = getElementByXpath("//*[contains(text(), '" + "$beforeSearch" + "')]");
+           if (beforeNode) {
+             elements = elements.filter(el => {
+               return (el.compareDocumentPosition(beforeNode) & Node.DOCUMENT_POSITION_FOLLOWING);
+             });
+           }
+        }
+
+        if (elements.length === 0) return "not_found";
+
+        // Select specific element based on 'multipleSelection'
+        var targetElement = null;
+        var selection = $multipleSelection;
+        if (selection === 0) {
+           // Random
+           targetElement = elements[Math.floor(Math.random() * elements.length)];
+        } else if (selection > 0) {
+           // 1-based index
+           if (selection <= elements.length) {
+             targetElement = elements[selection - 1];
+           }
+        } else {
+           // Negative index (from end)
+           if (Math.abs(selection) <= elements.length) {
+             targetElement = elements[elements.length + selection];
+           }
+        }
+
+        if (!targetElement) return "index_out_of_bounds";
+
+        // Extract value from text (simple regex to find number)
+        var text = targetElement.innerText || targetElement.textContent;
+        var match = text.match(/-?\\d+(\\.\\d+)?/);
+        if (!match) return "no_number_found";
+        
+        var value = parseFloat(match[0]);
+        var target = $targetValue;
+        var method = "$compareMethod";
+        var result = false;
+
+        switch (method) {
+          case '>': result = value > target; break;
+          case '<': result = value < target; break;
+          case '=': result = value == target; break;
+          case '>=': result = value >= target; break;
+          case '<=': result = value <= target; break;
+        }
+
+        if (result) {
+          targetElement.click();
+          return "clicked";
+        } else {
+          return "condition_not_met: " + value;
+        }
+      })();
+    ''';
+
+    final result = await controller.evaluateJavascript(source: jsCode);
+
+    if (result == 'clicked') {
+      onStatusChanged?.call(ScriptStatus.success, '已点击', null);
+      return true;
+    } else if (result == 'not_found') {
+      onStatusChanged?.call(ScriptStatus.failure, '未找到元素', null);
+      return false;
+    } else if (result == 'index_out_of_bounds') {
+      onStatusChanged?.call(ScriptStatus.failure, '索引超出范围', null);
+      return false;
+    } else if (result == 'no_number_found') {
+      onStatusChanged?.call(ScriptStatus.failure, '未在元素中找到数值', null);
+      return false;
+    } else if (result.toString().startsWith('condition_not_met')) {
+      onStatusChanged?.call(ScriptStatus.success, '条件不满足，未点击 ($result)', null);
+      return true; // Execution successful, just condition not met
+    } else {
+      onStatusChanged?.call(ScriptStatus.failure, '未知错误: $result', null);
+      return false;
+    }
   }
 }

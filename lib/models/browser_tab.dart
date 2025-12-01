@@ -18,6 +18,8 @@ class BrowserTab {
   String? scriptFilePath; // 脚本的物理文件路径，null表示未保存
   bool canGoBack = false;
   bool canGoForward = false;
+  String? customName; // 自定义窗口名称
+  String? customUserAgent; // 自定义UA
 
   // Call Stack for Subroutines
   List<ExecutionState> executionStack = [];
@@ -37,6 +39,8 @@ class BrowserTab {
     this.isLoading = false,
     this.isExecutingScript = false,
     this.progress = 0.0,
+    this.customName,
+    this.customUserAgent,
   });
 
   void setController(InAppWebViewController newController) {

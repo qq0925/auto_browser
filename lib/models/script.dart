@@ -39,6 +39,7 @@ enum ScriptStatus {
   replaced,
   callSubroutine,
   notification,
+  jump,
 }
 
 class Script {

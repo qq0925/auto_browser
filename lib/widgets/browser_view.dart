@@ -34,12 +34,22 @@ class _BrowserViewState extends State<BrowserView> {
           iframeAllow: "camera; microphone",
           iframeAllowFullscreen: true,
           transparentBackground: true,
-          userAgent: browserProvider.userAgent == 'Mobile'
-              ? "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1"
-              : browserProvider.currentUserAgentString,
-          preferredContentMode: browserProvider.userAgent == 'Desktop'
-              ? UserPreferredContentMode.DESKTOP
-              : UserPreferredContentMode.MOBILE,
+          userAgent: widget.tab.customUserAgent != null
+              ? (widget.tab.customUserAgent == 'Mobile'
+                  ? "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1"
+                  : (widget.tab.customUserAgent == 'Desktop'
+                      ? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+                      : "Mozilla/5.0 (iPad; CPU OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1")) // Tablet
+              : (browserProvider.userAgent == 'Mobile'
+                  ? "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1"
+                  : browserProvider.currentUserAgentString),
+          preferredContentMode: widget.tab.customUserAgent != null
+              ? (widget.tab.customUserAgent == 'Desktop'
+                  ? UserPreferredContentMode.DESKTOP
+                  : UserPreferredContentMode.MOBILE)
+              : (browserProvider.userAgent == 'Desktop'
+                  ? UserPreferredContentMode.DESKTOP
+                  : UserPreferredContentMode.MOBILE),
           useHybridComposition: true,
         ),
         initialUserScripts: UnmodifiableListView<UserScript>([
@@ -132,6 +142,17 @@ class _BrowserViewState extends State<BrowserView> {
               if (url.toString().endsWith('welcome.html') ||
                   url.toString() == 'about:blank') {
                 title = '欢迎使用';
+                // If we are back at about:blank, reload the welcome content
+                if (url.toString() == 'about:blank') {
+                  WelcomeManager.getWelcomeContent().then((content) {
+                    controller.loadData(
+                      data: content,
+                      mimeType: 'text/html',
+                      encoding: 'utf-8',
+                      baseUrl: WebUri('file:///welcome.html'),
+                    );
+                  });
+                }
               } else if ((title == null || title.isEmpty) &&
                   url.toString().startsWith('http')) {
                 title = url.toString();

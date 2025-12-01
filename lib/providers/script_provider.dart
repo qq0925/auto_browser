@@ -400,38 +400,23 @@ class ScriptProvider extends ChangeNotifier {
                   executingTab.failureCount++;
                 } else if (status == ScriptStatus.stopped) {
                   executingTab.isExecutingScript = false;
+                  if (script.params['执行完成提醒'] == true) {
+                    _showNotification('Auok浏览器窗口${tabIndex + 1}', '脚本已停止');
+                  }
                 } else if (status == ScriptStatus.paused) {
                   _isPaused = true;
+                  if (script.params['执行完成提醒'] == true) {
+                    _showNotification('Auok浏览器窗口${tabIndex + 1}', '脚本已暂停');
+                  }
                 } else if (status == ScriptStatus.notification) {
                   // Handle Notification
-                  try {
-                    const AndroidNotificationDetails
-                        androidPlatformChannelSpecifics =
-                        AndroidNotificationDetails(
-                      'script_notification_channel',
-                      'Script Notifications',
-                      channelDescription: 'Notifications from scripts',
-                      importance: Importance.max,
-                      priority: Priority.high,
-                      ticker: 'Script Notification',
-                    );
-                    const NotificationDetails platformChannelSpecifics =
-                        NotificationDetails(
-                            android: androidPlatformChannelSpecifics);
-                    await _flutterLocalNotificationsPlugin.show(
-                      DateTime.now().millisecondsSinceEpoch ~/ 1000,
-                      'Auok浏览器窗口${tabIndex + 1}',
-                      message,
-                      platformChannelSpecifics,
-                    );
-                  } catch (e) {
-                    debugPrint('Notification failed: $e');
-                  }
+                  _showNotification('Auok浏览器窗口${tabIndex + 1}', message ?? '');
                 }
 
                 notifyListeners();
               },
               waitForPageLoad: _waitForPageLoadCallback,
+              scripts: executingTab.scripts,
             );
 
             // Handle Script Replacement
@@ -456,7 +441,7 @@ class ScriptProvider extends ChangeNotifier {
                 debugPrint('Script replacement failed: $e');
               }
             }
-            // Handle Script Call Subroutine
+            // Handle Script Subroutine Call
             else if (script.status == ScriptStatus.callSubroutine &&
                 script.statusMessage != null) {
               try {
@@ -481,7 +466,6 @@ class ScriptProvider extends ChangeNotifier {
                   executingTab.scriptFilePath = newPath;
 
                   // Reset counters for new script set
-                  // Try to find '全局设置' to get loop count, otherwise default to 1
                   int newLoopCount = 1;
                   try {
                     final globalSettingScript = newScripts.firstWhere(
@@ -498,8 +482,6 @@ class ScriptProvider extends ChangeNotifier {
 
                   _remainingLoopCount = newLoopCount;
                   executingTab.remainingLoopCount = newLoopCount;
-                  // Note: _originalLoopCount should also be updated if we support infinite loops in subroutines
-                  // But for now let's keep it simple.
 
                   i = -1; // Restart loop from beginning of new list
                   notifyListeners();
@@ -508,6 +490,23 @@ class ScriptProvider extends ChangeNotifier {
                 }
               } catch (e) {
                 debugPrint('Script subroutine call failed: $e');
+              }
+            }
+            // Handle Jump Script
+            else if (script.status == ScriptStatus.jump &&
+                script.statusMessage != null) {
+              final targetIndex = int.tryParse(script.statusMessage!);
+              if (targetIndex != null) {
+                // Adjust for 0-based index (User input is 1-based)
+                final adjustedIndex = targetIndex - 1;
+                if (adjustedIndex >= 0 &&
+                    adjustedIndex < executingTab.scripts.length) {
+                  // Set i to adjustedIndex - 1 because the loop will increment it
+                  i = adjustedIndex - 1;
+                  notifyListeners();
+                } else {
+                  debugPrint('Invalid jump index: $targetIndex');
+                }
               }
             }
           }
@@ -596,6 +595,30 @@ class ScriptProvider extends ChangeNotifier {
     }
 
     return json.encode(jsonList);
+  }
+
+  Future<void> _showNotification(String title, String body) async {
+    try {
+      const AndroidNotificationDetails androidPlatformChannelSpecifics =
+          AndroidNotificationDetails(
+        'script_notification_channel',
+        'Script Notifications',
+        channelDescription: 'Notifications from scripts',
+        importance: Importance.max,
+        priority: Priority.high,
+        ticker: 'Script Notification',
+      );
+      const NotificationDetails platformChannelSpecifics =
+          NotificationDetails(android: androidPlatformChannelSpecifics);
+      await _flutterLocalNotificationsPlugin.show(
+        DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        title,
+        body,
+        platformChannelSpecifics,
+      );
+    } catch (e) {
+      debugPrint('Notification failed: $e');
+    }
   }
 
   void importScript(String content) {

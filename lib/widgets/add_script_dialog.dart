@@ -53,19 +53,11 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     '逻辑脚本-出现文字',
     '逻辑脚本-时间对比',
     '逻辑脚本-数值对比',
-    '数学运算',
     '延时脚本',
     '数值对比-点击文字',
     '新建窗口并执行脚本',
     '跳转脚本',
   ];
-
-  String _selectedScriptType = scriptTypes[0];
-
-  // Common fields
-  final TextEditingController _repeatCountController = TextEditingController();
-  final TextEditingController _customJsController = TextEditingController();
-
   final TextEditingController _delayController = TextEditingController();
   final TextEditingController _appearTextController = TextEditingController();
   final TextEditingController _clickTextController = TextEditingController();
@@ -93,28 +85,43 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   final TextEditingController _urlController = TextEditingController();
 
   // Generic/Other fields
+  final TextEditingController _operationController = TextEditingController();
+  final TextEditingController _scriptSetController = TextEditingController();
+  final TextEditingController _targetScriptIndicesController =
+      TextEditingController(); // For Control Script Switch
+
+  String _compareMethod = '>';
+  String _switchAction = '禁用'; // For Control Script Switch: 禁用, 启用, 反相
+  // bool _switchState = true; // Removed in favor of _switchAction
+  String _delayTimeUnit = '毫秒'; // Time unit for delay field
+  String? _jsFilePath; // Path to selected JS file
+  String? _targetScriptPath; // Path to target script set for replacement
+  String? _trueScriptPath; // Path to script set for True condition
+  String? _falseScriptPath; // Path to script set for False condition
+
+  // Nested scripts state
+  // Missing definitions
+  String _selectedScriptType = scriptTypes[0];
+  bool _exactMatch = false;
+  bool _enableRegex = false;
+  bool _enableNotification = false;
+
+  // New Window fields
+  final TextEditingController _windowNameController = TextEditingController();
+  String _windowUa = 'Mobile';
+  bool _executeImmediately = false;
+
+  // Other missing controllers
+  final TextEditingController _customJsController = TextEditingController();
   final TextEditingController _scriptNameController = TextEditingController();
   final TextEditingController _targetValueController = TextEditingController();
   final TextEditingController _compareValueController = TextEditingController();
   final TextEditingController _jumpLabelController = TextEditingController();
+  final TextEditingController _variableNameController = TextEditingController();
   final TextEditingController _notificationContentController =
       TextEditingController();
+  final TextEditingController _repeatCountController = TextEditingController();
 
-  bool _exactMatch = false;
-  bool _enableRegex = false;
-
-  // Additional controllers
-  final TextEditingController _variableNameController = TextEditingController();
-  final TextEditingController _operationController = TextEditingController();
-  final TextEditingController _scriptSetController = TextEditingController();
-
-  String _compareMethod = '>';
-  bool _switchState = true;
-  String _delayTimeUnit = '毫秒'; // Time unit for delay field
-  String? _jsFilePath; // Path to selected JS file
-  String? _targetScriptPath; // Path to target script set for replacement
-
-  // Nested scripts state
   Script? _beforeScript;
   Script? _afterScript;
 
@@ -132,7 +139,13 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       _beforeSearchController.text = params['在此之前'] ?? '';
       _multipleSelectionController.text = (params['多个筛选'] ?? 1).toString();
       _exactMatch = params['完全匹配'] ?? false;
+      _exactMatch = params['完全匹配'] ?? false;
       _enableRegex = params['启用正则'] ?? false;
+      _enableNotification = params['执行完成提醒'] ?? false;
+
+      _windowNameController.text = params['窗口名称'] ?? '';
+      _windowUa = params['窗口UA'] ?? 'Mobile';
+      _executeImmediately = params['立即执行'] ?? false;
 
       _intervalHoursController.text = (params['时间间隔-小时'] ?? '').toString();
       _intervalMinutesController.text = (params['时间间隔-分钟'] ?? '').toString();
@@ -141,9 +154,24 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       _urlController.text = params['网址'] ?? '';
       _customJsController.text = params['代码'] ?? '';
       _jsFilePath = params['jsFilePath'];
-      _targetScriptPath =
-          params['脚本集']; // Load target script path for replacement
+      if (_selectedScriptType == '间隔时间') {
+        _targetScriptPath = params['间隔时间后执行脚本'];
+      } else {
+        _targetScriptPath = params['脚本集'];
+      }
       _submitButtonTextController.text = params['提交按钮文字'] ?? '';
+
+      _submitButtonTextController.text = params['提交按钮文字'] ?? '';
+
+      if (_selectedScriptType == '跳转脚本') {
+        _targetScriptIndicesController.text = params['跳转的脚本序号'] ?? '';
+      } else {
+        _targetScriptIndicesController.text = params['脚本序号'] ?? '';
+      }
+      _switchAction = params['开关动作'] ?? '禁用';
+
+      _trueScriptPath = params['出现时执行'];
+      _falseScriptPath = params['未出现时执行'];
 
       // Load formData map
       final loadedFormData = params['表单数据'];
@@ -162,7 +190,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       _operationController.text = params['运算方式'] ?? '';
       _scriptSetController.text = params['脚本集名称'] ?? '';
       _compareMethod = params['对比方式'] ?? '>';
-      _switchState = params['开关状态'] ?? true;
+
       _notificationContentController.text = params['提醒内容'] ?? '';
 
       if (params['执行每个脚本前执行'] != null) {
@@ -451,6 +479,9 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         ];
       case '点击图片':
         return [
+          _buildFieldRow('图片关键词/地址', _clickTextController, ''),
+          _buildFieldRow('多个筛选', _multipleSelectionController, '1',
+              hint: '1:第一个, -1:最后一个, 0:随机'),
           _buildFieldRow('在...之后搜索', _afterSearchController, ''),
           _buildFieldRow('在...之前搜索', _beforeSearchController, ''),
         ];
@@ -459,6 +490,10 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           _buildFieldRow('时间间隔-小时', _intervalHoursController, ''),
           _buildFieldRow('时间间隔-分钟', _intervalMinutesController, ''),
           _buildFieldRow('时间间隔-秒', _intervalSecondsController, ''),
+          _buildScriptPathSelector('间隔时间后执行脚本(添加脚本)', _targetScriptPath,
+              (path) {
+            setState(() => _targetScriptPath = path);
+          }),
         ];
       case '自定义JS':
         return [
@@ -538,6 +573,11 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         ];
       case '脚本停止':
       case '脚本暂停':
+        return [
+          _buildCheckboxRow('执行完成提醒', _enableNotification, (value) {
+            setState(() => _enableNotification = value ?? false);
+          }),
+        ];
       case '刷新网页':
       case '网页后退':
       case '网页前进':
@@ -547,13 +587,25 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       case '逻辑脚本-出现文字':
         return [
           _buildFieldRow('出现文字', _appearTextController, '', required: true),
-          _buildFieldRow('跳转标签', _jumpLabelController, ''),
+          _buildFieldRow('在...之后搜索', _afterSearchController, ''),
+          _buildFieldRow('在...之前搜索', _beforeSearchController, ''),
+          _buildScriptPathSelector('出现文字,则执行', _trueScriptPath, (path) {
+            setState(() => _trueScriptPath = path);
+          }),
+          _buildScriptPathSelector('未出现文字,则执行', _falseScriptPath, (path) {
+            setState(() => _falseScriptPath = path);
+          }),
         ];
       case '逻辑脚本-时间对比':
         return [
           _buildFieldRow('时间(HH:mm:ss)', _targetValueController, '',
               required: true),
-          _buildFieldRow('跳转标签', _jumpLabelController, ''),
+          _buildScriptPathSelector('时间后执行脚本', _trueScriptPath, (path) {
+            setState(() => _trueScriptPath = path);
+          }),
+          _buildScriptPathSelector('时间前执行脚本', _falseScriptPath, (path) {
+            setState(() => _falseScriptPath = path);
+          }),
         ];
       case '逻辑脚本-数值对比':
         return [
@@ -562,14 +614,36 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
               (val) {
             if (val != null) setState(() => _compareMethod = val);
           }),
-          _buildFieldRow('跳转标签', _jumpLabelController, ''),
+          _buildFieldRow('多个筛选', _multipleSelectionController, '1',
+              hint: '1:第一个, -1:最后一个, 0:随机'),
+          _buildFieldRow('在...之后搜索', _afterSearchController, ''),
+          _buildFieldRow('在...之前搜索', _beforeSearchController, ''),
+          _buildScriptPathSelector('满足执行脚本', _trueScriptPath, (path) {
+            setState(() => _trueScriptPath = path);
+          }),
+          _buildScriptPathSelector('不满足执行脚本', _falseScriptPath, (path) {
+            setState(() => _falseScriptPath = path);
+          }),
         ];
-      case '数学运算':
+      case '新建窗口并执行脚本':
         return [
-          _buildFieldRow('变量名', _variableNameController, '', required: true),
-          _buildFieldRow('运算方式', _operationController, '+, -, *, /',
-              required: true),
-          _buildFieldRow('值', _targetValueController, '', required: true),
+          _buildFieldRow('窗口名称', _windowNameController, ''),
+          _buildDropdownRow('窗口UA', _windowUa, ['Mobile', 'Tablet', 'Desktop'],
+              (val) {
+            if (val != null) setState(() => _windowUa = val);
+          }),
+          _buildFieldRow('网址', _urlController, ''),
+          _buildScriptPathSelector('脚本集', _targetScriptPath, (path) {
+            setState(() => _targetScriptPath = path);
+          }),
+          _buildCheckboxRow('立即执行', _executeImmediately, (val) {
+            setState(() => _executeImmediately = val ?? false);
+          }),
+        ];
+      case '跳转脚本':
+        return [
+          _buildFieldRow(
+              '跳转至序号', _targetScriptIndicesController, '请输入要跳转到的脚本序号'),
         ];
       case '数值对比-点击文字':
         return [
@@ -578,6 +652,20 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           _buildDropdownRow('对比方式', _compareMethod, ['>', '<', '=', '>=', '<='],
               (val) {
             if (val != null) setState(() => _compareMethod = val);
+          }),
+          _buildFieldRow('多个筛选', _multipleSelectionController, '1',
+              hint: '1:第一个, -1:最后一个, 0:随机'),
+          _buildFieldRow('在...之后搜索', _afterSearchController, ''),
+          _buildFieldRow('在...之前搜索', _beforeSearchController, ''),
+        ];
+
+      case '控制脚本开关':
+        return [
+          _buildFieldRow(
+              '脚本序号', _targetScriptIndicesController, '例如: 1 3 5 (空格隔开)',
+              required: true),
+          _buildDropdownRow('更改为', _switchAction, ['禁用', '启用', '反相'], (val) {
+            if (val != null) setState(() => _switchAction = val);
           }),
         ];
 
@@ -851,6 +939,80 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildScriptPathSelector(
+      String label, String? currentPath, ValueChanged<String?> onPathSelected) {
+    final isDarkMode = context.read<BrowserProvider>().isDarkMode;
+    final labelColor = isDarkMode ? Colors.white : Colors.black87;
+    final inputFillColor = isDarkMode
+        ? Colors.white.withValues(alpha: 0.05)
+        : Colors.grey.shade100;
+    final borderColor = isDarkMode ? Colors.white24 : Colors.grey.shade300;
+    final textColor = isDarkMode ? Colors.white : Colors.black87;
+    final hintColor = isDarkMode ? Colors.white38 : Colors.black38;
+    final iconColor = isDarkMode ? Colors.white : Colors.black54;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text(
+            label,
+            style: TextStyle(color: labelColor, fontSize: 13),
+          ),
+        ),
+        Row(
+          children: [
+            Expanded(
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                decoration: BoxDecoration(
+                  color: inputFillColor,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: borderColor),
+                ),
+                child: Text(
+                  currentPath != null
+                      ? currentPath.split(Platform.pathSeparator).last
+                      : '未选择文件',
+                  style: TextStyle(
+                    color: currentPath != null ? textColor : hintColor,
+                    fontSize: 13,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              onPressed: () async {
+                FilePickerResult? result = await FilePicker.platform.pickFiles(
+                  type: FileType.custom,
+                  allowedExtensions: ['json'],
+                );
+
+                if (result != null) {
+                  onPathSelected(result.files.single.path);
+                }
+              },
+              icon: Icon(Icons.folder_open, color: iconColor),
+              tooltip: '选择脚本集文件',
+            ),
+            if (currentPath != null)
+              IconButton(
+                onPressed: () => onPathSelected(null),
+                icon: const Icon(Icons.close, color: Colors.red),
+                tooltip: '清除选择',
+              ),
+          ],
+        ),
+        const SizedBox(height: 16),
+      ],
     );
   }
 
@@ -1157,6 +1319,20 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         if (_intervalSecondsController.text.isNotEmpty) {
           params['时间间隔-秒'] = int.tryParse(_intervalSecondsController.text) ?? 0;
         }
+        params['在此之后'] = _afterSearchController.text;
+        params['在此之前'] = _beforeSearchController.text;
+        params['多个筛选'] = int.tryParse(_multipleSelectionController.text) ?? 1;
+        params['完全匹配'] = _exactMatch;
+        break;
+
+      case '点击图片':
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
+        params['图片地址'] = _clickTextController.text;
+        params['多个筛选'] = int.tryParse(_multipleSelectionController.text) ?? 1;
+        params['在此之后'] = _afterSearchController.text;
+        params['在此之前'] = _beforeSearchController.text;
         break;
 
       case '间隔时间':
@@ -1169,6 +1345,9 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         }
         if (_intervalSecondsController.text.isNotEmpty) {
           params['时间间隔-秒'] = int.tryParse(_intervalSecondsController.text) ?? 0;
+        }
+        if (_targetScriptPath != null) {
+          params['间隔时间后执行脚本'] = _targetScriptPath;
         }
         break;
 
@@ -1229,14 +1408,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         if (_delayController.text.isNotEmpty) {
           params['执行延迟'] = _convertDelayToMilliseconds();
         }
-        break;
-
-      case '跳转脚本':
-        if (_jumpLabelController.text.isEmpty) return;
-        if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = _convertDelayToMilliseconds();
-        }
-        params['跳转标签'] = _jumpLabelController.text;
+        params['执行完成提醒'] = _enableNotification;
         break;
 
       case '延时脚本':
@@ -1246,10 +1418,12 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         break;
 
       case '控制脚本开关':
+        if (_targetScriptIndicesController.text.isEmpty) return;
         if (_delayController.text.isNotEmpty) {
           params['执行延迟'] = _convertDelayToMilliseconds();
         }
-        params['开关状态'] = _switchState;
+        params['脚本序号'] = _targetScriptIndicesController.text;
+        params['开关动作'] = _switchAction;
         break;
 
       case '逻辑脚本-出现文字':
@@ -1258,8 +1432,13 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           params['执行延迟'] = _convertDelayToMilliseconds();
         }
         params['出现文字'] = _appearTextController.text;
-        if (_jumpLabelController.text.isNotEmpty) {
-          params['跳转标签'] = _jumpLabelController.text;
+        params['在此之后'] = _afterSearchController.text;
+        params['在此之前'] = _beforeSearchController.text;
+        if (_trueScriptPath != null) {
+          params['出现时执行'] = _trueScriptPath;
+        }
+        if (_falseScriptPath != null) {
+          params['未出现时执行'] = _falseScriptPath;
         }
         break;
 
@@ -1269,8 +1448,12 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           params['执行延迟'] = _convertDelayToMilliseconds();
         }
         params['目标值'] = _targetValueController.text;
-        if (_jumpLabelController.text.isNotEmpty) {
-          params['跳转标签'] = _jumpLabelController.text;
+        if (_trueScriptPath != null) {
+          params['出现时执行'] =
+              _trueScriptPath; // Reuse key for simplicity or use specific key
+        }
+        if (_falseScriptPath != null) {
+          params['未出现时执行'] = _falseScriptPath;
         }
         break;
 
@@ -1281,20 +1464,31 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         }
         params['目标值'] = _targetValueController.text;
         params['对比方式'] = _compareMethod;
-        if (_jumpLabelController.text.isNotEmpty) {
-          params['跳转标签'] = _jumpLabelController.text;
+        params['多个筛选'] = int.tryParse(_multipleSelectionController.text) ?? 1;
+        params['在此之后'] = _afterSearchController.text;
+        params['在此之前'] = _beforeSearchController.text;
+        if (_trueScriptPath != null) {
+          params['出现时执行'] = _trueScriptPath;
+        }
+        if (_falseScriptPath != null) {
+          params['未出现时执行'] = _falseScriptPath;
         }
         break;
 
-      case '数学运算':
-        if (_variableNameController.text.isEmpty) return;
-        if (_targetValueController.text.isEmpty) return;
-        if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = _convertDelayToMilliseconds();
+      case '新建窗口并执行脚本':
+        if (_urlController.text.isEmpty) return;
+        params['窗口名称'] = _windowNameController.text;
+        params['窗口UA'] = _windowUa;
+        params['网址'] = _urlController.text;
+        if (_targetScriptPath != null) {
+          params['脚本集'] = _targetScriptPath;
         }
-        params['变量名'] = _variableNameController.text;
-        params['运算方式'] = _operationController.text;
-        params['目标值'] = _targetValueController.text;
+        params['立即执行'] = _executeImmediately;
+        break;
+
+      case '跳转脚本':
+        if (_targetScriptIndicesController.text.isEmpty) return;
+        params['跳转的脚本序号'] = _targetScriptIndicesController.text;
         break;
 
       case '数值对比-点击文字':
@@ -1306,6 +1500,9 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         params['点击文本'] = _clickTextController.text;
         params['目标值'] = _targetValueController.text;
         params['对比方式'] = _compareMethod;
+        params['多个筛选'] = int.tryParse(_multipleSelectionController.text) ?? 1;
+        params['在此之后'] = _afterSearchController.text;
+        params['在此之前'] = _beforeSearchController.text;
         break;
 
       case '通知栏提醒':
