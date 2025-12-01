@@ -76,9 +76,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
       }
     });
 
-    // Restoration logic removed as per user request
-    // Provider now adds a default tab in _init, so we don't need to do anything here
-    // unless the provider's tab list is empty for some reason.
     if (browserProvider.tabs.isEmpty) {
       await _addNewTab();
     }
@@ -136,8 +133,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                         const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                     decoration: BoxDecoration(
                       color: Colors.grey[700],
-                      borderRadius:
-                          BorderRadius.circular(4), // Slightly smaller radius
+                      borderRadius: BorderRadius.circular(4),
                       border: Border.all(
                         color: Colors.grey[600]!,
                         width: 1,
@@ -158,7 +154,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                                         browserProvider.currentTab!.url)
                                 ? Colors.amber
                                 : Colors.white,
-                            size: 28, // Larger star icon
+                            size: 28,
                           ),
                           onPressed: browserProvider.currentTab != null &&
                                   browserProvider.currentTab!.url !=
@@ -248,7 +244,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                                               }
                                             }
 
-                                            // Record navigation for real URLs (not file:// or searches)
+                                            // Record navigation for real URLs
                                             if (scriptProvider.isRecording &&
                                                 (value.trim().startsWith(
                                                         'http://') ||
@@ -335,7 +331,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                     ),
                   ),
                 ),
-                // Menu button area - centered between box and screen edge
+                // Menu button area
                 SizedBox(
                   width: 48,
                   child: PopupMenuButton<String>(
@@ -482,11 +478,11 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                       color: Colors.transparent,
                     ),
             ),
-            actions: [], // Empty actions as menu is moved to title
+            actions: [],
           ),
           body: Stack(
             children: [
-              // WebView 区域 - 全屏，不挤压
+              // WebView 区域
               browserProvider.tabs.isEmpty
                   ? const Center(child: CircularProgressIndicator())
                   : IndexedStack(
@@ -499,19 +495,19 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                           .toList(),
                     ),
 
-              // 右侧脚本面板（可折叠）- 浮在WebView上方
+              // 右侧脚本面板
               AnimatedPositioned(
                 duration: const Duration(milliseconds: 300),
                 curve: Curves.easeInOut,
                 right: browserProvider.isScriptPanelExpanded
                     ? 0
                     : -(MediaQuery.of(context).size.width * 0.5),
-                top: 50, // Margin from top
-                bottom: 50, // Margin from bottom
+                top: 50,
+                bottom: 50,
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // 脚本面板切换按钮 - 和面板一体
+                    // 脚本面板切换按钮
                     GestureDetector(
                       onTap: () {
                         browserProvider.toggleScriptPanel();
@@ -606,7 +602,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                           onRecordScript: () {
                             if (browserProvider.currentTab != null) {
                               scriptProvider.startRecording();
-                              // Injection is now handled automatically by ScriptProvider
                             }
                           },
                         ),
@@ -648,7 +643,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                       scriptProvider.recordAction('网页后退');
                     }
                     await browser.currentTab!.controller?.goBack();
-                    // Navigation state will be updated by BrowserView callback
                   }
                 : null,
           ),
@@ -665,7 +659,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                       scriptProvider.recordAction('网页前进');
                     }
                     await browser.currentTab!.controller?.goForward();
-                    // Navigation state will be updated by BrowserView callback
                   }
                 : null,
           ),
@@ -719,7 +712,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                     Navigator.pop(context);
                     if (browser.currentTab != null) {
                       scriptProvider.startRecording();
-                      // Injection is now handled automatically by ScriptProvider
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('开始录制脚本...')),
@@ -754,7 +746,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                     browser.currentTab!.url != 'file:///welcome.html' &&
                     browser.currentTab!.title != '欢迎使用')
                 ? () {
-                    // AU按钮功能 - 回到初始页面
                     WelcomeManager.getWelcomeContent().then((content) {
                       browser.currentTab!.controller?.loadData(
                           data: content,
@@ -763,7 +754,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                           baseUrl: WebUri('file:///welcome.html'));
                     });
                   }
-                : null, // Disabled when on welcome page
+                : null,
             child: Text(
               'AU',
               style: TextStyle(
@@ -784,108 +775,202 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
   void _showTabsList(BuildContext context, BrowserProvider browser) {
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.black87,
+      backgroundColor: Colors.transparent,
       builder: (context) => Container(
         height: 400,
-        padding: const EdgeInsets.all(16),
+        decoration: const BoxDecoration(
+          color: Color(0xFF222222),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
         child: Column(
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  '标签页',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.add, color: Colors.white, size: 28),
-                  onPressed: () async {
-                    Navigator.pop(context);
-                    await _addNewTab();
-                  },
-                  tooltip: '新建标签',
-                ),
-              ],
-            ),
             const SizedBox(height: 16),
             Expanded(
               child: ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 itemCount: browser.tabs.length,
                 itemBuilder: (context, index) {
                   final tab = browser.tabs[index];
                   final isSelected = index == browser.currentIndex;
                   final canClose = browser.canCloseTab(index);
-
-                  return ListTile(
-                    title: Text(
+                  final displayTitle =
                       tab.customName != null && tab.customName!.isNotEmpty
                           ? tab.customName!
-                          : tab.title,
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (tab.url != 'about:blank' &&
-                            !tab.url.endsWith('welcome.html'))
-                          Text(
-                            tab.url,
-                            style: const TextStyle(color: Colors.grey),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        if (tab.isExecutingScript)
-                          const Text(
-                            '正在执行脚本...',
-                            style: TextStyle(
-                              color: Colors.orange,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                      ],
-                    ),
-                    selected: isSelected,
-                    onTap: () {
-                      browser.setCurrentIndex(index);
-                      Navigator.pop(context);
-                    },
-                    trailing: IconButton(
-                      icon: Icon(
-                        Icons.close,
-                        color: canClose ? Colors.white : Colors.grey.shade600,
-                      ),
-                      onPressed: () {
-                        if (!canClose) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('该标签页正在执行脚本，无法关闭'),
-                              duration: Duration(seconds: 2),
-                            ),
-                          );
-                          return;
-                        }
+                          : (tab.title.isEmpty ? '无标题' : tab.title);
 
-                        if (browser.tabs.length == 1) {
-                          // Last tab - remove and create new default tab
-                          browser.removeTab(index);
-                          Navigator.pop(context);
-                          _addNewTab();
-                        } else {
-                          browser.removeTab(index);
-                          if (browser.tabs.isEmpty) {
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF333333),
+                      borderRadius: BorderRadius.circular(8),
+                      border: isSelected
+                          ? Border.all(color: Colors.white, width: 1.5)
+                          : null,
+                    ),
+                    child: ListTile(
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 12),
+                      title: Text(
+                        '${index + 1}. $displayTitle',
+                        style:
+                            const TextStyle(color: Colors.white, fontSize: 16),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      trailing: IconButton(
+                        icon: Icon(
+                          Icons.close,
+                          color:
+                              canClose ? Colors.white70 : Colors.grey.shade600,
+                          size: 20,
+                        ),
+                        onPressed: () {
+                          if (!canClose) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('该标签页正在执行脚本，无法关闭'),
+                                duration: Duration(seconds: 2),
+                              ),
+                            );
+                            return;
+                          }
+
+                          if (browser.tabs.length == 1) {
+                            browser.removeTab(index);
                             Navigator.pop(context);
                             _addNewTab();
+                          } else {
+                            browser.removeTab(index);
+                            if (browser.tabs.isEmpty) {
+                              Navigator.pop(context);
+                              _addNewTab();
+                            }
                           }
-                        }
+                        },
+                      ),
+                      onTap: () {
+                        browser.setCurrentIndex(index);
+                        Navigator.pop(context);
+                      },
+                      onLongPress: () {
+                        _showEditTabDialog(context, browser, index);
                       },
                     ),
                   );
                 },
               ),
+            ),
+            Container(
+              height: 1,
+              color: Colors.white10,
+            ),
+            Container(
+              height: 60,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text(
+                        '取消',
+                        style: TextStyle(color: Colors.white, fontSize: 16),
+                      ),
+                    ),
+                  ),
+                  Container(
+                    width: 1,
+                    height: 24,
+                    color: Colors.white24,
+                  ),
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () async {
+                        Navigator.pop(context);
+                        await _addNewTab();
+                      },
+                      child: const Text(
+                        '新建窗口',
+                        style: TextStyle(color: Colors.white, fontSize: 16),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showEditTabDialog(
+      BuildContext context, BrowserProvider browser, int index) {
+    final tab = browser.tabs[index];
+    final nameController = TextEditingController(text: tab.customName);
+    String selectedUa = tab.customUserAgent ?? 'Mobile';
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          backgroundColor: Colors.grey[900],
+          title: const Text('编辑窗口信息', style: TextStyle(color: Colors.white)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  labelText: '窗口名称',
+                  labelStyle: TextStyle(color: Colors.white70),
+                  enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.white38),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                value: selectedUa,
+                dropdownColor: Colors.grey[800],
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  labelText: 'User Agent',
+                  labelStyle: TextStyle(color: Colors.white70),
+                  enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.white38),
+                  ),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'Mobile', child: Text('Mobile')),
+                  DropdownMenuItem(value: 'Desktop', child: Text('Desktop')),
+                  DropdownMenuItem(value: 'Tablet', child: Text('Tablet')),
+                ],
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() {
+                      selectedUa = value;
+                    });
+                  }
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消', style: TextStyle(color: Colors.white70)),
+            ),
+            TextButton(
+              onPressed: () {
+                browser.updateTabCustomSettings(
+                    index, nameController.text, selectedUa);
+                Navigator.pop(context);
+                Navigator.pop(context);
+                _showTabsList(context, browser);
+              },
+              child: const Text('保存', style: TextStyle(color: Colors.blue)),
             ),
           ],
         ),

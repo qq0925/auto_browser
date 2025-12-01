@@ -229,6 +229,16 @@ class BrowserProvider extends ChangeNotifier {
     }
   }
 
+  void updateTabCustomSettings(
+      int index, String? customName, String? customUserAgent) {
+    if (index >= 0 && index < _tabs.length) {
+      _tabs[index].customName = customName;
+      _tabs[index].customUserAgent = customUserAgent;
+      notifyListeners();
+      _saveTabsState();
+    }
+  }
+
   void updateTabNavigationState(int index, bool canGoBack, bool canGoForward) {
     if (index >= 0 && index < _tabs.length) {
       _tabs[index].canGoBack = canGoBack;

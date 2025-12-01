@@ -911,7 +911,7 @@ class ScriptExecutor {
       if (url != 'about:blank' &&
           !url.startsWith('http://') &&
           !url.startsWith('https://')) {
-        url = 'https://$url';
+        url = 'http://$url';
       }
       final scriptPath = script.params['脚本集'] as String?;
       final executeImmediately = script.params['立即执行'] as bool? ?? false;
