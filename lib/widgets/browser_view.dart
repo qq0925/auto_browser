@@ -138,6 +138,16 @@ class _BrowserViewState extends State<BrowserView> {
                   // Fallback injection for Night Mode (especially for PC/Desktop)
                   if (browserProvider.isDarkMode) {
                     browserProvider.injectNightMode(controller);
+
+                    // Windows: Poll for Night Mode injection to fight dynamic content/CSP
+                    if (Platform.isWindows) {
+                      for (int i = 0; i < 4; i++) {
+                        await Future.delayed(const Duration(milliseconds: 800));
+                        if (browserProvider.isDarkMode) {
+                          browserProvider.injectNightMode(controller);
+                        }
+                      }
+                    }
                   }
 
                   if (scriptProvider.isRecording &&

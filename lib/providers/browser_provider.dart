@@ -174,8 +174,27 @@ class BrowserProvider extends ChangeNotifier {
   }
 
   void injectNightMode(InAppWebViewController controller) {
-    if (_nightCssContent != null) {
+    final css = (_nightCssContent != null && _nightCssContent!.isNotEmpty)
+        ? _nightCssContent
+        : _fallbackNightCss;
+
+    if (css != null) {
+      // 1. Try official CSS injection (Best for Windows/WebView2)
+      controller.injectCSSCode(source: css);
+
+      // 2. Fallback: JS Injection of Style Tag (Original method)
       controller.evaluateJavascript(source: _getNightModeJs());
+
+      // 3. Nuclear Option: Direct Style Manipulation (For stubborn pages)
+      // Force background to dark immediately
+      controller.evaluateJavascript(source: """
+        (function() {
+          try {
+            document.body.style.backgroundColor = '#121212';
+            document.documentElement.style.backgroundColor = '#121212';
+          } catch(e) {}
+        })();
+      """);
     }
   }
 
