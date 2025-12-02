@@ -20,6 +20,25 @@ class BrowserProvider extends ChangeNotifier {
   String _searchEngine = 'Baidu'; // Default to Baidu
   String? _nightCssContent;
 
+  // Hardcoded fallback CSS for Night Mode (High Specificity)
+  static const String _fallbackNightCss = '''
+    html, body {
+      background-color: #121212 !important;
+      color: #e0e0e0 !important;
+    }
+    div, p, span, a, li, ul, ol, table, tr, td, th, h1, h2, h3, h4, h5, h6 {
+      background-color: transparent !important;
+      color: inherit !important;
+    }
+    a { color: #bb86fc !important; }
+    input, textarea, select, button {
+      background-color: #333 !important;
+      color: #fff !important;
+      border-color: #555 !important;
+    }
+    img { opacity: 0.8 !important; }
+  ''';
+
   // Need a navigator key to access context for AssetBundle if context not available
   static final GlobalKey<NavigatorState> navigatorKey =
       GlobalKey<NavigatorState>();
@@ -84,15 +103,22 @@ class BrowserProvider extends ChangeNotifier {
   UserScript? _nightModeUserScript;
 
   String _getNightModeJs() {
-    if (_nightCssContent == null) return '';
-    // Escape the CSS content to be safe for JS string
-    final css = _nightCssContent!.replaceAll('\n', '').replaceAll("'", "\\'");
-    return """
+    final css = (_nightCssContent != null && _nightCssContent!.isNotEmpty)
+        ? _nightCssContent
+        : _fallbackNightCss;
+
+    // Escape newlines and quotes for JS string
+    final safeCss = css!
+        .replaceAll('\n', ' ')
+        .replaceAll("'", "\\'")
+        .replaceAll('"', '\\"');
+
+    return '''
       (function() {
         if (document.getElementById('auok-night-mode')) return;
         var style = document.createElement('style');
         style.id = 'auok-night-mode';
-        style.innerHTML = '$css';
+        style.innerHTML = '$safeCss';
         var target = document.head || document.documentElement;
         if (target) {
           target.appendChild(style);
@@ -104,7 +130,7 @@ class BrowserProvider extends ChangeNotifier {
           }, 50);
         }
       })();
-    """;
+    ''';
   }
 
   UserScript? get nightModeUserScript {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'dart:collection';
 import 'package:provider/provider.dart';
+import 'dart:io';
 import '../models/browser_tab.dart';
 import '../providers/browser_provider.dart';
 import '../providers/script_provider.dart';
@@ -145,12 +146,47 @@ class _BrowserViewState extends State<BrowserView> {
                         source: ScriptProvider.recordingJs);
                   }
 
-                  String? title = await controller.getTitle();
+                  String? title;
+                  if (Platform.isWindows) {
+                    // Windows workaround: getTitle() is buggy, use JS
+                    final result = await controller.evaluateJavascript(
+                        source: "document.title");
+                    title = result?.toString();
+                  } else {
+                    // Mobile: use standard API
+                    title = await controller.getTitle();
+                  }
 
                   // Retry getting title if empty (common on Desktop/fast loads)
                   if (title == null || title.isEmpty) {
                     await Future.delayed(const Duration(milliseconds: 500));
-                    title = await controller.getTitle();
+                    if (Platform.isWindows) {
+                      final result = await controller.evaluateJavascript(
+                          source: "document.title");
+                      title = result?.toString();
+                    } else {
+                      title = await controller.getTitle();
+                    }
+                  }
+
+                  // Polling for title updates (SPA support) - Windows only
+                  if (Platform.isWindows) {
+                    for (int i = 0; i < 6; i++) {
+                      await Future.delayed(const Duration(milliseconds: 500));
+                      final result = await controller.evaluateJavascript(
+                          source: "document.title");
+                      final newTitle = result?.toString();
+                      if (newTitle != null &&
+                          newTitle.isNotEmpty &&
+                          newTitle != title) {
+                        title = newTitle;
+                        final index = browserProvider.tabs.indexOf(widget.tab);
+                        if (index != -1) {
+                          browserProvider.updateTabInfo(
+                              index, url.toString(), title);
+                        }
+                      }
+                    }
                   }
 
                   // Handle default page title
