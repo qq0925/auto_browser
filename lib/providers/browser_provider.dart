@@ -94,7 +94,15 @@ class BrowserProvider extends ChangeNotifier {
         style.id = 'auok-night-mode';
         style.innerHTML = '$css';
         var target = document.head || document.documentElement;
-        if (target) target.appendChild(style);
+        if (target) {
+          target.appendChild(style);
+        } else {
+          // Retry once if target is not ready (rare but possible in early injection)
+          setTimeout(function() {
+             var targetRetry = document.head || document.documentElement;
+             if (targetRetry) targetRetry.appendChild(style);
+          }, 50);
+        }
       })();
     """;
   }
@@ -139,10 +147,14 @@ class BrowserProvider extends ChangeNotifier {
     }
   }
 
-  void _injectNightMode(InAppWebViewController controller) {
+  void injectNightMode(InAppWebViewController controller) {
     if (_nightCssContent != null) {
       controller.evaluateJavascript(source: _getNightModeJs());
     }
+  }
+
+  void _injectNightMode(InAppWebViewController controller) {
+    injectNightMode(controller);
   }
 
   void toggleKeepScreenOn(bool value) {

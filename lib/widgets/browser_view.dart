@@ -134,7 +134,10 @@ class _BrowserViewState extends State<BrowserView> {
                     browserProvider.updateTabProgress(1.0);
                   }
 
-                  // browserProvider.injectNightModeIfEnabled(controller); // Handled by UserScript now
+                  // Fallback injection for Night Mode (especially for PC/Desktop)
+                  if (browserProvider.isDarkMode) {
+                    browserProvider.injectNightMode(controller);
+                  }
 
                   if (scriptProvider.isRecording &&
                       index == browserProvider.currentIndex) {
@@ -143,6 +146,12 @@ class _BrowserViewState extends State<BrowserView> {
                   }
 
                   String? title = await controller.getTitle();
+
+                  // Retry getting title if empty (common on Desktop/fast loads)
+                  if (title == null || title.isEmpty) {
+                    await Future.delayed(const Duration(milliseconds: 500));
+                    title = await controller.getTitle();
+                  }
 
                   // Handle default page title
                   if (url.toString().endsWith('welcome.html') ||

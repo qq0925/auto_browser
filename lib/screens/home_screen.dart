@@ -140,6 +140,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                       ),
                     ),
                     child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         // Bookmark button
                         IconButton(
@@ -193,6 +194,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                         // URL GestureDetector
                         Expanded(
                           child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
                             onTap: () {
                               if (browserProvider.currentTab != null) {
                                 Navigator.push(
