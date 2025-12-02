@@ -77,6 +77,7 @@ class BrowserProvider extends ChangeNotifier {
     try {
       final String content = await rootBundle.loadString('assets/night.css');
       _nightCssContent = content;
+      _nightModeUserScript = null; // Reset cache to use loaded content
     } catch (e) {
       debugPrint('Error loading night.css: $e');
     }
@@ -135,7 +136,7 @@ class BrowserProvider extends ChangeNotifier {
   }
 
   UserScript? get nightModeUserScript {
-    if (_nightCssContent == null) return null;
+    // if (_nightCssContent == null) return null; // Removed to allow fallback
     _nightModeUserScript ??= UserScript(
       source: _getNightModeJs(),
       injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
