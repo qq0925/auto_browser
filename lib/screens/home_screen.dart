@@ -128,6 +128,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                 const SizedBox(width: 10), // Small left margin
                 Expanded(
                   child: Container(
+                    height: 48,
                     margin: const EdgeInsets.only(top: 6, bottom: 6),
                     padding:
                         const EdgeInsets.symmetric(horizontal: 4, vertical: 2),

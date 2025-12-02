@@ -60,6 +60,7 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
   flutter_launcher_icons: ^0.14.2
+  msix: ^3.16.7
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -120,3 +121,11 @@ flutter_launcher_icons:
   # 可选：Android 自适应图标（从 Android 8.0 开始支持）
   adaptive_icon_background: "#FFFFFF"  # 背景色，可改为您的品牌色
   adaptive_icon_foreground: "assets/app_icon.png"
+
+msix_config:
+  display_name: Auok浏览器
+  publisher_display_name: Auok
+  identity_name: AuokBrowser
+  msix_version: 1.0.0.0
+  logo_path: assets/app_icon.png
+  capabilities: "internetClient, internetClientServer, privateNetworkClientServer"

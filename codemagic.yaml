@@ -1,0 +1,111 @@
+workflows:
+  build-release:
+    name: Auto Browser Build
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+    
+    scripts:
+      - name: Get dependencies
+        script: |
+          flutter packages pub get
+
+      - name: Build Android APK
+        script: |
+          flutter build apk --release
+          
+      - name: Build iOS App
+        script: |
+          # 仅构建 .app，不签名 (如果你配置了证书，去掉 --no-codesign)
+          flutter build ios --release --no-codesign
+
+      - name: Prepare Python Script
+        script: |
+          # 将你的 Python 逻辑直接写入构建机的一个临时文件
+          cat << 'EOF' > ipa_converter.py
+          import zipfile
+          import os
+          import shutil
+          import tempfile
+          import sys
+
+          def process_zip(input_zip_path, output_ipa_name=None):
+              if not os.path.exists(input_zip_path):
+                  print(f"File {input_zip_path} not found")
+                  return
+
+              if output_ipa_name is None:
+                  output_ipa_name = 'auto_browser.ipa'
+              
+              # 确保输出路径是绝对路径
+              output_ipa_name = os.path.abspath(output_ipa_name)
+
+              with tempfile.TemporaryDirectory() as tmp_dir:
+                  print(f"Extracting {input_zip_path}...")
+                  with zipfile.ZipFile(input_zip_path, 'r') as zip_ref:
+                      zip_ref.extractall(tmp_dir)
+                  
+                  payload_dir = os.path.join(tmp_dir, 'Payload')
+                  os.makedirs(payload_dir, exist_ok=True)
+                  
+                  print("Moving files to Payload...")
+                  for item in os.listdir(tmp_dir):
+                      item_path = os.path.join(tmp_dir, item)
+                      if item == 'Payload':
+                          continue
+                      shutil.move(item_path, payload_dir)
+                  
+                  if os.path.exists(output_ipa_name):
+                      os.remove(output_ipa_name)
+                  
+                  print(f"Creating IPA at {output_ipa_name}...")
+                  with zipfile.ZipFile(output_ipa_name, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                      for root, _, files in os.walk(payload_dir):
+                          for file in files:
+                              file_path = os.path.join(root, file)
+                              arcname = os.path.relpath(file_path, start=tmp_dir)
+                              zipf.write(file_path, arcname)
+                  
+              print(f"Success! IPA generated: {output_ipa_name}")
+
+          if __name__ == "__main__":
+              if len(sys.argv) < 2:
+                  print("Please provide zip path")
+              else:
+                  process_zip(sys.argv[1])
+          EOF
+
+      - name: Process Artifacts (Rename & Convert)
+        script: |
+          # 1. 处理 Android APK
+          APK_SOURCE="build/app/outputs/flutter-apk/app-release.apk"
+          if [ -f "$APK_SOURCE" ]; then
+              echo "Renaming Android APK..."
+              mv "$APK_SOURCE" auto_browser.apk
+          fi
+
+          # 2. 处理 iOS (Runner.app -> Temp Zip -> IPA)
+          IOS_SOURCE="build/ios/iphoneos/Runner.app"
+          if [ -d "$IOS_SOURCE" ]; then
+              echo "Packing iOS Runner.app to temp zip..."
+              # 先把 Runner.app 压缩成一个临时 zip，方便传给 Python 脚本
+              pushd build/ios/iphoneos
+              zip -r -q temp_runner.zip Runner.app
+              popd
+              
+              echo "Running Python conversion..."
+              # 调用刚才生成的 Python 脚本
+              python3 ipa_converter.py build/ios/iphoneos/temp_runner.zip
+          fi
+
+    artifacts:
+      - auto_browser.apk
+      - auto_browser.ipa
+    
+    publishing:
+      email:
+        recipients:
+          - your_email@example.com  # 记得改成你的邮箱
