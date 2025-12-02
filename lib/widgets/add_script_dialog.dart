@@ -517,11 +517,22 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                 onPressed: () async {
                   FilePickerResult? result =
                       await FilePicker.platform.pickFiles(
-                    type: FileType.custom,
-                    allowedExtensions: ['js'],
+                    type: FileType.any,
                   );
 
-                  if (result != null) {
+                  if (result != null && result.files.single.path != null) {
+                    final path = result.files.single.path!;
+                    if (!path.toLowerCase().endsWith('.js')) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('请选择 .js 格式的文件'),
+                            backgroundColor: Colors.orange,
+                          ),
+                        );
+                      }
+                      return;
+                    }
                     File file = File(result.files.single.path!);
                     String content = await file.readAsString();
                     setState(() {

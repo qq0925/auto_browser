@@ -878,14 +878,24 @@ class RightScriptPanel extends StatelessWidget {
       // Note: initialDirectory is not supported on Android, so we only use it on iOS
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         dialogTitle: '选择脚本文件',
-        type: FileType.custom,
-        allowedExtensions: ['json'],
+        type: FileType.any,
         initialDirectory: Platform.isIOS ? defaultDir : null,
       );
 
       if (result == null || result.files.single.path == null) return;
 
       final filePath = result.files.single.path!;
+      if (!filePath.toLowerCase().endsWith('.json')) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('请选择 .json 格式的脚本文件'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
       final file = File(filePath);
 
       // Read file content
