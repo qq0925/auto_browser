@@ -129,3 +129,4 @@ msix_config:
   msix_version: 1.0.0.0
   logo_path: assets/app_icon.png
   capabilities: "internetClient, internetClientServer, privateNetworkClientServer"
+  output_path: "C:\\Users\\79277\\Downloads"
