@@ -29,41 +29,43 @@ class BottomGridMenu extends StatelessWidget {
           topRight: Radius.circular(16),
         ),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          GridView.count(
-            shrinkWrap: true,
-            crossAxisCount: 4,
-            mainAxisSpacing: 16,
-            crossAxisSpacing: 16,
-            children: [
-              _buildMenuItem(
-                  Icons.bookmarks_outlined, '书签/历史', onBookmarksHistory),
-              _buildMenuItem(
-                isAutoRefreshActive
-                    ? Icons.cancel_presentation
-                    : Icons.autorenew,
-                isAutoRefreshActive ? '取消刷新' : '自动刷新',
-                onAutoRefresh,
-              ),
-              _buildMenuItem(
-                Icons.fiber_manual_record_outlined,
-                '录制脚本',
-                isExecuting
-                    ? null
-                    : onRecordScript, // Disable callback if executing
-                color: isExecuting ? Colors.grey : Colors.white,
-              ),
-              _buildMenuItem(Icons.settings_outlined, '设置', onSettings),
-            ],
-          ),
-          const SizedBox(height: 16),
-          // Close button (optional, or just tap outside)
-          // Screenshot shows "Exit" button but user didn't ask for it specifically in the "only want" list.
-          // But a close button is good UX.
-          // Actually, standard bottom sheet closes on tap outside.
-        ],
+      child: SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            GridView.count(
+              shrinkWrap: true,
+              crossAxisCount: 4,
+              mainAxisSpacing: 16,
+              crossAxisSpacing: 16,
+              children: [
+                _buildMenuItem(
+                    Icons.bookmarks_outlined, '书签/历史', onBookmarksHistory),
+                _buildMenuItem(
+                  isAutoRefreshActive
+                      ? Icons.cancel_presentation
+                      : Icons.autorenew,
+                  isAutoRefreshActive ? '取消刷新' : '自动刷新',
+                  onAutoRefresh,
+                ),
+                _buildMenuItem(
+                  Icons.fiber_manual_record_outlined,
+                  '录制脚本',
+                  isExecuting
+                      ? null
+                      : onRecordScript, // Disable callback if executing
+                  color: isExecuting ? Colors.grey : Colors.white,
+                ),
+                _buildMenuItem(Icons.settings_outlined, '设置', onSettings),
+              ],
+            ),
+            const SizedBox(height: 16),
+            // Close button (optional, or just tap outside)
+            // Screenshot shows "Exit" button but user didn't ask for it specifically in the "only want" list.
+            // But a close button is good UX.
+            // Actually, standard bottom sheet closes on tap outside.
+          ],
+        ),
       ),
     );
   }

@@ -628,149 +628,157 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
   Widget _buildBottomBar(BuildContext context, BrowserProvider browser,
       ScriptProvider scriptProvider) {
     return Container(
-      height: 50,
       color: Colors.grey[850],
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          IconButton(
-            icon: Icon(
-              Icons.arrow_back,
-              color: (browser.currentTab?.canGoBack ?? false)
-                  ? Colors.white
-                  : Colors.white38,
-            ),
-            onPressed: (browser.currentTab?.canGoBack ?? false)
-                ? () async {
-                    if (scriptProvider.isRecording) {
-                      scriptProvider.recordAction('网页后退');
-                    }
-                    await browser.currentTab!.controller?.goBack();
-                  }
-                : null,
-          ),
-          IconButton(
-            icon: Icon(
-              Icons.arrow_forward,
-              color: (browser.currentTab?.canGoForward ?? false)
-                  ? Colors.white
-                  : Colors.white38,
-            ),
-            onPressed: (browser.currentTab?.canGoForward ?? false)
-                ? () async {
-                    if (scriptProvider.isRecording) {
-                      scriptProvider.recordAction('网页前进');
-                    }
-                    await browser.currentTab!.controller?.goForward();
-                  }
-                : null,
-          ),
-          IconButton(
-            icon: const Icon(Icons.menu, color: Colors.white),
-            onPressed: () {
-              showModalBottomSheet(
-                context: context,
-                backgroundColor: Colors.transparent,
-                builder: (context) => BottomGridMenu(
-                  isAutoRefreshActive:
-                      browser.currentTab?.isAutoRefreshActive ?? false,
-                  isExecuting: scriptProvider.isExecuting,
-                  onBookmarksHistory: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const BookmarksHistoryDialog(),
-                      ),
-                    );
-                  },
-                  onAutoRefresh: () {
-                    Navigator.pop(context);
-                    if (browser.currentTab != null) {
-                      if (browser.currentTab!.isAutoRefreshActive) {
-                        browser.currentTab!.stopAutoRefresh();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('已取消自动刷新')),
-                        );
-                      } else {
-                        showDialog(
-                          context: context,
-                          builder: (context) => AutoRefreshDialog(
-                            onConfirm: (interval, count) {
-                              browser.currentTab!
-                                  .startAutoRefresh(interval, count);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                      '已开启自动刷新: $interval秒, ${count == 0 ? "无限" : count}次'),
-                                ),
-                              );
-                            },
-                          ),
-                        );
-                      }
-                    }
-                  },
-                  onRecordScript: () async {
-                    Navigator.pop(context);
-                    if (browser.currentTab != null) {
-                      scriptProvider.startRecording();
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('开始录制脚本...')),
-                        );
-                      }
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('请先打开一个网页')),
-                      );
-                    }
-                  },
-                  onSettings: () {
-                    Navigator.pop(context);
-                    showDialog(
-                      context: context,
-                      builder: (context) => const BrowserSettingsDialog(),
-                    );
-                  },
-                ),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.tab, color: Colors.white),
-            onPressed: () {
-              _showTabsList(context, browser);
-            },
-          ),
-          TextButton(
-            onPressed: (browser.currentTab != null &&
-                    !browser.currentTab!.url.endsWith('welcome.html') &&
-                    browser.currentTab!.url != 'file:///welcome.html' &&
-                    browser.currentTab!.title != '欢迎使用')
-                ? () {
-                    WelcomeManager.getWelcomeContent().then((content) {
-                      browser.currentTab!.controller?.loadData(
-                          data: content,
-                          mimeType: 'text/html',
-                          encoding: 'utf-8',
-                          baseUrl: WebUri('file:///welcome.html'));
-                    });
-                  }
-                : null,
-            child: Text(
-              'AU',
-              style: TextStyle(
-                  color: (browser.currentTab != null &&
-                          !browser.currentTab!.url.endsWith('welcome.html') &&
-                          browser.currentTab!.url != 'file:///welcome.html' &&
-                          browser.currentTab!.title != '欢迎使用')
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 50,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              IconButton(
+                icon: Icon(
+                  Icons.arrow_back,
+                  color: (browser.currentTab?.canGoBack ?? false)
                       ? Colors.white
                       : Colors.white38,
-                  fontWeight: FontWeight.bold),
-            ),
+                ),
+                onPressed: (browser.currentTab?.canGoBack ?? false)
+                    ? () async {
+                        if (scriptProvider.isRecording) {
+                          scriptProvider.recordAction('网页后退');
+                        }
+                        await browser.currentTab!.controller?.goBack();
+                      }
+                    : null,
+              ),
+              IconButton(
+                icon: Icon(
+                  Icons.arrow_forward,
+                  color: (browser.currentTab?.canGoForward ?? false)
+                      ? Colors.white
+                      : Colors.white38,
+                ),
+                onPressed: (browser.currentTab?.canGoForward ?? false)
+                    ? () async {
+                        if (scriptProvider.isRecording) {
+                          scriptProvider.recordAction('网页前进');
+                        }
+                        await browser.currentTab!.controller?.goForward();
+                      }
+                    : null,
+              ),
+              IconButton(
+                icon: const Icon(Icons.menu, color: Colors.white),
+                onPressed: () {
+                  showModalBottomSheet(
+                    context: context,
+                    backgroundColor: Colors.transparent,
+                    builder: (context) => BottomGridMenu(
+                      isAutoRefreshActive:
+                          browser.currentTab?.isAutoRefreshActive ?? false,
+                      isExecuting: scriptProvider.isExecuting,
+                      onBookmarksHistory: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                const BookmarksHistoryDialog(),
+                          ),
+                        );
+                      },
+                      onAutoRefresh: () {
+                        Navigator.pop(context);
+                        if (browser.currentTab != null) {
+                          if (browser.currentTab!.isAutoRefreshActive) {
+                            browser.currentTab!.stopAutoRefresh();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('已取消自动刷新')),
+                            );
+                          } else {
+                            showDialog(
+                              context: context,
+                              builder: (context) => AutoRefreshDialog(
+                                onConfirm: (interval, count) {
+                                  browser.currentTab!
+                                      .startAutoRefresh(interval, count);
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                          '已开启自动刷新: $interval秒, ${count == 0 ? "无限" : count}次'),
+                                    ),
+                                  );
+                                },
+                              ),
+                            );
+                          }
+                        }
+                      },
+                      onRecordScript: () async {
+                        Navigator.pop(context);
+                        if (browser.currentTab != null) {
+                          scriptProvider.startRecording();
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('开始录制脚本...')),
+                            );
+                          }
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('请先打开一个网页')),
+                          );
+                        }
+                      },
+                      onSettings: () {
+                        Navigator.pop(context);
+                        showDialog(
+                          context: context,
+                          builder: (context) => const BrowserSettingsDialog(),
+                        );
+                      },
+                    ),
+                  );
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.tab, color: Colors.white),
+                onPressed: () {
+                  _showTabsList(context, browser);
+                },
+              ),
+              TextButton(
+                onPressed: (browser.currentTab != null &&
+                        !browser.currentTab!.url.endsWith('welcome.html') &&
+                        browser.currentTab!.url != 'file:///welcome.html' &&
+                        browser.currentTab!.title != '欢迎使用')
+                    ? () {
+                        WelcomeManager.getWelcomeContent().then((content) {
+                          browser.currentTab!.controller?.loadData(
+                              data: content,
+                              mimeType: 'text/html',
+                              encoding: 'utf-8',
+                              baseUrl: WebUri('file:///welcome.html'));
+                        });
+                      }
+                    : null,
+                child: Text(
+                  'AU',
+                  style: TextStyle(
+                      color: (browser.currentTab != null &&
+                              !browser.currentTab!.url
+                                  .endsWith('welcome.html') &&
+                              browser.currentTab!.url !=
+                                  'file:///welcome.html' &&
+                              browser.currentTab!.title != '欢迎使用')
+                          ? Colors.white
+                          : Colors.white38,
+                      fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
