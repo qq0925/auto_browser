@@ -793,123 +793,126 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
           color: Color(0xFF222222),
           borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
         ),
-        child: Column(
-          children: [
-            const SizedBox(height: 16),
-            Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: browser.tabs.length,
-                itemBuilder: (context, index) {
-                  final tab = browser.tabs[index];
-                  final isSelected = index == browser.currentIndex;
-                  final canClose = browser.canCloseTab(index);
-                  final displayTitle =
-                      tab.customName != null && tab.customName!.isNotEmpty
-                          ? tab.customName!
-                          : (tab.title.isEmpty ? '无标题' : tab.title);
+        child: SafeArea(
+          child: Column(
+            children: [
+              const SizedBox(height: 16),
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: browser.tabs.length,
+                  itemBuilder: (context, index) {
+                    final tab = browser.tabs[index];
+                    final isSelected = index == browser.currentIndex;
+                    final canClose = browser.canCloseTab(index);
+                    final displayTitle =
+                        tab.customName != null && tab.customName!.isNotEmpty
+                            ? tab.customName!
+                            : (tab.title.isEmpty ? '无标题' : tab.title);
 
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF333333),
-                      borderRadius: BorderRadius.circular(8),
-                      border: isSelected
-                          ? Border.all(color: Colors.white, width: 1.5)
-                          : null,
-                    ),
-                    child: ListTile(
-                      contentPadding:
-                          const EdgeInsets.symmetric(horizontal: 12),
-                      title: Text(
-                        '${index + 1}. $displayTitle',
-                        style:
-                            const TextStyle(color: Colors.white, fontSize: 16),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF333333),
+                        borderRadius: BorderRadius.circular(8),
+                        border: isSelected
+                            ? Border.all(color: Colors.white, width: 1.5)
+                            : null,
                       ),
-                      trailing: IconButton(
-                        icon: Icon(
-                          Icons.close,
-                          color:
-                              canClose ? Colors.white70 : Colors.grey.shade600,
-                          size: 20,
+                      child: ListTile(
+                        contentPadding:
+                            const EdgeInsets.symmetric(horizontal: 12),
+                        title: Text(
+                          '${index + 1}. $displayTitle',
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 16),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        onPressed: () {
-                          if (!canClose) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('该标签页正在执行脚本，无法关闭'),
-                                duration: Duration(seconds: 2),
-                              ),
-                            );
-                            return;
-                          }
+                        trailing: IconButton(
+                          icon: Icon(
+                            Icons.close,
+                            color: canClose
+                                ? Colors.white70
+                                : Colors.grey.shade600,
+                            size: 20,
+                          ),
+                          onPressed: () {
+                            if (!canClose) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('该标签页正在执行脚本，无法关闭'),
+                                  duration: Duration(seconds: 2),
+                                ),
+                              );
+                              return;
+                            }
 
-                          if (browser.tabs.length == 1) {
-                            browser.removeTab(index);
-                            Navigator.pop(context);
-                            _addNewTab();
-                          } else {
-                            browser.removeTab(index);
-                            if (browser.tabs.isEmpty) {
+                            if (browser.tabs.length == 1) {
+                              browser.removeTab(index);
                               Navigator.pop(context);
                               _addNewTab();
+                            } else {
+                              browser.removeTab(index);
+                              if (browser.tabs.isEmpty) {
+                                Navigator.pop(context);
+                                _addNewTab();
+                              }
                             }
-                          }
+                          },
+                        ),
+                        onTap: () {
+                          browser.setCurrentIndex(index);
+                          Navigator.pop(context);
+                        },
+                        onLongPress: () {
+                          _showEditTabDialog(context, browser, index);
                         },
                       ),
-                      onTap: () {
-                        browser.setCurrentIndex(index);
-                        Navigator.pop(context);
-                      },
-                      onLongPress: () {
-                        _showEditTabDialog(context, browser, index);
-                      },
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
-            ),
-            Container(
-              height: 1,
-              color: Colors.white10,
-            ),
-            Container(
-              height: 60,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text(
-                        '取消',
-                        style: TextStyle(color: Colors.white, fontSize: 16),
+              Container(
+                height: 1,
+                color: Colors.white10,
+              ),
+              Container(
+                height: 60,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text(
+                          '取消',
+                          style: TextStyle(color: Colors.white, fontSize: 16),
+                        ),
                       ),
                     ),
-                  ),
-                  Container(
-                    width: 1,
-                    height: 24,
-                    color: Colors.white24,
-                  ),
-                  Expanded(
-                    child: TextButton(
-                      onPressed: () async {
-                        Navigator.pop(context);
-                        await _addNewTab();
-                      },
-                      child: const Text(
-                        '新建窗口',
-                        style: TextStyle(color: Colors.white, fontSize: 16),
+                    Container(
+                      width: 1,
+                      height: 24,
+                      color: Colors.white24,
+                    ),
+                    Expanded(
+                      child: TextButton(
+                        onPressed: () async {
+                          Navigator.pop(context);
+                          await _addNewTab();
+                        },
+                        child: const Text(
+                          '新建窗口',
+                          style: TextStyle(color: Colors.white, fontSize: 16),
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

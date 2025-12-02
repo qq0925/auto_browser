@@ -58,12 +58,16 @@ class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
         ),
         actions: [],
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _buildBookmarksList(),
-          _buildHistoryList(),
-        ],
+      body: SafeArea(
+        bottom: true,
+        top: false,
+        child: TabBarView(
+          controller: _tabController,
+          children: [
+            _buildBookmarksList(),
+            _buildHistoryList(),
+          ],
+        ),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
@@ -210,59 +214,69 @@ class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
           color: const Color(0xFF333333),
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (isBookmarks) ...[
-              _buildActionItem(Icons.add, '增加书签', () {
-                Navigator.pop(context);
-                _showAddBookmarkDialog(context);
-              }),
-              const Divider(color: Colors.grey, height: 1),
-              _buildActionItem(Icons.sort, '排序', () {
-                Navigator.pop(context);
-                showModalBottomSheet(
-                  context: context,
-                  backgroundColor: Colors.transparent,
-                  builder: (context) => Container(
-                    margin: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF333333),
-                      borderRadius: BorderRadius.circular(8),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isBookmarks) ...[
+                _buildActionItem(Icons.add, '增加书签', () {
+                  Navigator.pop(context);
+                  _showAddBookmarkDialog(context);
+                }),
+                const Divider(color: Colors.grey, height: 1),
+                _buildActionItem(Icons.sort, '排序', () {
+                  Navigator.pop(context);
+                  showModalBottomSheet(
+                    context: context,
+                    backgroundColor: Colors.transparent,
+                    builder: (context) => Container(
+                      margin: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF333333),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: SafeArea(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildActionItem(null, '按地址排序', () {
+                              context
+                                  .read<BrowserProvider>()
+                                  .sortBookmarks('url');
+                              Navigator.pop(context);
+                            }),
+                            const Divider(color: Colors.grey, height: 1),
+                            _buildActionItem(null, '按名称排序', () {
+                              context
+                                  .read<BrowserProvider>()
+                                  .sortBookmarks('name');
+                              Navigator.pop(context);
+                            }),
+                            const Divider(color: Colors.grey, height: 1),
+                            _buildActionItem(null, '按时间排序', () {
+                              context
+                                  .read<BrowserProvider>()
+                                  .sortBookmarks('time');
+                              Navigator.pop(context);
+                            }),
+                            const Divider(color: Colors.grey, height: 1),
+                            _buildActionItem(null, '取消', () {
+                              Navigator.pop(context);
+                            }),
+                          ],
+                        ),
+                      ),
                     ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _buildActionItem(null, '按地址排序', () {
-                          context.read<BrowserProvider>().sortBookmarks('url');
-                          Navigator.pop(context);
-                        }),
-                        const Divider(color: Colors.grey, height: 1),
-                        _buildActionItem(null, '按名称排序', () {
-                          context.read<BrowserProvider>().sortBookmarks('name');
-                          Navigator.pop(context);
-                        }),
-                        const Divider(color: Colors.grey, height: 1),
-                        _buildActionItem(null, '按时间排序', () {
-                          context.read<BrowserProvider>().sortBookmarks('time');
-                          Navigator.pop(context);
-                        }),
-                        const Divider(color: Colors.grey, height: 1),
-                        _buildActionItem(null, '取消', () {
-                          Navigator.pop(context);
-                        }),
-                      ],
-                    ),
-                  ),
-                );
+                  );
+                }),
+                const Divider(color: Colors.grey, height: 1),
+              ],
+              _buildActionItem(Icons.delete_outline, '清空', () {
+                Navigator.pop(context);
+                _showClearDialog(context);
               }),
-              const Divider(color: Colors.grey, height: 1),
             ],
-            _buildActionItem(Icons.delete_outline, '清空', () {
-              Navigator.pop(context);
-              _showClearDialog(context);
-            }),
-          ],
+          ),
         ),
       ),
     );
