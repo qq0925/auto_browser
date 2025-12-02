@@ -28,6 +28,16 @@ class _BrowserViewState extends State<BrowserView> {
     final displayIndex = index + 1;
     final displayName = widget.tab.customName;
 
+    // Build initial user scripts list
+    final List<UserScript> initialScripts = [];
+    if (browserProvider.isDarkMode &&
+        browserProvider.nightModeUserScript != null) {
+      initialScripts.add(browserProvider.nightModeUserScript!);
+    }
+    if (scriptProvider.isRecording) {
+      initialScripts.add(scriptProvider.recordingUserScript);
+    }
+
     return Container(
       color: browserProvider.isDarkMode ? Colors.black : Colors.white,
       child: Stack(
@@ -59,10 +69,8 @@ class _BrowserViewState extends State<BrowserView> {
                       : UserPreferredContentMode.MOBILE),
               useHybridComposition: true,
             ),
-            initialUserScripts: UnmodifiableListView<UserScript>([
-              // Dark mode script is now handled via addUserScript in onWebViewCreated
-              // to ensure consistency with toggle logic
-            ]),
+            initialUserScripts:
+                UnmodifiableListView<UserScript>(initialScripts),
             onWebViewCreated: (controller) {
               widget.tab.setController(controller);
 
@@ -88,18 +96,8 @@ class _BrowserViewState extends State<BrowserView> {
                 },
               );
 
-              // If recording, add UserScript immediately
-              if (scriptProvider.isRecording) {
-                controller.addUserScript(
-                    userScript: scriptProvider.recordingUserScript);
-              }
-
-              // If dark mode, add UserScript immediately
-              if (browserProvider.isDarkMode &&
-                  browserProvider.nightModeUserScript != null) {
-                controller.addUserScript(
-                    userScript: browserProvider.nightModeUserScript!);
-              }
+              // Recording and Night Mode scripts are now in initialUserScripts
+              // This ensures they inject at the earliest possible moment
             },
             onLoadStart: (controller, url) {
               if (url != null) {

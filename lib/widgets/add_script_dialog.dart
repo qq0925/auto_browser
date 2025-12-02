@@ -523,14 +523,13 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                   if (result != null && result.files.single.path != null) {
                     final path = result.files.single.path!;
                     if (!path.toLowerCase().endsWith('.js')) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('请选择 .js 格式的文件'),
-                            backgroundColor: Colors.orange,
-                          ),
-                        );
-                      }
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('请选择 .js 格式的文件'),
+                          backgroundColor: Colors.orange,
+                        ),
+                      );
                       return;
                     }
                     File file = File(result.files.single.path!);
