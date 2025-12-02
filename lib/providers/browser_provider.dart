@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'dart:io';
 import '../models/browser_tab.dart';
 import '../models/browser_data.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -179,22 +181,28 @@ class BrowserProvider extends ChangeNotifier {
         : _fallbackNightCss;
 
     if (css != null) {
-      // 1. Try official CSS injection (Best for Windows/WebView2)
-      controller.injectCSSCode(source: css);
+      if (Platform.isWindows) {
+        // Windows-specific aggressive injection
+        // 1. Try official CSS injection (Best for Windows/WebView2)
+        controller.injectCSSCode(source: css);
 
-      // 2. Fallback: JS Injection of Style Tag (Original method)
-      controller.evaluateJavascript(source: _getNightModeJs());
+        // 2. Fallback: JS Injection of Style Tag (Original method)
+        controller.evaluateJavascript(source: _getNightModeJs());
 
-      // 3. Nuclear Option: Direct Style Manipulation (For stubborn pages)
-      // Force background to dark immediately
-      controller.evaluateJavascript(source: """
-        (function() {
-          try {
-            document.body.style.backgroundColor = '#121212';
-            document.documentElement.style.backgroundColor = '#121212';
-          } catch(e) {}
-        })();
-      """);
+        // 3. Nuclear Option: Direct Style Manipulation (For stubborn pages)
+        // Force background to dark immediately
+        controller.evaluateJavascript(source: """
+          (function() {
+            try {
+              document.body.style.backgroundColor = '#121212';
+              document.documentElement.style.backgroundColor = '#121212';
+            } catch(e) {}
+          })();
+        """);
+      } else {
+        // Mobile (Android/iOS): Use original, standard method
+        controller.evaluateJavascript(source: _getNightModeJs());
+      }
     }
   }
 
