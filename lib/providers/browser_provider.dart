@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
-import 'package:flutter/services.dart';
+
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:io';
@@ -19,26 +19,33 @@ class BrowserProvider extends ChangeNotifier {
   bool _autoLeaveMode = false;
   bool _isScriptPanelExpanded = false; // Default to false (collapsed)
   String _searchEngine = 'Baidu'; // Default to Baidu
-  String? _nightCssContent;
+  // Smart invert CSS for iOS/Windows - inverts page colors but preserves images
+  static const String _smartInvertScript = """
+    (function() {
+      var styleId = 'auok-night-mode';
+      var style = document.getElementById(styleId);
+      if (!style) {
+        style = document.createElement('style');
+        style.id = styleId;
+        style.innerHTML = `
+          html {
+            filter: invert(100%) hue-rotate(180deg) !important;
+          }
+          img, video, iframe, canvas, :not(object):not(body)>embed, object, svg image {
+            filter: invert(100%) hue-rotate(180deg) !important;
+          }
+        `;
+        document.head.appendChild(style);
+      }
+    })();
+  """;
 
-  // Hardcoded fallback CSS for Night Mode (High Specificity)
-  static const String _fallbackNightCss = '''
-    html, body {
-      background-color: #121212 !important;
-      color: #e0e0e0 !important;
-    }
-    div, p, span, a, li, ul, ol, table, tr, td, th, h1, h2, h3, h4, h5, h6 {
-      background-color: transparent !important;
-      color: inherit !important;
-    }
-    a { color: #bb86fc !important; }
-    input, textarea, select, button {
-      background-color: #333 !important;
-      color: #fff !important;
-      border-color: #555 !important;
-    }
-    img { opacity: 0.8 !important; }
-  ''';
+  static const String _removeSmartInvertScript = """
+    (function() {
+      var style = document.getElementById('auok-night-mode');
+      if (style) style.remove();
+    })();
+  """;
 
   // Need a navigator key to access context for AssetBundle if context not available
   static final GlobalKey<NavigatorState> navigatorKey =
@@ -57,7 +64,6 @@ class BrowserProvider extends ChangeNotifier {
   bool get autoLeaveMode => _autoLeaveMode;
   bool get isScriptPanelExpanded => _isScriptPanelExpanded;
   String get searchEngine => _searchEngine;
-  String? get nightCssContent => _nightCssContent;
 
   BrowserTab? get currentTab =>
       _tabs.isNotEmpty && _currentIndex >= 0 && _currentIndex < _tabs.length
@@ -74,19 +80,14 @@ class BrowserProvider extends ChangeNotifier {
     // Instead, just ensure settings are loaded or defaults set, and add a default tab
     await _loadSettings();
     await addTab(); // Always start with a new tab
-    try {
-      final String content = await rootBundle.loadString('assets/night.css');
-      _nightCssContent = content;
-      _nightModeUserScript = null; // Reset cache to use loaded content
-    } catch (e) {
-      debugPrint('Error loading night.css: $e');
-    }
 
     // Apply restored dark mode to any existing tabs (handling race condition)
-    if (_isDarkMode && _nightCssContent != null) {
+    if (_isDarkMode) {
       for (var tab in _tabs) {
-        if (tab.controller != null && nightModeUserScript != null) {
-          tab.controller!.addUserScript(userScript: nightModeUserScript!);
+        if (tab.controller != null) {
+          if (!Platform.isAndroid && nightModeUserScript != null) {
+            tab.controller!.addUserScript(userScript: nightModeUserScript!);
+          }
           _injectNightMode(tab.controller!);
         }
       }
@@ -104,41 +105,13 @@ class BrowserProvider extends ChangeNotifier {
 
   UserScript? _nightModeUserScript;
 
-  String _getNightModeJs() {
-    final css = (_nightCssContent != null && _nightCssContent!.isNotEmpty)
-        ? _nightCssContent
-        : _fallbackNightCss;
-
-    // Escape newlines and quotes for JS string
-    final safeCss = css!
-        .replaceAll('\n', ' ')
-        .replaceAll("'", "\\'")
-        .replaceAll('"', '\\"');
-
-    return '''
-      (function() {
-        if (document.getElementById('auok-night-mode')) return;
-        var style = document.createElement('style');
-        style.id = 'auok-night-mode';
-        style.innerHTML = '$safeCss';
-        var target = document.head || document.documentElement;
-        if (target) {
-          target.appendChild(style);
-        } else {
-          // Retry once if target is not ready (rare but possible in early injection)
-          setTimeout(function() {
-             var targetRetry = document.head || document.documentElement;
-             if (targetRetry) targetRetry.appendChild(style);
-          }, 50);
-        }
-      })();
-    ''';
-  }
-
   UserScript? get nightModeUserScript {
-    // if (_nightCssContent == null) return null; // Removed to allow fallback
+    // Android uses native ForceDark API, no UserScript needed
+    if (Platform.isAndroid) return null;
+
+    // iOS/Windows: Use smart invert CSS
     _nightModeUserScript ??= UserScript(
-      source: _getNightModeJs(),
+      source: _smartInvertScript,
       injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
     );
     return _nightModeUserScript;
@@ -149,60 +122,62 @@ class BrowserProvider extends ChangeNotifier {
     notifyListeners();
     _saveTabsState();
 
-    // Apply to all tabs
+    // Apply to all tabs with platform-specific logic
     for (var tab in _tabs) {
-      tab.controller?.setSettings(
-          settings: InAppWebViewSettings(
-        preferredContentMode: _getPreferredContentMode(userAgent),
-      ));
+      if (tab.controller == null) continue;
 
-      if (value) {
-        if (tab.controller != null && nightModeUserScript != null) {
-          // Add UserScript for future navigations
-          tab.controller!.addUserScript(userScript: nightModeUserScript!);
-          // Inject immediately for current page
-          _injectNightMode(tab.controller!);
-        }
+      if (Platform.isAndroid) {
+        // Android: Use native ForceDark API
+        tab.controller!.setSettings(
+          settings: InAppWebViewSettings(
+            forceDark: value ? ForceDark.ON : ForceDark.OFF,
+            forceDarkStrategy:
+                ForceDarkStrategy.PREFER_WEB_THEME_OVER_USER_AGENT_DARKENING,
+            preferredContentMode: _getPreferredContentMode(userAgent),
+          ),
+        );
       } else {
-        if (tab.controller != null && nightModeUserScript != null) {
-          // Remove UserScript
-          tab.controller!.removeUserScript(userScript: nightModeUserScript!);
+        // iOS/Windows: Use smart invert CSS
+        tab.controller?.setSettings(
+          settings: InAppWebViewSettings(
+            preferredContentMode: _getPreferredContentMode(userAgent),
+          ),
+        );
+
+        if (value) {
+          if (nightModeUserScript != null) {
+            // Add UserScript for future navigations
+            tab.controller!.addUserScript(userScript: nightModeUserScript!);
+            // Inject immediately for current page
+            _injectNightMode(tab.controller!);
+          }
+        } else {
+          if (nightModeUserScript != null) {
+            // Remove UserScript
+            tab.controller!.removeUserScript(userScript: nightModeUserScript!);
+          }
           // Remove style from current page
-          tab.controller!.evaluateJavascript(
-              source: "document.getElementById('auok-night-mode')?.remove();");
+          tab.controller!.evaluateJavascript(source: _removeSmartInvertScript);
         }
       }
     }
   }
 
   void injectNightMode(InAppWebViewController controller) {
-    final css = (_nightCssContent != null && _nightCssContent!.isNotEmpty)
-        ? _nightCssContent
-        : _fallbackNightCss;
-
-    if (css != null) {
-      if (Platform.isWindows) {
-        // Windows-specific aggressive injection
-        // 1. Try official CSS injection (Best for Windows/WebView2)
-        controller.injectCSSCode(source: css);
-
-        // 2. Fallback: JS Injection of Style Tag (Original method)
-        controller.evaluateJavascript(source: _getNightModeJs());
-
-        // 3. Nuclear Option: Direct Style Manipulation (For stubborn pages)
-        // Force background to dark immediately
-        controller.evaluateJavascript(source: """
-          (function() {
-            try {
-              document.body.style.backgroundColor = '#121212';
-              document.documentElement.style.backgroundColor = '#121212';
-            } catch(e) {}
-          })();
-        """);
-      } else {
-        // Mobile (Android/iOS): Use original, standard method
-        controller.evaluateJavascript(source: _getNightModeJs());
-      }
+    if (Platform.isAndroid) {
+      // Android: Use native ForceDark API
+      controller.setSettings(
+        settings: InAppWebViewSettings(
+          forceDark: _isDarkMode ? ForceDark.ON : ForceDark.OFF,
+          forceDarkStrategy:
+              ForceDarkStrategy.PREFER_WEB_THEME_OVER_USER_AGENT_DARKENING,
+        ),
+      );
+    } else {
+      // iOS/Windows: Use smart invert CSS injection
+      controller.evaluateJavascript(
+        source: _isDarkMode ? _smartInvertScript : _removeSmartInvertScript,
+      );
     }
   }
 
