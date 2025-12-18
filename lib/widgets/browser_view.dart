@@ -47,12 +47,6 @@ class _BrowserViewState extends State<BrowserView> {
               iframeAllow: "camera; microphone",
               iframeAllowFullscreen: true,
               transparentBackground: true,
-              // Android: Use native ForceDark API
-              forceDark: (Platform.isAndroid && browserProvider.isDarkMode)
-                  ? ForceDark.ON
-                  : ForceDark.OFF,
-              forceDarkStrategy:
-                  ForceDarkStrategy.PREFER_WEB_THEME_OVER_USER_AGENT_DARKENING,
               userAgent: widget.tab.customUserAgent != null
                   ? (widget.tab.customUserAgent == 'Mobile'
                       ? "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1"
@@ -135,9 +129,19 @@ class _BrowserViewState extends State<BrowserView> {
                     browserProvider.updateTabProgress(1.0);
                   }
 
-                  // Fallback injection for Night Mode (iOS/Windows use CSS, Android already set via initialSettings)
-                  if (browserProvider.isDarkMode && !Platform.isAndroid) {
+                  // Fallback injection for Night Mode (especially for PC/Desktop)
+                  if (browserProvider.isDarkMode) {
                     browserProvider.injectNightMode(controller);
+
+                    // Windows: Poll for Night Mode injection to fight dynamic content/CSP
+                    if (Platform.isWindows) {
+                      for (int i = 0; i < 4; i++) {
+                        await Future.delayed(const Duration(milliseconds: 800));
+                        if (browserProvider.isDarkMode) {
+                          browserProvider.injectNightMode(controller);
+                        }
+                      }
+                    }
                   }
 
                   if (scriptProvider.isRecording &&

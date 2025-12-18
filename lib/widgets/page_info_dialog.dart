@@ -83,7 +83,23 @@ class _PageInfoDialogState extends State<PageInfoDialog> {
   Future<void> _applySource() async {
     try {
       final newSource = _sourceController.text;
-      await widget.controller?.loadData(data: newSource);
+      // Escape the source code for JavaScript string
+      final escapedSource = newSource
+          .replaceAll('\\', '\\\\')
+          .replaceAll("'", "\\'")
+          .replaceAll('\n', '\\n')
+          .replaceAll('\r', '\\r');
+
+      // Use JavaScript to replace the document content while maintaining the URL context
+      // This prevents breaking the page's origin and allows relative resources to load
+      await widget.controller?.evaluateJavascript(source: '''
+        (function() {
+          document.open();
+          document.write('$escapedSource');
+          document.close();
+        })();
+      ''');
+
       if (mounted) {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
