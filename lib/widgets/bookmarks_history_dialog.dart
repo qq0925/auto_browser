@@ -114,7 +114,27 @@ class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
               trailing: IconButton(
                 icon: const Icon(Icons.close, size: 16),
                 onPressed: () {
-                  provider.removeBookmark(bookmark);
+                  showDialog(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('确认删除'),
+                      content: Text('确定要删除书签 "${bookmark.title}" 吗？'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text('取消'),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            provider.removeBookmark(bookmark);
+                            Navigator.pop(ctx);
+                          },
+                          child: const Text('删除',
+                              style: TextStyle(color: Colors.red)),
+                        ),
+                      ],
+                    ),
+                  );
                 },
               ),
             );

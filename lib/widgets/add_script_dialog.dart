@@ -6,6 +6,37 @@ import '../models/script.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
 
+/// Cached theme values to avoid repeated context.read() calls during rebuilds.
+/// This significantly improves performance on Android when editing scripts.
+class _DialogTheme {
+  final bool isDarkMode;
+  final Color backgroundColor;
+  final Color headerColor;
+  final Color textColor;
+  final Color labelColor;
+  final Color inputFillColor;
+  final Color borderColor;
+  final Color iconColor;
+  final Color hintColor;
+  final Color tileColor;
+  final Color dropdownColor;
+
+  _DialogTheme({required this.isDarkMode})
+      : backgroundColor = isDarkMode ? const Color(0xFF1A2332) : Colors.white,
+        headerColor =
+            isDarkMode ? const Color(0xFF0D1B2A) : const Color(0xFFF5F5F5),
+        textColor = isDarkMode ? Colors.white : Colors.black87,
+        labelColor = isDarkMode ? Colors.white70 : Colors.black54,
+        inputFillColor = isDarkMode
+            ? Colors.white.withValues(alpha: 0.05)
+            : Colors.grey.shade100,
+        borderColor = isDarkMode ? Colors.white24 : Colors.grey.shade300,
+        iconColor = isDarkMode ? Colors.white : Colors.black54,
+        hintColor = isDarkMode ? Colors.white38 : Colors.black38,
+        tileColor = isDarkMode ? Colors.white10 : Colors.grey.shade100,
+        dropdownColor = isDarkMode ? const Color(0xFF2C2C2C) : Colors.white;
+}
+
 class _FormDataItem {
   final TextEditingController keyController;
   final TextEditingController valueController;
@@ -124,6 +155,16 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
   Script? _beforeScript;
   Script? _afterScript;
+
+  // Cached theme for performance - avoids repeated context.read() calls
+  late _DialogTheme _theme;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final isDarkMode = context.read<BrowserProvider>().isDarkMode;
+    _theme = _DialogTheme(isDarkMode: isDarkMode);
+  }
 
   @override
   void initState() {
@@ -690,43 +731,33 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   }
 
   Widget _buildLabel(String text, {Color? color}) {
-    final isDarkMode = context.read<BrowserProvider>().isDarkMode;
-    final textColor = color ?? (isDarkMode ? Colors.white70 : Colors.black54);
     return Text(
       text,
       style: TextStyle(
-        color: textColor,
+        color: color ?? _theme.labelColor,
         fontSize: 13,
       ),
     );
   }
 
   Widget _buildTextField(TextEditingController controller, String placeholder) {
-    final isDarkMode = context.read<BrowserProvider>().isDarkMode;
-    final inputFillColor = isDarkMode
-        ? Colors.white.withValues(alpha: 0.05)
-        : Colors.grey.shade100;
-    final borderColor = isDarkMode ? Colors.white24 : Colors.grey.shade300;
-    final textColor = isDarkMode ? Colors.white : Colors.black87;
-    final hintColor = isDarkMode ? Colors.white38 : Colors.black38;
-
     return TextField(
       controller: controller,
-      style: TextStyle(fontSize: 14, color: textColor),
+      style: TextStyle(fontSize: 14, color: _theme.textColor),
       decoration: InputDecoration(
         hintText: placeholder,
-        hintStyle: TextStyle(color: hintColor, fontSize: 14),
+        hintStyle: TextStyle(color: _theme.hintColor, fontSize: 14),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         filled: true,
-        fillColor: inputFillColor,
+        fillColor: _theme.inputFillColor,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: BorderSide(color: borderColor),
+          borderSide: BorderSide(color: _theme.borderColor),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: BorderSide(color: borderColor),
+          borderSide: BorderSide(color: _theme.borderColor),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
@@ -739,9 +770,6 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   Widget _buildFieldRow(
       String label, TextEditingController controller, String placeholder,
       {bool required = false, String? hint}) {
-    final isDarkMode = context.read<BrowserProvider>().isDarkMode;
-    final labelColor = isDarkMode ? Colors.white : Colors.black87;
-
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Row(
@@ -752,7 +780,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
               children: [
                 Text(
                   label,
-                  style: TextStyle(color: labelColor, fontSize: 13),
+                  style: TextStyle(color: _theme.textColor, fontSize: 13),
                 ),
                 if (required)
                   const Text(
@@ -772,10 +800,6 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
   Widget _buildCheckboxRow(
       String label, bool value, ValueChanged<bool?> onChanged) {
-    final isDarkMode = context.read<BrowserProvider>().isDarkMode;
-    final labelColor = isDarkMode ? Colors.white : Colors.black87;
-    final borderColor = isDarkMode ? Colors.white24 : Colors.grey.shade400;
-
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Row(
@@ -784,7 +808,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
             width: 120,
             child: Text(
               label,
-              style: TextStyle(color: labelColor, fontSize: 13),
+              style: TextStyle(color: _theme.textColor, fontSize: 13),
             ),
           ),
           SizedBox(
@@ -794,7 +818,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
               value: value,
               onChanged: onChanged,
               activeColor: Colors.blue,
-              side: BorderSide(color: borderColor, width: 1.5),
+              side: BorderSide(color: _theme.borderColor, width: 1.5),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(4)),
             ),
@@ -806,15 +830,6 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
   Widget _buildDropdownRow(String label, String value, List<String> items,
       ValueChanged<String?> onChanged) {
-    final isDarkMode = context.read<BrowserProvider>().isDarkMode;
-    final labelColor = isDarkMode ? Colors.white : Colors.black87;
-    final inputFillColor = isDarkMode
-        ? Colors.white.withValues(alpha: 0.05)
-        : Colors.grey.shade100;
-    final borderColor = isDarkMode ? Colors.white24 : Colors.grey.shade300;
-    final textColor = isDarkMode ? Colors.white : Colors.black87;
-    final iconColor = isDarkMode ? Colors.white : Colors.black54;
-
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Row(
@@ -823,7 +838,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
             width: 120,
             child: Text(
               label,
-              style: TextStyle(color: labelColor, fontSize: 13),
+              style: TextStyle(color: _theme.textColor, fontSize: 13),
             ),
           ),
           Expanded(
@@ -833,24 +848,23 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                 filled: true,
-                fillColor: inputFillColor,
+                fillColor: _theme.inputFillColor,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(color: borderColor),
+                  borderSide: BorderSide(color: _theme.borderColor),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(color: borderColor),
+                  borderSide: BorderSide(color: _theme.borderColor),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                   borderSide: const BorderSide(color: Colors.blue),
                 ),
               ),
-              dropdownColor:
-                  isDarkMode ? const Color(0xFF2C2C2C) : Colors.white,
-              style: TextStyle(fontSize: 14, color: textColor),
-              icon: Icon(Icons.arrow_drop_down, color: iconColor),
+              dropdownColor: _theme.dropdownColor,
+              style: TextStyle(fontSize: 14, color: _theme.textColor),
+              icon: Icon(Icons.arrow_drop_down, color: _theme.iconColor),
               items: items.map((String item) {
                 return DropdownMenuItem<String>(
                   value: item,
@@ -866,15 +880,6 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   }
 
   Widget _buildDelayFieldWithUnit(String label, {bool required = false}) {
-    final isDarkMode = context.read<BrowserProvider>().isDarkMode;
-    final labelColor = isDarkMode ? Colors.white : Colors.black87;
-    final inputFillColor = isDarkMode
-        ? Colors.white.withValues(alpha: 0.05)
-        : Colors.grey.shade100;
-    final borderColor = isDarkMode ? Colors.white24 : Colors.grey.shade300;
-    final textColor = isDarkMode ? Colors.white : Colors.black87;
-    final iconColor = isDarkMode ? Colors.white : Colors.black54;
-
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Row(
@@ -885,7 +890,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
               children: [
                 Text(
                   label,
-                  style: TextStyle(color: labelColor, fontSize: 13),
+                  style: TextStyle(color: _theme.textColor, fontSize: 13),
                 ),
                 if (required)
                   const Text(
@@ -911,24 +916,23 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                       contentPadding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 12),
                       filled: true,
-                      fillColor: inputFillColor,
+                      fillColor: _theme.inputFillColor,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: borderColor),
+                        borderSide: BorderSide(color: _theme.borderColor),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: borderColor),
+                        borderSide: BorderSide(color: _theme.borderColor),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                         borderSide: const BorderSide(color: Colors.blue),
                       ),
                     ),
-                    dropdownColor:
-                        isDarkMode ? const Color(0xFF2C2C2C) : Colors.white,
-                    style: TextStyle(fontSize: 14, color: textColor),
-                    icon: Icon(Icons.arrow_drop_down, color: iconColor),
+                    dropdownColor: _theme.dropdownColor,
+                    style: TextStyle(fontSize: 14, color: _theme.textColor),
+                    icon: Icon(Icons.arrow_drop_down, color: _theme.iconColor),
                     items: ['毫秒', '秒', '分钟'].map((String unit) {
                       return DropdownMenuItem<String>(
                         value: unit,
@@ -954,16 +958,6 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
   Widget _buildScriptPathSelector(
       String label, String? currentPath, ValueChanged<String?> onPathSelected) {
-    final isDarkMode = context.read<BrowserProvider>().isDarkMode;
-    final labelColor = isDarkMode ? Colors.white : Colors.black87;
-    final inputFillColor = isDarkMode
-        ? Colors.white.withValues(alpha: 0.05)
-        : Colors.grey.shade100;
-    final borderColor = isDarkMode ? Colors.white24 : Colors.grey.shade300;
-    final textColor = isDarkMode ? Colors.white : Colors.black87;
-    final hintColor = isDarkMode ? Colors.white38 : Colors.black38;
-    final iconColor = isDarkMode ? Colors.white : Colors.black54;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -971,7 +965,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           padding: const EdgeInsets.only(bottom: 8),
           child: Text(
             label,
-            style: TextStyle(color: labelColor, fontSize: 13),
+            style: TextStyle(color: _theme.textColor, fontSize: 13),
           ),
         ),
         Row(
@@ -981,16 +975,18 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                 decoration: BoxDecoration(
-                  color: inputFillColor,
+                  color: _theme.inputFillColor,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: borderColor),
+                  border: Border.all(color: _theme.borderColor),
                 ),
                 child: Text(
                   currentPath != null
                       ? currentPath.split(Platform.pathSeparator).last
                       : '未选择文件',
                   style: TextStyle(
-                    color: currentPath != null ? textColor : hintColor,
+                    color: currentPath != null
+                        ? _theme.textColor
+                        : _theme.hintColor,
                     fontSize: 13,
                   ),
                   maxLines: 1,
@@ -1010,7 +1006,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                   onPathSelected(result.files.single.path);
                 }
               },
-              icon: Icon(Icons.folder_open, color: iconColor),
+              icon: Icon(Icons.folder_open, color: _theme.iconColor),
               tooltip: '选择脚本集文件',
             ),
             if (currentPath != null)
@@ -1027,16 +1023,6 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   }
 
   Widget _buildScriptPathField() {
-    final isDarkMode = context.read<BrowserProvider>().isDarkMode;
-    final labelColor = isDarkMode ? Colors.white : Colors.black87;
-    final inputFillColor = isDarkMode
-        ? Colors.white.withValues(alpha: 0.05)
-        : Colors.grey.shade100;
-    final borderColor = isDarkMode ? Colors.white24 : Colors.grey.shade300;
-    final textColor = isDarkMode ? Colors.white : Colors.black87;
-    final hintColor = isDarkMode ? Colors.white38 : Colors.black38;
-    final iconColor = isDarkMode ? Colors.white : Colors.black54;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1044,7 +1030,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           padding: const EdgeInsets.only(bottom: 8),
           child: Text(
             '目标脚本集',
-            style: TextStyle(color: labelColor, fontSize: 13),
+            style: TextStyle(color: _theme.textColor, fontSize: 13),
           ),
         ),
         Row(
@@ -1054,16 +1040,18 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                 decoration: BoxDecoration(
-                  color: inputFillColor,
+                  color: _theme.inputFillColor,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: borderColor),
+                  border: Border.all(color: _theme.borderColor),
                 ),
                 child: Text(
                   _targetScriptPath != null
                       ? _targetScriptPath!.split(Platform.pathSeparator).last
                       : '未选择文件',
                   style: TextStyle(
-                    color: _targetScriptPath != null ? textColor : hintColor,
+                    color: _targetScriptPath != null
+                        ? _theme.textColor
+                        : _theme.hintColor,
                     fontSize: 13,
                   ),
                   maxLines: 1,
@@ -1085,7 +1073,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                   });
                 }
               },
-              icon: Icon(Icons.folder_open, color: iconColor),
+              icon: Icon(Icons.folder_open, color: _theme.iconColor),
               tooltip: '选择脚本集文件',
             ),
           ],
@@ -1095,16 +1083,6 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   }
 
   Widget _buildFormDataFields() {
-    final isDarkMode = context.read<BrowserProvider>().isDarkMode;
-    final labelColor = isDarkMode ? Colors.white : Colors.black87;
-    final inputFillColor = isDarkMode
-        ? Colors.white.withValues(alpha: 0.05)
-        : Colors.grey.shade100;
-    final borderColor = isDarkMode ? Colors.white24 : Colors.grey.shade300;
-    final textColor = isDarkMode ? Colors.white : Colors.black87;
-    final hintColor = isDarkMode ? Colors.white38 : Colors.black38;
-    final iconColor = isDarkMode ? Colors.white : Colors.black54;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1112,7 +1090,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           padding: const EdgeInsets.only(bottom: 8),
           child: Text(
             '表单字段',
-            style: TextStyle(color: labelColor, fontSize: 13),
+            style: TextStyle(color: _theme.textColor, fontSize: 13),
           ),
         ),
         ..._formItems.asMap().entries.map((entry) {
@@ -1129,18 +1107,19 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                     controller: item.keyController,
                     decoration: InputDecoration(
                       hintText: '字段名 (name/id)',
-                      hintStyle: TextStyle(color: hintColor, fontSize: 13),
+                      hintStyle:
+                          TextStyle(color: _theme.hintColor, fontSize: 13),
                       contentPadding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 8),
                       filled: true,
-                      fillColor: inputFillColor,
+                      fillColor: _theme.inputFillColor,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: borderColor),
+                        borderSide: BorderSide(color: _theme.borderColor),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: borderColor),
+                        borderSide: BorderSide(color: _theme.borderColor),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
@@ -1148,7 +1127,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                       ),
                       isDense: true,
                     ),
-                    style: TextStyle(fontSize: 13, color: textColor),
+                    style: TextStyle(fontSize: 13, color: _theme.textColor),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -1158,18 +1137,19 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                     controller: item.valueController,
                     decoration: InputDecoration(
                       hintText: '字段值',
-                      hintStyle: TextStyle(color: hintColor, fontSize: 13),
+                      hintStyle:
+                          TextStyle(color: _theme.hintColor, fontSize: 13),
                       contentPadding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 8),
                       filled: true,
-                      fillColor: inputFillColor,
+                      fillColor: _theme.inputFillColor,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: borderColor),
+                        borderSide: BorderSide(color: _theme.borderColor),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: borderColor),
+                        borderSide: BorderSide(color: _theme.borderColor),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
@@ -1177,7 +1157,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                       ),
                       isDense: true,
                     ),
-                    style: TextStyle(fontSize: 13, color: textColor),
+                    style: TextStyle(fontSize: 13, color: _theme.textColor),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -1203,8 +1183,9 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                   .add(_FormDataItem('field${_formItems.length + 1}', ''));
             });
           },
-          icon: Icon(Icons.add, color: iconColor, size: 18),
-          label: Text('添加字段', style: TextStyle(color: iconColor, fontSize: 13)),
+          icon: Icon(Icons.add, color: _theme.iconColor, size: 18),
+          label: Text('添加字段',
+              style: TextStyle(color: _theme.iconColor, fontSize: 13)),
           style: TextButton.styleFrom(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           ),
@@ -1215,29 +1196,24 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
   Widget _buildNestedScriptTile(String label, String type) {
     final script = type == 'beforeScript' ? _beforeScript : _afterScript;
-    final isDarkMode = context.read<BrowserProvider>().isDarkMode;
-    final tileColor = isDarkMode ? Colors.white10 : Colors.grey.shade100;
-    final borderColor = isDarkMode ? Colors.white24 : Colors.grey.shade300;
-    final textColor = isDarkMode ? Colors.white : Colors.black87;
-    final iconColor = isDarkMode ? Colors.white : Colors.black54;
 
     return Container(
       decoration: BoxDecoration(
-        color: tileColor,
+        color: _theme.tileColor,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: borderColor),
+        border: Border.all(color: _theme.borderColor),
       ),
       child: ListTile(
         title: Text(
           label,
-          style: TextStyle(color: textColor, fontSize: 13),
+          style: TextStyle(color: _theme.textColor, fontSize: 13),
         ),
         subtitle: Text(
           script != null ? '${script.type} (已配置)' : '未配置',
           style: TextStyle(
             color: script != null
                 ? Colors.blueAccent
-                : (isDarkMode ? Colors.grey : Colors.grey.shade600),
+                : (_theme.isDarkMode ? Colors.grey : Colors.grey.shade600),
             fontSize: 12,
           ),
         ),
@@ -1260,7 +1236,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
               ),
             IconButton(
               icon: Icon(script != null ? Icons.edit : Icons.add,
-                  color: iconColor, size: 18),
+                  color: _theme.iconColor, size: 18),
               onPressed: () async {
                 final result = await showDialog<Script>(
                   context: context,

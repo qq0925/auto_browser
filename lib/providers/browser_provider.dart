@@ -117,7 +117,20 @@ class BrowserProvider extends ChangeNotifier {
 
     return '''
       (function() {
-        if (document.getElementById('auok-night-mode')) return;
+        // 1. Immediately hide page to prevent white flash
+        if (!document.getElementById('auok-night-mode')) {
+          var hideStyle = document.createElement('style');
+          hideStyle.id = 'auok-night-hide';
+          hideStyle.innerHTML = 'html, body { visibility: hidden !important; background: #121212 !important; }';
+          var earlyTarget = document.head || document.documentElement || document.body;
+          if (earlyTarget) earlyTarget.appendChild(hideStyle);
+        }
+        
+        // 2. Inject night mode CSS
+        if (document.getElementById('auok-night-mode')) {
+          document.getElementById('auok-night-hide')?.remove();
+          return;
+        }
         var style = document.createElement('style');
         style.id = 'auok-night-mode';
         style.innerHTML = '$safeCss';
@@ -125,12 +138,16 @@ class BrowserProvider extends ChangeNotifier {
         if (target) {
           target.appendChild(style);
         } else {
-          // Retry once if target is not ready (rare but possible in early injection)
           setTimeout(function() {
              var targetRetry = document.head || document.documentElement;
              if (targetRetry) targetRetry.appendChild(style);
           }, 50);
         }
+        
+        // 3. Reveal page after CSS is applied
+        requestAnimationFrame(function() {
+          document.getElementById('auok-night-hide')?.remove();
+        });
       })();
     ''';
   }

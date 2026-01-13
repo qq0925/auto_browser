@@ -106,7 +106,28 @@ class MenuPage extends StatelessWidget {
                             : CupertinoColors.black,
                       ),
                       onPressed: () {
-                        browserProvider.removeBookmark(item as Bookmark);
+                        showCupertinoDialog(
+                          context: context,
+                          builder: (ctx) => CupertinoAlertDialog(
+                            title: const Text('确认删除'),
+                            content: Text('确定要删除书签 "$title" 吗？'),
+                            actions: [
+                              CupertinoDialogAction(
+                                onPressed: () => Navigator.pop(ctx),
+                                child: const Text('取消'),
+                              ),
+                              CupertinoDialogAction(
+                                isDestructiveAction: true,
+                                onPressed: () {
+                                  browserProvider
+                                      .removeBookmark(item as Bookmark);
+                                  Navigator.pop(ctx);
+                                },
+                                child: const Text('删除'),
+                              ),
+                            ],
+                          ),
+                        );
                       },
                     )
                   : null,
