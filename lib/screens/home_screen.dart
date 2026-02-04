@@ -68,12 +68,37 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
     // Set wait for page load callback globally once
     scriptProvider.setWaitForPageLoadCallback(() async {
       if (browserProvider.currentTab == null) return;
+
+      final controller = browserProvider.currentTab!.controller;
       int timeout = 30000;
       int elapsed = 0;
+
+      // 1. 等待 isLoading 变为 false
       while (browserProvider.currentTab!.isLoading) {
         await Future.delayed(const Duration(milliseconds: 100));
         elapsed += 100;
         if (elapsed >= timeout) break;
+      }
+
+      // 2. 等待 DOM readyState 为 complete
+      if (controller != null && elapsed < timeout) {
+        int domCheckCount = 0;
+        const maxDomChecks = 50; // 最多检查 5 秒
+
+        while (domCheckCount < maxDomChecks) {
+          try {
+            final readyState = await controller.evaluateJavascript(
+              source: 'document.readyState',
+            );
+            if (readyState == 'complete') {
+              break;
+            }
+          } catch (e) {
+            // 忽略错误，继续等待
+          }
+          await Future.delayed(const Duration(milliseconds: 100));
+          domCheckCount++;
+        }
       }
     });
 

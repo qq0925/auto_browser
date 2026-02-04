@@ -28,6 +28,19 @@ class _BrowserViewState extends State<BrowserView> {
 
     // Build initial user scripts list
     final List<UserScript> initialScripts = [];
+
+    // 禁用点击高亮效果，避免快速点击时的视觉残留
+    initialScripts.add(UserScript(
+      source: '''
+        (function() {
+          var style = document.createElement('style');
+          style.textContent = '* { -webkit-tap-highlight-color: transparent !important; }';
+          document.head.appendChild(style);
+        })();
+      ''',
+      injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+    ));
+
     if (browserProvider.isDarkMode &&
         browserProvider.nightModeUserScript != null) {
       initialScripts.add(browserProvider.nightModeUserScript!);
