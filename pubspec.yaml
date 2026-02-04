@@ -31,6 +31,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   flutter_inappwebview: ^6.1.5
   cupertino_icons: ^1.0.8
   file_picker: ^8.3.3
@@ -123,10 +125,12 @@ flutter_launcher_icons:
   adaptive_icon_foreground: "assets/app_icon.png"
 
 msix_config:
-  display_name: Auok浏览器
-  publisher_display_name: Auok
-  identity_name: AuokBrowser
-  msix_version: 1.0.0.0
+  display_name: Auok
+  publisher_display_name: 点梦科技
+  identity_name: Auok.Auok
+  publisher: CN=2B2E8BC5-81B0-45D9-8DE0-BBBFB551F67D
+  msix_version: 1.0.1.0
+  store: true
   logo_path: assets/app_icon.png
   capabilities: "internetClient, internetClientServer, privateNetworkClientServer"
   output_path: "C:\\Users\\79277\\Downloads"

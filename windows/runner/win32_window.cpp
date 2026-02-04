@@ -26,6 +26,9 @@ constexpr const wchar_t kGetPreferredBrightnessRegKey[] =
   L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
 constexpr const wchar_t kGetPreferredBrightnessRegValue[] = L"AppsUseLightTheme";
 
+/// Registry key for saving window position
+constexpr const wchar_t kWindowPosRegKey[] = L"Software\\AuokBrowser";
+
 // The number of Win32Window objects that currently exist.
 static int g_active_window_count = 0;
 
@@ -51,6 +54,30 @@ void EnableFullDpiSupportIfAvailable(HWND hwnd) {
     enable_non_client_dpi_scaling(hwnd);
   }
   FreeLibrary(user32_module);
+}
+
+// Save window position to registry
+void SaveWindowPositionToRegistry(HWND hwnd) {
+  if (!hwnd || !IsWindow(hwnd) || IsIconic(hwnd)) return;
+  
+  RECT rect;
+  if (GetWindowRect(hwnd, &rect)) {
+    HKEY hKey;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, kWindowPosRegKey, 0, nullptr, 
+                        REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
+      DWORD x = static_cast<DWORD>(rect.left);
+      DWORD y = static_cast<DWORD>(rect.top);
+      DWORD w = static_cast<DWORD>(rect.right - rect.left);
+      DWORD h = static_cast<DWORD>(rect.bottom - rect.top);
+      
+      RegSetValueExW(hKey, L"WindowX", 0, REG_DWORD, (LPBYTE)&x, sizeof(DWORD));
+      RegSetValueExW(hKey, L"WindowY", 0, REG_DWORD, (LPBYTE)&y, sizeof(DWORD));
+      RegSetValueExW(hKey, L"WindowWidth", 0, REG_DWORD, (LPBYTE)&w, sizeof(DWORD));
+      RegSetValueExW(hKey, L"WindowHeight", 0, REG_DWORD, (LPBYTE)&h, sizeof(DWORD));
+      
+      RegCloseKey(hKey);
+    }
+  }
 }
 
 }  // namespace
@@ -179,6 +206,12 @@ Win32Window::MessageHandler(HWND hwnd,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
   switch (message) {
+    case WM_CLOSE:
+      // Save window position before closing
+      SaveWindowPositionToRegistry(hwnd);
+      // Continue with default close handling
+      return DefWindowProc(hwnd, message, wparam, lparam);
+
     case WM_DESTROY:
       window_handle_ = nullptr;
       Destroy();

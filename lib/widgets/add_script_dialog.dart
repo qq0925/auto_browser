@@ -180,7 +180,6 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       _beforeSearchController.text = params['在此之前'] ?? '';
       _multipleSelectionController.text = (params['多个筛选'] ?? 1).toString();
       _exactMatch = params['完全匹配'] ?? false;
-      _exactMatch = params['完全匹配'] ?? false;
       _enableRegex = params['启用正则'] ?? false;
       _enableNotification = params['执行完成提醒'] ?? false;
 

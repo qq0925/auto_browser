@@ -6,6 +6,7 @@ import 'dart:io';
 import '../models/browser_tab.dart';
 import '../providers/browser_provider.dart';
 import '../providers/script_provider.dart';
+import '../services/download_service.dart';
 
 import '../utils/welcome_manager.dart';
 
@@ -64,6 +65,7 @@ class _BrowserViewState extends State<BrowserView> {
                       ? UserPreferredContentMode.DESKTOP
                       : UserPreferredContentMode.MOBILE),
               useHybridComposition: true,
+              useOnDownloadStart: true,
             ),
             initialUserScripts:
                 UnmodifiableListView<UserScript>(initialScripts),
@@ -329,6 +331,37 @@ class _BrowserViewState extends State<BrowserView> {
                       ? JsPromptResponseAction.CONFIRM
                       : JsPromptResponseAction.CANCEL,
                   value: result);
+            },
+            onDownloadStartRequest: (controller, downloadStartRequest) async {
+              final url = downloadStartRequest.url.toString();
+              final suggestedFilename = downloadStartRequest.suggestedFilename;
+
+              // 显示开始下载提示
+              if (context.mounted) {
+                DownloadService.showDownloadStarted(
+                  context,
+                  suggestedFilename ?? url.split('/').last,
+                );
+              }
+
+              // 开始下载
+              await DownloadService.downloadFile(
+                url: url,
+                suggestedFilename: suggestedFilename,
+                onProgress: (progress) {
+                  // 进度更新（可扩展显示进度条）
+                },
+                onComplete: (filePath) {
+                  if (context.mounted) {
+                    DownloadService.showDownloadComplete(context, filePath);
+                  }
+                },
+                onError: (error) {
+                  if (context.mounted) {
+                    DownloadService.showDownloadError(context, error);
+                  }
+                },
+              );
             },
           ),
         ],
