@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../providers/browser_provider.dart';
 import '../providers/script_provider.dart';
 import '../models/script.dart';
@@ -358,67 +359,72 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                         browserProvider
                             .toggleDarkMode(!browserProvider.isDarkMode);
                       } else if (value == 'about') {
-                        showDialog(
-                          context: context,
-                          barrierDismissible: true,
-                          builder: (context) => GestureDetector(
-                            onTap: () => Navigator.pop(context),
-                            child: Dialog(
-                              backgroundColor: Colors.transparent,
-                              insetPadding: const EdgeInsets.all(24),
-                              child: GestureDetector(
-                                onTap: () => Navigator.pop(context),
-                                child: Container(
-                                  padding: const EdgeInsets.all(24),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(16),
-                                  ),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      ClipRRect(
-                                        borderRadius: BorderRadius.circular(12),
-                                        child: Image.asset(
-                                          'assets/app_icon.png',
-                                          width: 72,
-                                          height: 72,
+                        // 获取应用版本信息
+                        PackageInfo.fromPlatform().then((packageInfo) {
+                          if (!context.mounted) return;
+                          showDialog(
+                            context: context,
+                            barrierDismissible: true,
+                            builder: (context) => GestureDetector(
+                              onTap: () => Navigator.pop(context),
+                              child: Dialog(
+                                backgroundColor: Colors.transparent,
+                                insetPadding: const EdgeInsets.all(24),
+                                child: GestureDetector(
+                                  onTap: () => Navigator.pop(context),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(24),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        ClipRRect(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          child: Image.asset(
+                                            'assets/app_icon.png',
+                                            width: 72,
+                                            height: 72,
+                                          ),
                                         ),
-                                      ),
-                                      const SizedBox(height: 16),
-                                      const Text(
-                                        'Auok浏览器',
-                                        style: TextStyle(
-                                          fontSize: 20,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.black87,
+                                        const SizedBox(height: 16),
+                                        const Text(
+                                          'Auok浏览器',
+                                          style: TextStyle(
+                                            fontSize: 20,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.black87,
+                                          ),
                                         ),
-                                      ),
-                                      const SizedBox(height: 8),
-                                      const Text(
-                                        'Version 1.0.0',
-                                        style: TextStyle(
-                                          color: Colors.grey,
-                                          fontSize: 14,
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          '版本 ${packageInfo.version}.${packageInfo.buildNumber}',
+                                          style: const TextStyle(
+                                            color: Colors.grey,
+                                            fontSize: 14,
+                                          ),
                                         ),
-                                      ),
-                                      const SizedBox(height: 24),
-                                      const Text(
-                                        '支持自动化的跨平台浏览器\nBy Lin.',
-                                        textAlign: TextAlign.center,
-                                        style: TextStyle(
-                                          color: Colors.black87,
-                                          fontSize: 16,
-                                          height: 1.5,
+                                        const SizedBox(height: 24),
+                                        const Text(
+                                          '支持自动化的跨平台浏览器\nBy Lin.',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            color: Colors.black87,
+                                            fontSize: 16,
+                                            height: 1.5,
+                                          ),
                                         ),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
-                        );
+                          );
+                        });
                       }
                     },
                     itemBuilder: (context) => [
@@ -950,16 +956,16 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                 dropdownColor: Colors.grey[800],
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(
-                  labelText: 'User Agent',
+                  labelText: '用户代理 (User Agent)',
                   labelStyle: TextStyle(color: Colors.white70),
                   enabledBorder: UnderlineInputBorder(
                     borderSide: BorderSide(color: Colors.white38),
                   ),
                 ),
                 items: const [
-                  DropdownMenuItem(value: 'Mobile', child: Text('Mobile')),
-                  DropdownMenuItem(value: 'Desktop', child: Text('Desktop')),
-                  DropdownMenuItem(value: 'Tablet', child: Text('Tablet')),
+                  DropdownMenuItem(value: 'Mobile', child: Text('手机')),
+                  DropdownMenuItem(value: 'Desktop', child: Text('电脑')),
+                  DropdownMenuItem(value: 'Tablet', child: Text('平板')),
                 ],
                 onChanged: (value) {
                   if (value != null) {

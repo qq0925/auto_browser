@@ -34,7 +34,7 @@ class BrowserTab {
   BrowserTab({
     required this.id,
     this.controller,
-    this.title = 'New Tab',
+    this.title = '新标签页',
     this.url = 'about:blank',
     this.isLoading = false,
     this.isExecutingScript = false,

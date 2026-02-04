@@ -253,7 +253,7 @@ class BrowserProvider extends ChangeNotifier {
     final tab = BrowserTab(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       url: initialUrl,
-      title: initialTitle ?? 'New Tab',
+      title: initialTitle ?? '新标签页',
       customName: customName,
       customUserAgent: customUserAgent,
     );

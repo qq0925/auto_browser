@@ -41,6 +41,64 @@ class _BrowserViewState extends State<BrowserView> {
         children: [
           InAppWebView(
             initialUrlRequest: URLRequest(url: WebUri(widget.tab.url)),
+            contextMenu: ContextMenu(
+              menuItems: [
+                ContextMenuItem(
+                  id: 1,
+                  title: "复制",
+                  action: () async {
+                    await widget.tab.controller?.evaluateJavascript(
+                      source: "document.execCommand('copy');",
+                    );
+                  },
+                ),
+                ContextMenuItem(
+                  id: 2,
+                  title: "全选",
+                  action: () async {
+                    await widget.tab.controller?.evaluateJavascript(
+                      source: "document.execCommand('selectAll');",
+                    );
+                  },
+                ),
+                ContextMenuItem(
+                  id: 3,
+                  title: "在新标签页打开",
+                  action: () async {
+                    // 在异步操作前获取 provider
+                    final browserProvider = context.read<BrowserProvider>();
+                    // 获取选中的链接
+                    final linkUrl =
+                        await widget.tab.controller?.evaluateJavascript(
+                      source: """
+                        (function() {
+                          var selection = window.getSelection();
+                          if (selection.rangeCount > 0) {
+                            var range = selection.getRangeAt(0);
+                            var container = range.commonAncestorContainer;
+                            while (container && container.nodeName !== 'A') {
+                              container = container.parentNode;
+                            }
+                            if (container && container.nodeName === 'A') {
+                              return container.href;
+                            }
+                          }
+                          return null;
+                        })();
+                      """,
+                    );
+                    if (linkUrl != null &&
+                        linkUrl.toString().isNotEmpty &&
+                        linkUrl.toString() != 'null') {
+                      browserProvider.addTab(initialUrl: linkUrl.toString());
+                    }
+                  },
+                ),
+              ],
+              settings: ContextMenuSettings(
+                hideDefaultSystemContextMenuItems: true,
+              ),
+            ),
             initialSettings: InAppWebViewSettings(
               isInspectable: true,
               mediaPlaybackRequiresUserGesture: false,
