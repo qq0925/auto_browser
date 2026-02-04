@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'dart:collection';
 import 'package:provider/provider.dart';
@@ -124,6 +125,7 @@ class _BrowserViewState extends State<BrowserView> {
                       : UserPreferredContentMode.MOBILE),
               useHybridComposition: true,
               useOnDownloadStart: true,
+              allowsLinkPreview: false, // 禁用 iOS 链接预览
             ),
             initialUserScripts:
                 UnmodifiableListView<UserScript>(initialScripts),
@@ -154,6 +156,19 @@ class _BrowserViewState extends State<BrowserView> {
 
               // Recording and Night Mode scripts are now in initialUserScripts
               // This ensures they inject at the earliest possible moment
+            },
+            onLongPressHitTestResult: (controller, hitTestResult) async {
+              // 检查是否长按了链接
+              if (hitTestResult.type ==
+                      InAppWebViewHitTestResultType.SRC_ANCHOR_TYPE ||
+                  hitTestResult.type ==
+                      InAppWebViewHitTestResultType.SRC_IMAGE_ANCHOR_TYPE) {
+                final url = hitTestResult.extra;
+                if (url != null && url.isNotEmpty) {
+                  // 显示自定义菜单
+                  _showLinkActionSheet(context, browserProvider, url);
+                }
+              }
             },
             onLoadStart: (controller, url) {
               if (url != null) {
@@ -423,6 +438,110 @@ class _BrowserViewState extends State<BrowserView> {
             },
           ),
         ],
+      ),
+    );
+  }
+
+  /// 显示长按链接的操作菜单
+  void _showLinkActionSheet(
+      BuildContext context, BrowserProvider browserProvider, String url) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        margin: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.grey[900],
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // URL 预览
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.grey[800],
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(16)),
+              ),
+              child: Text(
+                url,
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+              ),
+            ),
+            const Divider(height: 1, color: Colors.grey),
+            // 后台打开
+            _buildLinkActionItem(
+              context,
+              '后台打开',
+              Colors.white,
+              () {
+                Navigator.pop(context);
+                browserProvider.addTab(initialUrl: url);
+                // 不切换到新标签页，保持当前页面
+              },
+            ),
+            const Divider(height: 1, color: Colors.grey),
+            // 新标签打开
+            _buildLinkActionItem(
+              context,
+              '新标签打开',
+              Colors.white,
+              () {
+                Navigator.pop(context);
+                browserProvider.addTab(initialUrl: url);
+                // 切换到新标签页
+                browserProvider
+                    .setCurrentIndex(browserProvider.tabs.length - 1);
+              },
+            ),
+            const Divider(height: 1, color: Colors.grey),
+            // 复制链接
+            _buildLinkActionItem(
+              context,
+              '复制链接',
+              Colors.white,
+              () {
+                Navigator.pop(context);
+                // 复制链接到剪贴板
+                Clipboard.setData(ClipboardData(text: url));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('链接已复制')),
+                );
+              },
+            ),
+            const Divider(height: 1, color: Colors.grey),
+            // 取消
+            _buildLinkActionItem(
+              context,
+              '取消',
+              Colors.red,
+              () => Navigator.pop(context),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLinkActionItem(
+      BuildContext context, String title, Color color, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        width: double.infinity,
+        child: Text(
+          title,
+          style: TextStyle(color: color, fontSize: 18),
+          textAlign: TextAlign.center,
+        ),
       ),
     );
   }

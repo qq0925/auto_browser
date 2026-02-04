@@ -68,6 +68,51 @@ class _UrlSearchOverlayState extends State<UrlSearchOverlay> {
             textInputAction: TextInputAction.go,
             autocorrect: false,
             enableSuggestions: false,
+            contextMenuBuilder: (context, editableTextState) {
+              final List<ContextMenuButtonItem> buttonItems = [];
+              // 剪切
+              if (editableTextState.cutEnabled) {
+                buttonItems.add(ContextMenuButtonItem(
+                  label: '剪切',
+                  onPressed: () {
+                    editableTextState
+                        .cutSelection(SelectionChangedCause.toolbar);
+                  },
+                ));
+              }
+              // 复制
+              if (editableTextState.copyEnabled) {
+                buttonItems.add(ContextMenuButtonItem(
+                  label: '复制',
+                  onPressed: () {
+                    editableTextState
+                        .copySelection(SelectionChangedCause.toolbar);
+                  },
+                ));
+              }
+              // 粘贴
+              if (editableTextState.pasteEnabled) {
+                buttonItems.add(ContextMenuButtonItem(
+                  label: '粘贴',
+                  onPressed: () {
+                    editableTextState.pasteText(SelectionChangedCause.toolbar);
+                  },
+                ));
+              }
+              // 全选
+              if (editableTextState.selectAllEnabled) {
+                buttonItems.add(ContextMenuButtonItem(
+                  label: '全选',
+                  onPressed: () {
+                    editableTextState.selectAll(SelectionChangedCause.toolbar);
+                  },
+                ));
+              }
+              return AdaptiveTextSelectionToolbar.buttonItems(
+                anchors: editableTextState.contextMenuAnchors,
+                buttonItems: buttonItems,
+              );
+            },
             decoration: const InputDecoration(
               hintText: '输入网址或搜索...',
               hintStyle: TextStyle(color: Colors.white54),
