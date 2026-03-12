@@ -139,6 +139,9 @@ class _BrowserViewState extends State<BrowserView> {
               useHybridComposition: true,
               useOnDownloadStart: true,
               allowsLinkPreview: false, // 禁用 iOS 链接预览
+              supportZoom: true,
+              builtInZoomControls: true,
+              displayZoomControls: false,
             ),
             initialUserScripts:
                 UnmodifiableListView<UserScript>(initialScripts),
