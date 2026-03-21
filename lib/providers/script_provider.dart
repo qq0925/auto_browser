@@ -286,13 +286,20 @@ class ScriptProvider extends ChangeNotifier {
 
     switch (type) {
       case '点击文字':
-        // Now only records link clicks (improved detection in JS)
+        // Parse text and selection index if provided
+        final parts = content.split('|');
+        final text = parts[0];
+        final selectionIndex = parts.length > 1 ? (int.tryParse(parts[1]) ?? 1) : 1;
+        
         addScript(Script(
           type: '点击文字',
-          params: {'点击文本': content},
+          params: {
+            '点击文本': text,
+            if (selectionIndex != 1) '多个筛选': selectionIndex
+          },
           isEnabled: true,
         ));
-        _lastRecordedActionController.add('点击文字: $content');
+        _lastRecordedActionController.add('点击文字: $text${selectionIndex != 1 ? ' (第$selectionIndex个)' : ''}');
         break;
 
       case '点击提交按钮':
@@ -836,6 +843,24 @@ class ScriptProvider extends ChangeNotifier {
           return;
         }
 
+        // Helper function to figure out the 1-based index of the target
+        function getSelectionIndex(clickedElement, text) {
+           const allElements = Array.from(document.querySelectorAll('*')).filter(el => {
+             const tag = el.tagName.toLowerCase();
+             return !['html', 'head', 'style', 'script', 'meta', 'link', 'noscript', 'title', 'body'].includes(tag);
+           });
+           let matchedLinks = allElements.filter(el => {
+             const elText = el.innerText || el.textContent || el.value || '';
+             return elText.includes(text);
+           });
+           matchedLinks = matchedLinks.filter(el => {
+             return !matchedLinks.some(otherEl => otherEl !== el && el.contains(otherEl));
+           });
+           
+           let index = matchedLinks.findIndex(el => el === clickedElement || el.contains(clickedElement) || clickedElement.contains(el));
+           return index !== -1 ? index + 1 : 1;
+        }
+
         // Priority 2: Links and Text
         // Relaxed check: Any element with text that looks like a link or button
         let linkElement = target.closest('a');
@@ -843,7 +868,8 @@ class ScriptProvider extends ChangeNotifier {
           let linkText = linkElement.innerText || linkElement.textContent || '';
           linkText = linkText.trim();
           if (linkText) {
-            postMessage('点击文字|' + linkText);
+            let idx = getSelectionIndex(linkElement, linkText);
+            postMessage('点击文字|' + linkText + '|' + idx);
             return;
           }
         }
@@ -854,7 +880,8 @@ class ScriptProvider extends ChangeNotifier {
            let btnText = roleBtn.innerText || roleBtn.textContent || '';
            btnText = btnText.trim();
            if (btnText) {
-             postMessage('点击文字|' + btnText);
+             let idx = getSelectionIndex(roleBtn, btnText);
+             postMessage('点击文字|' + btnText + '|' + idx);
              return;
            }
         }
@@ -867,9 +894,8 @@ class ScriptProvider extends ChangeNotifier {
            text = text.trim();
            // Limit length and ensure it's not a huge block of text
            if (text.length > 0 && text.length < 50) {
-              // Check if it looks interactive?
-              // For now, if the user clicked it, and it's short text, record it.
-              postMessage('点击文字|' + text);
+              let idx = getSelectionIndex(target, text);
+              postMessage('点击文字|' + text + '|' + idx);
               return;
            }
         }

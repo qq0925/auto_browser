@@ -205,6 +205,21 @@ class ScriptExecutor {
               controller, script, onStatusChanged);
           break;
 
+        case "滑动页面":
+          result = await _executeScrollPage(
+              controller, script, onStatusChanged);
+          break;
+
+        case "等待文字出现":
+          result = await _executeWaitForText(
+              controller, script, onStatusChanged);
+          break;
+
+        case "提取文字":
+          result = await _executeExtractText(
+              controller, script, onStatusChanged);
+          break;
+
         default:
           result = true;
           break;
@@ -441,9 +456,9 @@ class ScriptExecutor {
         if (!hasText) return false;
       }
       
-      // Target text to click
-      const clickText = "${params['点击文本'] ?? ''}".trim();
-      if (!clickText) return false;
+      // Target texts to click
+      const clickTexts = "${params['点击文本'] ?? ''}".split(';').map(t => t.trim()).filter(t => t);
+      if (clickTexts.length === 0) return false;
 
       // Get all reasonable elements
       const allElements = Array.from(document.querySelectorAll('*')).filter(el => {
@@ -455,11 +470,14 @@ class ScriptExecutor {
       let matchedLinks = allElements.filter(el => {
         const text = el.innerText || el.textContent || el.value || '';
         const exactMatch = ${params['完全匹配'] ?? false};
-        if (exactMatch) {
-          return text.trim() === clickText;
-        } else {
-          return text.includes(clickText);
-        }
+        
+        return clickTexts.some(cText => {
+          if (exactMatch) {
+            return text.trim() === cText;
+          } else {
+            return text.includes(cText);
+          }
+        });
       });
       
       // Keep only the deepest elements to avoid clicking large container wrappers
@@ -1089,6 +1107,9 @@ class ScriptExecutor {
           return nodes;
         }
 
+        var clickTexts = "$clickText".split(';').map(t => t.trim()).filter(t => t);
+        if (clickTexts.length === 0) return "not_found";
+
         var allElements = Array.from(document.querySelectorAll('*')).filter(el => {
           const tag = el.tagName.toLowerCase();
           return !['html', 'head', 'style', 'script', 'meta', 'link', 'noscript', 'title', 'body'].includes(tag);
@@ -1096,7 +1117,7 @@ class ScriptExecutor {
 
         var elements = allElements.filter(el => {
           const text = el.innerText || el.textContent || el.value || '';
-          return text.includes("$clickText");
+          return clickTexts.some(cText => text.includes(cText));
         });
 
         // Keep only the deepest elements
@@ -1191,6 +1212,136 @@ class ScriptExecutor {
       return true; // Execution successful, just condition not met
     } else {
       onStatusChanged?.call(ScriptStatus.failure, '未知错误: $result', null);
+      return false;
+    }
+  }
+
+  Future<bool> _executeScrollPage(
+      InAppWebViewController controller,
+      Script script,
+      Function(ScriptStatus status, String? message, double? progress)?
+          onStatusChanged) async {
+    final params = script.params;
+    final direction = params['方向'] as String? ?? '向下';
+    final distance = params['距离'] as int? ?? 500;
+
+    String jsCode = '';
+    switch (direction) {
+      case '向上':
+        jsCode = 'window.scrollBy(0, -$distance);';
+        break;
+      case '向下':
+        jsCode = 'window.scrollBy(0, $distance);';
+        break;
+      case '到顶':
+        jsCode = 'window.scrollTo(0, 0);';
+        break;
+      case '到底':
+        jsCode = 'window.scrollTo(0, document.body.scrollHeight);';
+        break;
+      default:
+        jsCode = 'window.scrollBy(0, $distance);';
+    }
+
+    try {
+      await controller.evaluateJavascript(source: jsCode);
+      return true;
+    } catch (e) {
+      debugPrint('Scroll error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> _executeWaitForText(
+      InAppWebViewController controller,
+      Script script,
+      Function(ScriptStatus status, String? message, double? progress)?
+          onStatusChanged) async {
+    final params = script.params;
+    final targetText = params['出现文字'] as String? ?? '';
+    final timeoutSeconds = params['超时时间'] as int? ?? 10;
+
+    if (targetText.isEmpty) {
+      onStatusChanged?.call(ScriptStatus.failure, '未指定等待文字', null);
+      return false;
+    }
+
+    int elapsedSeconds = 0;
+    while (elapsedSeconds < timeoutSeconds) {
+      double progress = elapsedSeconds / timeoutSeconds;
+      onStatusChanged?.call(ScriptStatus.waiting, '等待文字 "$targetText" ($elapsedSeconds/${timeoutSeconds}s)...', progress);
+
+      final jsCode = '''
+        (function() {
+          try {
+            const bodyText = document.body.innerText || document.body.textContent;
+            return bodyText.includes("${targetText.replaceAll('"', '\\\\"')}");
+          } catch(e) {
+            return false;
+          }
+        })();
+      ''';
+
+      final result = await controller.evaluateJavascript(source: jsCode);
+      if (result.toString() == 'true') {
+        onStatusChanged?.call(ScriptStatus.success, '文字已出现', 1.0);
+        return true;
+      }
+
+      await Future.delayed(const Duration(seconds: 1));
+      elapsedSeconds++;
+    }
+
+    onStatusChanged?.call(ScriptStatus.failure, '等待超时，文字未出现', null);
+    return false;
+  }
+
+  Future<bool> _executeExtractText(
+      InAppWebViewController controller,
+      Script script,
+      Function(ScriptStatus status, String? message, double? progress)?
+          onStatusChanged) async {
+    final params = script.params;
+    final selector = params['CSS选择器'] as String? ?? '';
+    final attribute = params['属性'] as String? ?? 'text'; // 'text', 'html', or attribute name
+
+    if (selector.isEmpty) {
+      onStatusChanged?.call(ScriptStatus.failure, '未指定CSS选择器', null);
+      return false;
+    }
+
+    final jsCode = '''
+      (function() {
+        try {
+          const el = document.querySelector("${selector.replaceAll('"', '\\\\"')}");
+          if (!el) return null;
+          
+          if ("$attribute" === "text") {
+            return el.innerText || el.textContent;
+          } else if ("$attribute" === "html") {
+            return el.innerHTML;
+          } else {
+            return el.getAttribute("$attribute");
+          }
+        } catch(e) {
+          return null;
+        }
+      })();
+    ''';
+
+    try {
+      final result = await controller.evaluateJavascript(source: jsCode);
+      if (result != null) {
+        final extractedValue = result.toString();
+        // Displaying as a notification status so the user can see it
+        onStatusChanged?.call(ScriptStatus.notification, '提取结果: $extractedValue', null);
+        return true;
+      } else {
+        onStatusChanged?.call(ScriptStatus.failure, '未找到元素或属性为空', null);
+        return false;
+      }
+    } catch (e) {
+      debugPrint('Extract text error: $e');
       return false;
     }
   }
