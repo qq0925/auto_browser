@@ -407,7 +407,7 @@ class ScriptExecutor {
 
   Future<bool> _executeCustomJs(
       InAppWebViewController controller, Script script) async {
-    final jsContent = script.params['js内容'] ?? '';
+    final jsContent = script.params['js内容'] ?? script.params['代码'] ?? '';
     if (jsContent.isEmpty) return true; // Empty script considered success
 
     try {
@@ -445,9 +445,11 @@ class ScriptExecutor {
       const clickText = "${params['点击文本'] ?? ''}".trim();
       if (!clickText) return false;
 
-      // Get all links/buttons/clickable elements
-      // We prioritize 'a' tags but also check buttons and inputs
-      const allElements = Array.from(document.querySelectorAll('a, button, input[type="submit"], input[type="button"], div[role="button"], span[role="button"]'));
+      // Get all reasonable elements
+      const allElements = Array.from(document.querySelectorAll('*')).filter(el => {
+        const tag = el.tagName.toLowerCase();
+        return !['html', 'head', 'style', 'script', 'meta', 'link', 'noscript', 'title', 'body'].includes(tag);
+      });
       
       // Filter by text content
       let matchedLinks = allElements.filter(el => {
@@ -458,6 +460,11 @@ class ScriptExecutor {
         } else {
           return text.includes(clickText);
         }
+      });
+      
+      // Keep only the deepest elements to avoid clicking large container wrappers
+      matchedLinks = matchedLinks.filter(el => {
+          return !matchedLinks.some(otherEl => otherEl !== el && el.contains(otherEl));
       });
 
       // Filter by position constraints if specified
@@ -1082,10 +1089,20 @@ class ScriptExecutor {
           return nodes;
         }
 
-        var elements = [];
-        // Simple text match (contains)
-        var xpath = "//*[contains(text(), '" + "$clickText" + "')]";
-        elements = getAllElementsByXpath(xpath);
+        var allElements = Array.from(document.querySelectorAll('*')).filter(el => {
+          const tag = el.tagName.toLowerCase();
+          return !['html', 'head', 'style', 'script', 'meta', 'link', 'noscript', 'title', 'body'].includes(tag);
+        });
+
+        var elements = allElements.filter(el => {
+          const text = el.innerText || el.textContent || el.value || '';
+          return text.includes("$clickText");
+        });
+
+        // Keep only the deepest elements
+        elements = elements.filter(el => {
+          return !elements.some(otherEl => otherEl !== el && el.contains(otherEl));
+        });
 
         // Filter by 'afterSearch' and 'beforeSearch' if provided
         if ("$afterSearch" !== "") {

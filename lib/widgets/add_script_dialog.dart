@@ -174,8 +174,9 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       final params = widget.script!.params;
 
       _delayController.text = (params['执行延迟'] ?? '').toString();
+      _repeatCountController.text = (params['重复次数'] ?? 1).toString();
       _appearTextController.text = params['出现文字'] ?? '';
-      _clickTextController.text = params['点击文本'] ?? '';
+      _clickTextController.text = params['点击文本'] ?? params['图片地址'] ?? '';
       _afterSearchController.text = params['在此之后'] ?? '';
       _beforeSearchController.text = params['在此之前'] ?? '';
       _multipleSelectionController.text = (params['多个筛选'] ?? 1).toString();
@@ -192,7 +193,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       _intervalSecondsController.text = (params['时间间隔-秒'] ?? '').toString();
 
       _urlController.text = params['网址'] ?? '';
-      _customJsController.text = params['代码'] ?? '';
+      _customJsController.text = params['代码'] ?? params['js内容'] ?? '';
       _jsFilePath = params['jsFilePath'];
       if (_selectedScriptType == '间隔时间') {
         _targetScriptPath = params['间隔时间后执行脚本'];
@@ -1281,6 +1282,10 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     // Build params based on script type
     final params = <String, dynamic>{};
 
+    if (_selectedScriptType != '全局设置') {
+      params['重复次数'] = int.tryParse(_repeatCountController.text) ?? 1;
+    }
+
     // Add type-specific params based on JSON structure
     switch (_selectedScriptType) {
       case '全局设置':
@@ -1291,6 +1296,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       case '点击文字':
         if (_clickTextController.text.isEmpty) return;
         params['点击文本'] = _clickTextController.text;
+        params['出现文字'] = _appearTextController.text;
         if (_delayController.text.isNotEmpty) {
           params['执行延迟'] = _convertDelayToMilliseconds();
         }
@@ -1342,6 +1348,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           params['执行延迟'] = _convertDelayToMilliseconds();
         }
         params['代码'] = _customJsController.text;
+        params['js内容'] = _customJsController.text;
         if (_jsFilePath != null) {
           params['jsFilePath'] = _jsFilePath;
         }
