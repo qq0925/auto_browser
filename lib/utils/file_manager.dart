@@ -22,6 +22,38 @@ class FileManager {
     return scriptDirPath;
   }
 
+  /// Get a list of all saved script files (.json)
+  static Future<List<File>> getSavedScripts() async {
+    final scriptDirPath = await getScriptDirectory();
+    final scriptDir = Directory(scriptDirPath);
+    
+    if (!await scriptDir.exists()) {
+      return [];
+    }
+
+    final List<FileSystemEntity> entities = await scriptDir.list().toList();
+    final List<File> scriptFiles = [];
+
+    for (var entity in entities) {
+      if (entity is File && entity.path.toLowerCase().endsWith('.json')) {
+        scriptFiles.add(entity);
+      }
+    }
+
+    // Sort by last modified time (newest first)
+    try {
+      scriptFiles.sort((a, b) {
+        final aStat = a.statSync();
+        final bStat = b.statSync();
+        return bStat.modified.compareTo(aStat.modified);
+      });
+    } catch (_) {
+      // Fallback if statSync fails
+    }
+
+    return scriptFiles;
+  }
+
   /// Check if a file exists at the given path
   static Future<bool> fileExists(String? filePath) async {
     if (filePath == null || filePath.isEmpty) {

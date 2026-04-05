@@ -871,51 +871,122 @@ class RightScriptPanel extends StatelessWidget {
   Future<void> _handleLoadScript(
       BuildContext context, ScriptProvider scriptProvider) async {
     try {
-      // Get default script directory
-      final String defaultDir = await FileManager.getScriptDirectory();
+      final savedScripts = await FileManager.getSavedScripts();
 
-      // Let user pick a JSON file
-      // Note: initialDirectory is not supported on Android, so we only use it on iOS
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        dialogTitle: '选择脚本文件',
-        type: FileType.any,
-        initialDirectory: Platform.isIOS ? defaultDir : null,
-      );
+      if (!context.mounted) return;
 
-      if (result == null || result.files.single.path == null) return;
+      await showDialog(
+        context: context,
+        builder: (context) => StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF2C2C2C),
+              title: const Text('选择脚本', style: TextStyle(color: Colors.white)),
+              content: SizedBox(
+                width: double.maxFinite,
+                height: 300,
+                child: savedScripts.isEmpty
+                    ? const Center(
+                        child: Text(
+                          '暂无保存的脚本',
+                          style: TextStyle(color: Colors.white54),
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: savedScripts.length,
+                        itemBuilder: (context, index) {
+                          final file = savedScripts[index];
+                          final fileName = path.basename(file.path);
+                          return ListTile(
+                            title: Text(
+                              fileName,
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () async {
+                                await FileManager.deleteFile(file.path);
+                                setState(() {
+                                  savedScripts.removeAt(index);
+                                });
+                              },
+                            ),
+                            onTap: () {
+                              Navigator.pop(context, file.path);
+                            },
+                          );
+                        },
+                      ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('取消', style: TextStyle(color: Colors.white54)),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context, 'import_external');
+                  },
+                  child: const Text('从外部文件导入...', style: TextStyle(color: Colors.blue)),
+                ),
+              ],
+            );
+          },
+        ),
+      ).then((result) async {
+        if (result == null) return;
+        
+        String? filePath;
 
-      final filePath = result.files.single.path!;
-      if (!filePath.toLowerCase().endsWith('.json')) {
+        if (result == 'import_external') {
+          // Get default script directory
+          final String defaultDir = await FileManager.getScriptDirectory();
+
+          // Let user pick a JSON file
+          // Note: initialDirectory is not supported on Android, so we only use it on iOS
+          FilePickerResult? pickResult = await FilePicker.platform.pickFiles(
+            dialogTitle: '选择脚本文件',
+            type: FileType.any,
+            initialDirectory: Platform.isIOS ? defaultDir : null,
+          );
+
+          if (pickResult == null || pickResult.files.single.path == null) return;
+          filePath = pickResult.files.single.path!;
+        } else {
+          filePath = result as String;
+        }
+
+        if (!filePath.toLowerCase().endsWith('.json')) {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('请选择 .json 格式的脚本文件'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+          return;
+        }
+
+        final file = File(filePath);
+        final content = await file.readAsString();
+
+        // Import script
+        scriptProvider.importScript(content);
+
+        // Update file path for this tab
+        scriptProvider.updateScriptFilePath(filePath);
+
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('请选择 .json 格式的脚本文件'),
-              backgroundColor: Colors.orange,
+            SnackBar(
+              content: Text('已加载: ${path.basename(filePath)}'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
             ),
           );
         }
-        return;
-      }
-      final file = File(filePath);
-
-      // Read file content
-      final content = await file.readAsString();
-
-      // Import script
-      scriptProvider.importScript(content);
-
-      // Update file path for this tab
-      scriptProvider.updateScriptFilePath(filePath);
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('已加载: ${path.basename(filePath)}'),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
+      });
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
