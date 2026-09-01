@@ -110,7 +110,7 @@ class _GlobalSettingsDialogState extends State<GlobalSettingsDialog> {
                     items: const [
                       DropdownMenuItem(value: '毫秒', child: Text('毫秒')),
                       DropdownMenuItem(value: '秒', child: Text('秒')),
-                      DropdownMenuItem(value: '分', child: Text('分')),
+                      DropdownMenuItem(value: '分钟', child: Text('分钟')),
                     ],
                     onChanged: (value) {
                       if (value != null) {

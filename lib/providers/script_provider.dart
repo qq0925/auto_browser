@@ -7,6 +7,7 @@ import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../models/browser_tab.dart';
 
 class ScriptProvider extends ChangeNotifier {
@@ -21,31 +22,40 @@ class ScriptProvider extends ChangeNotifier {
   }
 
   Future<void> _init() async {
-    // Initialize Local Notifications
-    const AndroidInitializationSettings initializationSettingsAndroid =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
-    final DarwinInitializationSettings initializationSettingsDarwin =
-        DarwinInitializationSettings();
-    final LinuxInitializationSettings initializationSettingsLinux =
-        LinuxInitializationSettings(defaultActionName: 'Open notification');
-    final InitializationSettings initializationSettings =
-        InitializationSettings(
-      android: initializationSettingsAndroid,
-      iOS: initializationSettingsDarwin,
-      macOS: initializationSettingsDarwin,
-      linux: initializationSettingsLinux,
-    );
-    await _flutterLocalNotificationsPlugin.initialize(initializationSettings);
+    if (Platform.isWindows) {
+      // Windows 平台使用本地日志，跳过移动端通知插件初始化
+      return;
+    }
 
-    // Request permissions for iOS
-    final platform =
-        _flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<
-            IOSFlutterLocalNotificationsPlugin>();
-    await platform?.requestPermissions(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
+    try {
+      // Initialize Local Notifications
+      const AndroidInitializationSettings initializationSettingsAndroid =
+          AndroidInitializationSettings('@mipmap/ic_launcher');
+      final DarwinInitializationSettings initializationSettingsDarwin =
+          DarwinInitializationSettings();
+      final LinuxInitializationSettings initializationSettingsLinux =
+          LinuxInitializationSettings(defaultActionName: 'Open notification');
+      final InitializationSettings initializationSettings =
+          InitializationSettings(
+        android: initializationSettingsAndroid,
+        iOS: initializationSettingsDarwin,
+        macOS: initializationSettingsDarwin,
+        linux: initializationSettingsLinux,
+      );
+      await _flutterLocalNotificationsPlugin.initialize(initializationSettings);
+
+      // Request permissions for iOS
+      final platform =
+          _flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<
+              IOSFlutterLocalNotificationsPlugin>();
+      await platform?.requestPermissions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+    } catch (e) {
+      debugPrint('初始化通知插件失败: $e');
+    }
   }
 
   bool _isRecording = false;
@@ -323,13 +333,41 @@ class ScriptProvider extends ChangeNotifier {
         break;
 
       case '点击图片':
-        // Image click from JS with optional src
         addScript(Script(
           type: '点击图片',
-          params: content.isNotEmpty ? {'图片地址': content} : {},
+          params: {
+            '图片地址': content,
+          },
           isEnabled: true,
         ));
-        _lastRecordedActionController.add('点击图片');
+        _lastRecordedActionController.add('点击图片: $content');
+        break;
+
+      case '点击选择器':
+        final parts = content.split('|');
+        final selector = parts[0];
+        final description = parts.length > 1 && parts[1].isNotEmpty
+            ? parts[1]
+            : selector;
+
+        addScript(Script(
+          type: '自定义JS',
+          params: {
+            'js内容': '''
+(function() {
+  const el = document.querySelector(${jsonEncode(selector)});
+  if (el) {
+    el.click();
+    return true;
+  }
+  return false;
+})();
+'''.trim(),
+            '脚本名称': '点击元素 ($description)',
+          },
+          isEnabled: true,
+        ));
+        _lastRecordedActionController.add('点击元素: $description');
         break;
     }
   }
@@ -372,6 +410,11 @@ class ScriptProvider extends ChangeNotifier {
     }
     notifyListeners();
 
+    // 自动化执行期间自动保持屏幕常亮与 CPU 保活
+    try {
+      await WakelockPlus.enable();
+    } catch (_) {}
+
     // Loop execution: 0 means infinite loop, otherwise loop the specified times
     int startScriptIndex = 0;
 
@@ -383,7 +426,7 @@ class ScriptProvider extends ChangeNotifier {
           if (!executingTab.isExecutingScript) break;
 
           // Handle pause
-          while (_isPaused && executingTab.isExecutingScript) {
+          while ((executingTab.isPaused || _isPaused) && executingTab.isExecutingScript) {
             await Future.delayed(const Duration(milliseconds: 100));
           }
 
@@ -564,22 +607,42 @@ class ScriptProvider extends ChangeNotifier {
     executingTab.currentScriptIndex = 0;
     executingTab.executionStack.clear(); // Clear stack
     notifyListeners();
+
+    // 释放屏幕常亮
+    try {
+      await WakelockPlus.disable();
+    } catch (_) {}
   }
 
-  void stopExecution() {
-    if (_currentTab != null) {
-      _currentTab!.isExecutingScript = false;
+  void stopExecution([BrowserTab? tab]) {
+    final targetTab = tab ?? _currentTab;
+    if (targetTab != null) {
+      targetTab.isExecutingScript = false;
+      targetTab.isPaused = false;
     }
     _isPaused = false;
     notifyListeners();
+
+    // 释放屏幕常亮
+    try {
+      WakelockPlus.disable();
+    } catch (_) {}
   }
 
-  void pauseExecution() {
+  void pauseExecution([BrowserTab? tab]) {
+    final targetTab = tab ?? _currentTab;
+    if (targetTab != null) {
+      targetTab.isPaused = true;
+    }
     _isPaused = true;
     notifyListeners();
   }
 
-  void resumeExecution() {
+  void resumeExecution([BrowserTab? tab]) {
+    final targetTab = tab ?? _currentTab;
+    if (targetTab != null) {
+      targetTab.isPaused = false;
+    }
     _isPaused = false;
     notifyListeners();
   }
@@ -593,9 +656,8 @@ class ScriptProvider extends ChangeNotifier {
     jsonList.add({
       '脚本类型': '全局设置',
       '执行延迟': _executionDelay ~/ _delayTimeUnit.multiplier,
-      // Note: User JSON example used '执行延迟' for global delay, assuming unit is implied or standard.
-      // But to be safe and consistent with my internal logic, I'll save what I have.
-      // The user example: "执行延迟": 1000.
+      '时间单位': _delayTimeUnit.label,
+      '循环次数': _originalLoopCount,
     });
 
     for (var script in _currentTab!.scripts) {
@@ -608,6 +670,7 @@ class ScriptProvider extends ChangeNotifier {
   }
 
   Future<void> _showNotification(String title, String body) async {
+    if (Platform.isWindows) return;
     try {
       const AndroidNotificationDetails androidPlatformChannelSpecifics =
           AndroidNotificationDetails(
@@ -618,8 +681,17 @@ class ScriptProvider extends ChangeNotifier {
         priority: Priority.high,
         ticker: 'Script Notification',
       );
-      const NotificationDetails platformChannelSpecifics =
-          NotificationDetails(android: androidPlatformChannelSpecifics);
+      const DarwinNotificationDetails darwinPlatformSpecifics =
+          DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+      const NotificationDetails platformChannelSpecifics = NotificationDetails(
+        android: androidPlatformChannelSpecifics,
+        iOS: darwinPlatformSpecifics,
+        macOS: darwinPlatformSpecifics,
+      );
       await _flutterLocalNotificationsPlugin.show(
         DateTime.now().millisecondsSinceEpoch ~/ 1000,
         title,
@@ -644,16 +716,21 @@ class ScriptProvider extends ChangeNotifier {
         final type = item['脚本类型'];
         if (type == '全局设置') {
           final delay = item['执行延迟'] as int? ?? 1000;
-          // User JSON doesn't explicitly show unit, assuming milliseconds or matching current logic.
-          // If the user JSON implies milliseconds:
-          _executionDelay = delay;
-          // If we want to respect the unit, we might need to infer or default.
-          // Let's assume milliseconds for now as per "执行延迟": 1000 (1 second).
-          _delayTimeUnit = TimeUnit.milliseconds;
+          final unitLabel = item['时间单位'] as String?;
+          if (unitLabel != null) {
+            _delayTimeUnit = TimeUnit.values.firstWhere(
+              (u) => u.label == unitLabel,
+              orElse: () => TimeUnit.milliseconds,
+            );
+            _executionDelay = delay * _delayTimeUnit.multiplier;
+          } else {
+            _delayTimeUnit = TimeUnit.milliseconds;
+            _executionDelay = delay;
+          }
 
-          // User JSON didn't show loop count in global settings example, but if it exists:
           if (item.containsKey('循环次数')) {
-            _originalLoopCount = item['循环次数'] as int;
+            _originalLoopCount = item['循环次数'] as int? ?? 1;
+            _remainingLoopCount = _originalLoopCount;
           }
         } else {
           try {
@@ -670,6 +747,12 @@ class ScriptProvider extends ChangeNotifier {
       // Fallback to old line-by-line format if JSON decode fails
       _importScriptLegacy(content);
     }
+  }
+
+  @override
+  void dispose() {
+    _lastRecordedActionController.close();
+    super.dispose();
   }
 
   void _importScriptLegacy(String content) {
@@ -900,13 +983,48 @@ class ScriptProvider extends ChangeNotifier {
            }
         }
 
-        // Priority 3: Submit Buttons (Fallback if submit event didn't catch it or for non-form buttons)
-        // ... (Existing logic for buttons outside forms?)
-        // Actually, if it's a button click that submits a form, the submit listener handles it.
-        // If it's a button that does JS action (no form), it might be "Click Text" or we need "Click Button"?
-        // The current system maps "Click Text" to finding element by text.
-        // So if a button has text, "Click Text" works fine!
-        
+        // Priority 3: Non-text elements (SVG icons, Icon buttons, font icons)
+        function getCssSelector(el) {
+          if (el.id) return '#' + el.id;
+          let path = [];
+          let current = el;
+          while (current && current.nodeType === 1 && current.tagName.toLowerCase() !== 'body' && current.tagName.toLowerCase() !== 'html') {
+            let selector = current.tagName.toLowerCase();
+            if (current.id) {
+              selector += '#' + current.id;
+              path.unshift(selector);
+              break;
+            } else if (current.className && typeof current.className === 'string') {
+              let classes = current.className.trim().split(new RegExp('\\\\s+')).filter(c => c && !c.includes(':') && !c.startsWith('ng-'));
+              if (classes.length > 0) {
+                selector += '.' + classes.slice(0, 2).join('.');
+              }
+            }
+            let parent = current.parentElement;
+            if (parent) {
+              let siblings = Array.from(parent.children).filter(child => child.tagName === current.tagName);
+              if (siblings.length > 1) {
+                let index = siblings.indexOf(current) + 1;
+                selector += ':nth-of-type(' + index + ')';
+              }
+            }
+            path.unshift(selector);
+            current = parent;
+            if (path.length >= 3) break;
+          }
+          return path.join(' > ');
+        }
+
+        // Check for clickable icon/button elements without text
+        const clickableParent = target.closest('button, [role="button"], a, svg, i, span');
+        const elementToRecord = clickableParent || target;
+        if (elementToRecord.tagName !== 'INPUT' && elementToRecord.tagName !== 'TEXTAREA') {
+          const selector = getCssSelector(elementToRecord);
+          if (selector) {
+            const tagDesc = elementToRecord.tagName.toLowerCase();
+            postMessage('点击选择器|' + selector + '|' + tagDesc);
+          }
+        }
       }, true);
     })();
   ''';

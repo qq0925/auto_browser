@@ -7,8 +7,14 @@ class BrowserSettingsDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode =
+        context.select<BrowserProvider, bool>((p) => p.isDarkMode);
+    final backgroundColor = isDarkMode ? const Color(0xFF1E1E1E) : Colors.white;
+    final textColor = isDarkMode ? Colors.white : Colors.black87;
+    final dividerColor = isDarkMode ? Colors.white24 : Colors.grey.shade300;
+
     return Dialog(
-      backgroundColor: Colors.white,
+      backgroundColor: backgroundColor,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: ConstrainedBox(
         constraints: BoxConstraints(
@@ -21,16 +27,16 @@ class BrowserSettingsDialog extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   '浏览器设置',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
-                    color: Colors.black87,
+                    color: textColor,
                   ),
                 ),
                 const SizedBox(height: 24),
-                _buildSectionTitle('浏览器标识 (UA)'),
+                _buildSectionTitle('浏览器标识 (UA)', textColor),
                 const SizedBox(height: 12),
                 Consumer<BrowserProvider>(
                   builder: (context, provider, child) {
@@ -41,6 +47,7 @@ class BrowserSettingsDialog extends StatelessWidget {
                           '手机 (Mobile)',
                           'Mobile',
                           provider.userAgent,
+                          textColor,
                           (val) => provider.setUserAgent(val!),
                         ),
                         _buildRadioItem(
@@ -48,6 +55,7 @@ class BrowserSettingsDialog extends StatelessWidget {
                           '平板 (Tablet)',
                           'Tablet',
                           provider.userAgent,
+                          textColor,
                           (val) => provider.setUserAgent(val!),
                         ),
                         _buildRadioItem(
@@ -55,30 +63,31 @@ class BrowserSettingsDialog extends StatelessWidget {
                           '电脑 (Desktop)',
                           'Desktop',
                           provider.userAgent,
+                          textColor,
                           (val) => provider.setUserAgent(val!),
                         ),
                       ],
                     );
                   },
                 ),
-                const Divider(height: 32),
-                _buildSectionTitle('显示设置'),
+                Divider(height: 32, color: dividerColor),
+                _buildSectionTitle('显示设置', textColor),
                 const SizedBox(height: 12),
                 Consumer<BrowserProvider>(
                   builder: (context, provider, child) {
                     return Column(
                       children: [
                         SwitchListTile(
-                          title: const Text('夜间模式',
-                              style: TextStyle(color: Colors.black87)),
+                          title: Text('夜间模式',
+                              style: TextStyle(color: textColor)),
                           value: provider.isDarkMode,
                           onChanged: (value) => provider.toggleDarkMode(value),
                           activeColor: Colors.blue,
                           contentPadding: EdgeInsets.zero,
                         ),
                         SwitchListTile(
-                          title: const Text('屏幕常亮',
-                              style: TextStyle(color: Colors.black87)),
+                          title: Text('屏幕常亮',
+                              style: TextStyle(color: textColor)),
                           value: provider.keepScreenOn,
                           onChanged: (value) =>
                               provider.toggleKeepScreenOn(value),
@@ -89,8 +98,8 @@ class BrowserSettingsDialog extends StatelessWidget {
                     );
                   },
                 ),
-                const Divider(height: 32),
-                _buildSectionTitle('搜索引擎'),
+                Divider(height: 32, color: dividerColor),
+                _buildSectionTitle('搜索引擎', textColor),
                 const SizedBox(height: 12),
                 Consumer<BrowserProvider>(
                   builder: (context, provider, child) {
@@ -101,6 +110,7 @@ class BrowserSettingsDialog extends StatelessWidget {
                           '百度 (Baidu)',
                           'Baidu',
                           provider.searchEngine,
+                          textColor,
                           (val) => provider.setSearchEngine(val!),
                         ),
                         _buildRadioItem(
@@ -108,6 +118,7 @@ class BrowserSettingsDialog extends StatelessWidget {
                           '必应 (Bing)',
                           'Bing',
                           provider.searchEngine,
+                          textColor,
                           (val) => provider.setSearchEngine(val!),
                         ),
                         _buildRadioItem(
@@ -115,6 +126,7 @@ class BrowserSettingsDialog extends StatelessWidget {
                           '谷歌 (Google)',
                           'Google',
                           provider.searchEngine,
+                          textColor,
                           (val) => provider.setSearchEngine(val!),
                         ),
                       ],
@@ -147,21 +159,21 @@ class BrowserSettingsDialog extends StatelessWidget {
     );
   }
 
-  Widget _buildSectionTitle(String title) {
+  Widget _buildSectionTitle(String title, Color textColor) {
     return Text(
       title,
-      style: const TextStyle(
+      style: TextStyle(
         fontSize: 16,
         fontWeight: FontWeight.bold,
-        color: Colors.black87,
+        color: textColor,
       ),
     );
   }
 
   Widget _buildRadioItem(BuildContext context, String label, String value,
-      String groupValue, ValueChanged<String?> onChanged) {
+      String groupValue, Color textColor, ValueChanged<String?> onChanged) {
     return RadioListTile<String>(
-      title: Text(label, style: const TextStyle(color: Colors.black87)),
+      title: Text(label, style: TextStyle(color: textColor)),
       value: value,
       groupValue: groupValue,
       onChanged: onChanged,

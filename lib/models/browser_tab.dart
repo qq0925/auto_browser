@@ -9,6 +9,7 @@ class BrowserTab {
   String url; // 网页URL
   bool isLoading; // 加载状态
   bool isExecutingScript; // 是否正在执行脚本
+  bool isPaused = false; // 是否处于暂停状态
   int currentScriptIndex = 0; // 当前执行的脚本索引
   int successCount = 0; // 成功执行的脚本计数
   int failureCount = 0; // 失败执行的脚本计数
@@ -38,6 +39,7 @@ class BrowserTab {
     this.url = 'about:blank',
     this.isLoading = false,
     this.isExecutingScript = false,
+    this.isPaused = false,
     this.progress = 0.0,
     this.customName,
     this.customUserAgent,

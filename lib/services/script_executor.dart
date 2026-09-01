@@ -8,6 +8,7 @@ import 'dart:math';
 import '../models/script.dart';
 import '../providers/browser_provider.dart';
 import '../providers/script_provider.dart';
+import 'cookie_service.dart';
 
 class ScriptExecutor {
   // Execute a script on the given controller
@@ -69,160 +70,22 @@ class ScriptExecutor {
         }
       }
 
-      switch (script.type) {
-        case "点击文字":
-          result = await _executeClickScript(controller, script);
-          break;
-        case "输入框提交":
-          result = await _executeFormSubmit(controller, script);
-          break;
-        case "间隔时间":
-          result =
-              await _executeIntervalScript(controller, script, onStatusChanged);
-          break;
-        case "自定义JS":
-          result = await _executeCustomJs(controller, script);
-          break;
-        case "进入网址":
-          result = await _executeNavigate(controller, script);
-          break;
-        case "点击图片":
-          result = await _executeClickImage(controller, script);
-          break;
-        case "刷新网页":
-          await controller.reload();
-          result = true;
-          break;
-        case "网页后退":
-          result = await controller.canGoBack();
-          if (result) await controller.goBack();
-          break;
-        case "网页前进":
-          result = await controller.canGoForward();
-          if (result) await controller.goForward();
-          break;
-        case "脚本停止":
-          onStatusChanged?.call(ScriptStatus.stopped, '脚本已停止', null);
-          return true; // Return true to indicate successful execution of the "stop" command itself
-        case "脚本暂停":
-          onStatusChanged?.call(ScriptStatus.paused, '脚本已暂停', null);
-          return true;
-        case "脚本替换":
-          if (script.targetScriptPath != null) {
-            onStatusChanged?.call(
-                ScriptStatus.replaced, script.targetScriptPath, null);
-            return true;
-          } else {
-            onStatusChanged?.call(ScriptStatus.failure, '未指定替换脚本集', null);
-            return false;
-          }
-        case "执行本地脚本集":
-          if (script.targetScriptPath != null) {
-            onStatusChanged?.call(
-                ScriptStatus.callSubroutine, script.targetScriptPath, null);
-            return true;
-          } else {
-            onStatusChanged?.call(ScriptStatus.failure, '未指定脚本集', null);
-            return false;
-          }
-        case "通知栏提醒":
-          if (script.params['提醒内容'] != null) {
-            onStatusChanged?.call(
-                ScriptStatus.notification, script.params['提醒内容'], null);
-            return true;
-          } else {
-            onStatusChanged?.call(ScriptStatus.failure, '未指定提醒内容', null);
-            return false;
-          }
-        case "延时脚本":
-          // Delay is handled by the common logic at the beginning of the loop
-          return true;
-
-        case "控制脚本开关":
-          if (scripts != null) {
-            final indicesStr = script.params['脚本序号'] as String?;
-            final action = script.params['开关动作'] as String?; // '禁用', '启用', '反相'
-
-            if (indicesStr != null && action != null) {
-              final indices = indicesStr
-                  .split(' ')
-                  .map((e) => int.tryParse(e))
-                  .where((e) => e != null)
-                  .cast<int>()
-                  .toList();
-
-              for (var index in indices) {
-                // User input is 1-based, convert to 0-based
-                final listIndex = index - 1;
-                if (listIndex >= 0 && listIndex < scripts.length) {
-                  final targetScript = scripts[listIndex];
-                  switch (action) {
-                    case '禁用':
-                      targetScript.isEnabled = false;
-                      break;
-                    case '启用':
-                      targetScript.isEnabled = true;
-                      break;
-                    case '反相':
-                      targetScript.isEnabled = !targetScript.isEnabled;
-                      break;
-                  }
-                }
-              }
-              onStatusChanged?.call(ScriptStatus.success,
-                  '已更新脚本状态: $indicesStr -> $action', null);
-              return true;
-            }
-          }
-          onStatusChanged?.call(ScriptStatus.failure, '控制脚本开关参数错误', null);
-          return false;
-
-        case "逻辑脚本-出现文字":
-          result = await _executeLogicScriptAppearText(
-              controller, script, onStatusChanged);
-          break;
-
-        case "逻辑脚本-时间对比":
-          result = await _executeLogicScriptTimeComparison(
-              controller, script, onStatusChanged);
-          break;
-
-        case "逻辑脚本-数值对比":
-          result = await _executeLogicScriptValueComparison(
-              controller, script, onStatusChanged);
-          break;
-
-        case "新建窗口并执行脚本":
-          result = await _executeNewWindowScript(script, onStatusChanged);
-          break;
-
-        case "跳转脚本":
-          result = await _executeJumpScript(script, onStatusChanged);
-          break;
-
-        case "数值对比-点击文字":
-          result = await _executeValueComparisonClickText(
-              controller, script, onStatusChanged);
-          break;
-
-        case "滑动页面":
-          result = await _executeScrollPage(
-              controller, script, onStatusChanged);
-          break;
-
-        case "等待文字出现":
-          result = await _executeWaitForText(
-              controller, script, onStatusChanged);
-          break;
-
-        case "提取文字":
-          result = await _executeExtractText(
-              controller, script, onStatusChanged);
-          break;
-
-        default:
-          result = true;
-          break;
+      // 脚本看门狗超时（默认 30 秒，可在参数中自定义）
+      final timeoutSeconds = script.params['超时时间'] as int? ?? 30;
+      try {
+        result = await _executeSingleStep(
+          controller,
+          script,
+          onStatusChanged,
+          scripts,
+        ).timeout(Duration(seconds: timeoutSeconds));
+      } on TimeoutException {
+        onStatusChanged?.call(
+            ScriptStatus.failure, '脚本执行超时 ($timeoutSeconds 秒)', null);
+        result = false;
+      } catch (e) {
+        onStatusChanged?.call(ScriptStatus.failure, '脚本执行异常: $e', null);
+        result = false;
       }
 
       // Execute "After" Script
@@ -256,6 +119,244 @@ class ScriptExecutor {
     return success;
   }
 
+  Future<bool> _executeSingleStep(
+    InAppWebViewController controller,
+    Script script,
+    Function(ScriptStatus status, String? message, double? progress)?
+        onStatusChanged,
+    List<Script>? scripts,
+  ) async {
+    switch (script.type) {
+      case "点击文字":
+        return await _executeClickScript(controller, script);
+      case "输入框提交":
+        return await _executeFormSubmit(controller, script);
+      case "间隔时间":
+        return await _executeIntervalScript(
+            controller, script, onStatusChanged);
+      case "自定义JS":
+        return await _executeCustomJs(controller, script);
+      case "进入网址":
+        return await _executeNavigate(controller, script);
+      case "点击图片":
+        return await _executeClickImage(controller, script);
+      case "刷新网页":
+        await controller.reload();
+        return true;
+      case "网页后退":
+        final canBack = await controller.canGoBack();
+        if (canBack) await controller.goBack();
+        return true;
+      case "网页前进":
+        final canForward = await controller.canGoForward();
+        if (canForward) await controller.goForward();
+        return true;
+      case "脚本停止":
+        onStatusChanged?.call(ScriptStatus.stopped, '脚本已停止', null);
+        return true;
+      case "脚本暂停":
+        onStatusChanged?.call(ScriptStatus.paused, '脚本已暂停', null);
+        return true;
+      case "脚本替换":
+        if (script.targetScriptPath != null) {
+          onStatusChanged?.call(
+              ScriptStatus.replaced, script.targetScriptPath, null);
+          return true;
+        } else {
+          onStatusChanged?.call(ScriptStatus.failure, '未指定替换脚本集', null);
+          return false;
+        }
+      case "执行本地脚本集":
+        if (script.targetScriptPath != null) {
+          onStatusChanged?.call(
+              ScriptStatus.callSubroutine, script.targetScriptPath, null);
+          return true;
+        } else {
+          onStatusChanged?.call(ScriptStatus.failure, '未指定脚本集', null);
+          return false;
+        }
+      case "通知栏提醒":
+        if (script.params['提醒内容'] != null) {
+          onStatusChanged?.call(
+              ScriptStatus.notification, script.params['提醒内容'], null);
+          return true;
+        } else {
+          onStatusChanged?.call(ScriptStatus.failure, '未指定提醒内容', null);
+          return false;
+        }
+      case "延时脚本":
+        return true;
+
+      case "控制脚本开关":
+        if (scripts != null) {
+          final indicesStr = script.params['脚本序号'] as String?;
+          final action = script.params['开关动作'] as String?;
+
+          if (indicesStr != null && action != null) {
+            final indices = indicesStr
+                .split(' ')
+                .map((e) => int.tryParse(e))
+                .where((e) => e != null)
+                .cast<int>()
+                .toList();
+
+            for (var index in indices) {
+              final listIndex = index - 1;
+              if (listIndex >= 0 && listIndex < scripts.length) {
+                final targetScript = scripts[listIndex];
+                switch (action) {
+                  case '禁用':
+                    targetScript.isEnabled = false;
+                    break;
+                  case '启用':
+                    targetScript.isEnabled = true;
+                    break;
+                  case '反相':
+                    targetScript.isEnabled = !targetScript.isEnabled;
+                    break;
+                }
+              }
+            }
+            onStatusChanged?.call(ScriptStatus.success,
+                '已更新脚本状态: $indicesStr -> $action', null);
+            return true;
+          }
+        }
+        onStatusChanged?.call(ScriptStatus.failure, '控制脚本开关参数错误', null);
+        return false;
+
+      case "逻辑脚本-出现文字":
+        return await _executeLogicScriptAppearText(
+            controller, script, onStatusChanged);
+
+      case "逻辑脚本-时间对比":
+        return await _executeLogicScriptTimeComparison(
+            controller, script, onStatusChanged);
+
+      case "逻辑脚本-数值对比":
+        return await _executeLogicScriptValueComparison(
+            controller, script, onStatusChanged);
+
+      case "新建窗口并执行脚本":
+        return await _executeNewWindowScript(script, onStatusChanged);
+
+      case "跳转脚本":
+        return await _executeJumpScript(script, onStatusChanged);
+
+      case "数值对比-点击文字":
+        return await _executeValueComparisonClickText(
+            controller, script, onStatusChanged);
+
+      case "滑动页面":
+        return await _executeScrollPage(controller, script, onStatusChanged);
+
+      case "等待文字出现":
+        return await _executeWaitForText(controller, script, onStatusChanged);
+
+      case "提取文字":
+        return await _executeExtractText(controller, script, onStatusChanged);
+
+      case "设置Cookie":
+        return await _executeSetCookie(controller, script, onStatusChanged);
+
+      case "清除Cookie":
+        return await _executeClearCookie(controller, script, onStatusChanged);
+
+      default:
+        return true;
+    }
+  }
+
+  Future<bool> _executeSetCookie(
+    InAppWebViewController controller,
+    Script script,
+    Function(ScriptStatus status, String? message, double? progress)?
+        onStatusChanged,
+  ) async {
+    try {
+      final url = await controller.getUrl();
+      final urlString = url?.toString() ?? '';
+      if (urlString.isEmpty) {
+        onStatusChanged?.call(ScriptStatus.failure, '无法获取当前页面网址', null);
+        return false;
+      }
+
+      final profileName = script.params['账号存档名称'] as String?;
+      final cookieName = script.params['Cookie名称'] as String?;
+      final cookieValue = script.params['Cookie值'] as String?;
+      final autoReload = script.params['设置后刷新页面'] as bool? ?? true;
+
+      if (profileName != null && profileName.isNotEmpty) {
+        // 通过账号存档切换
+        final success = await CookieService.applyProfile(
+          profileName: profileName,
+          urlString: urlString,
+        );
+        if (!success) {
+          onStatusChanged?.call(
+              ScriptStatus.failure, '未找到或无法应用账号存档: $profileName', null);
+          return false;
+        }
+        onStatusChanged?.call(
+            ScriptStatus.success, '已应用账号存档: $profileName', null);
+      } else if (cookieName != null && cookieName.isNotEmpty) {
+        // 设置单个 Cookie
+        await CookieService.setCookie(
+          urlString: urlString,
+          name: cookieName,
+          value: cookieValue ?? '',
+        );
+        onStatusChanged?.call(
+            ScriptStatus.success, '已设置 Cookie: $cookieName', null);
+      } else {
+        onStatusChanged?.call(
+            ScriptStatus.failure, '未指定账号存档名称或 Cookie 名称', null);
+        return false;
+      }
+
+      if (autoReload) {
+        await controller.reload();
+      }
+      return true;
+    } catch (e) {
+      onStatusChanged?.call(ScriptStatus.failure, '设置 Cookie 异常: $e', null);
+      return false;
+    }
+  }
+
+  Future<bool> _executeClearCookie(
+    InAppWebViewController controller,
+    Script script,
+    Function(ScriptStatus status, String? message, double? progress)?
+        onStatusChanged,
+  ) async {
+    try {
+      final isClearAll = script.params['清除全部站点'] as bool? ?? false;
+      final autoReload = script.params['清除后刷新页面'] as bool? ?? true;
+
+      if (isClearAll) {
+        await CookieService.clearAllCookies();
+        onStatusChanged?.call(ScriptStatus.success, '已清除全部站点 Cookie', null);
+      } else {
+        final url = await controller.getUrl();
+        final urlString = url?.toString() ?? '';
+        if (urlString.isNotEmpty) {
+          await CookieService.clearCookiesForUrl(urlString);
+          onStatusChanged?.call(
+              ScriptStatus.success, '已清除当前站点 Cookie', null);
+        }
+      }
+
+      if (autoReload) {
+        await controller.reload();
+      }
+      return true;
+    } catch (e) {
+      onStatusChanged?.call(ScriptStatus.failure, '清除 Cookie 异常: $e', null);
+      return false;
+    }
+  }
+
   Future<bool> _executeIntervalScript(
       InAppWebViewController controller,
       Script script,
@@ -286,6 +387,24 @@ class ScriptExecutor {
     return true;
   }
 
+  /// 智能微轮询：在指定的容错超时内（默认 3000ms），以 200ms 为间隔轮询目标动作
+  /// 一旦目标元素就绪并执行成功立即返回 true；仅在超时后仍失败才返回 false
+  Future<bool> _pollUntilSuccess(
+    Future<bool> Function() action, {
+    Duration timeout = const Duration(milliseconds: 3000),
+    Duration interval = const Duration(milliseconds: 200),
+  }) async {
+    final stopwatch = Stopwatch()..start();
+    while (stopwatch.elapsed < timeout) {
+      try {
+        final success = await action();
+        if (success) return true;
+      } catch (_) {}
+      await Future.delayed(interval);
+    }
+    return false;
+  }
+
   Future<bool> _executeClickScript(
       InAppWebViewController controller, Script script) async {
     final params = script.getClickParams();
@@ -306,13 +425,14 @@ class ScriptExecutor {
       await Future.delayed(Duration(milliseconds: delay * multiplier));
     }
 
-    final result = await controller.evaluateJavascript(source: '''
-      (function() {
-        ${_buildClickScriptLogic(params)}
-      })();
-    ''');
-
-    return result.toString() == 'true';
+    return await _pollUntilSuccess(() async {
+      final result = await controller.evaluateJavascript(source: '''
+        (function() {
+          ${_buildClickScriptLogic(params)}
+        })();
+      ''');
+      return result.toString() == 'true';
+    });
   }
 
   Future<bool> _executeFormSubmit(
@@ -341,83 +461,94 @@ class ScriptExecutor {
     final jsonFormData = jsonEncode(processedFormData);
     final jsonButtonText = jsonEncode(buttonText);
 
-    final result = await controller.evaluateJavascript(source: '''
-      (function() {
-        try {
-          const formData = $jsonFormData;
-          const buttonText = $jsonButtonText;
-          const multipleSelection = $multipleSelection;
-          let filledCount = 0;
-          
-          // Find target form based on multipleSelection
-          const forms = document.querySelectorAll('form');
-          let targetForm = null;
-          
-          if (forms.length > 0) {
-            if (multipleSelection === 0) {
-              // Random
-              const randomIndex = Math.floor(Math.random() * forms.length);
-              targetForm = forms[randomIndex];
-            } else if (multipleSelection > 0) {
-              // Index (1-based)
-              const index = multipleSelection - 1;
-              if (index < forms.length) targetForm = forms[index];
-            } else {
-              // Reverse Index
-              const index = forms.length + multipleSelection;
-              if (index >= 0) targetForm = forms[index];
-            }
-          }
-          
-          // Helper to find input within scope (form or document)
-          function findInput(fieldName, scope) {
-            return scope.querySelector("[name='" + fieldName + "']") || 
-                   scope.querySelector("#" + fieldName) ||
-                   scope.querySelector("[placeholder='" + fieldName + "']");
-          }
-
-          const scope = targetForm || document;
-
-          for (const [fieldName, value] of Object.entries(formData)) {
-            let input = findInput(fieldName, scope);
+    return await _pollUntilSuccess(() async {
+      final result = await controller.evaluateJavascript(source: '''
+        (function() {
+          try {
+            const formData = $jsonFormData;
+            const buttonText = $jsonButtonText;
+            const multipleSelection = $multipleSelection;
+            let filledCount = 0;
             
-            if (input && input.type !== 'hidden' && input.type !== 'submit') {
-              input.value = value;
-              input.dispatchEvent(new Event('input', { bubbles: true }));
-              input.dispatchEvent(new Event('change', { bubbles: true }));
-              filledCount++;
-            }
-          }
-          
-          if (filledCount > 0) {
-            let submitBtn = null;
-            // Search button within form first, then globally if not found
-            const btnScope = targetForm || document;
-            const buttons = Array.from(btnScope.querySelectorAll('button, input[type="submit"]'));
-            submitBtn = buttons.find(btn => {
-              const text = btn.innerText || btn.textContent || btn.value || '';
-              return text.trim() === buttonText;
-            });
+            // Find target form based on multipleSelection
+            const forms = document.querySelectorAll('form');
+            let targetForm = null;
             
-            if (submitBtn) {
-              submitBtn.click();
-              return true;
-            } else if (targetForm) {
-              // If no button found but form found, try submit()
-              targetForm.submit();
-              return true;
+            if (forms.length > 0) {
+              if (multipleSelection === 0) {
+                // Random
+                const randomIndex = Math.floor(Math.random() * forms.length);
+                targetForm = forms[randomIndex];
+              } else if (multipleSelection > 0) {
+                // Index (1-based)
+                const index = multipleSelection - 1;
+                if (index < forms.length) targetForm = forms[index];
+              } else {
+                // Reverse Index
+                const index = forms.length + multipleSelection;
+                if (index >= 0) targetForm = forms[index];
+              }
             }
-          }
-          
-          return false;
-        } catch (e) {
-          console.error(e);
-          return false;
-        }
-      })();
-    ''');
+            
+            // Helper to find input within scope (form or document)
+            function findInput(fieldName, scope) {
+              return scope.querySelector("[name='" + fieldName + "']") || 
+                     scope.querySelector("#" + fieldName) ||
+                     scope.querySelector("[placeholder='" + fieldName + "']");
+            }
 
-    return result.toString() == 'true';
+            const scope = targetForm || document;
+
+            for (const [fieldName, value] of Object.entries(formData)) {
+              let input = findInput(fieldName, scope);
+              
+              if (input && input.type !== 'hidden' && input.type !== 'submit') {
+                try {
+                  const proto = Object.getPrototypeOf(input);
+                  const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+                  if (setter) {
+                    setter.call(input, value);
+                  } else {
+                    input.value = value;
+                  }
+                } catch (_) {
+                  input.value = value;
+                }
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                filledCount++;
+              }
+            }
+            
+            if (filledCount > 0) {
+              let submitBtn = null;
+              // Search button within form first, then globally if not found
+              const btnScope = targetForm || document;
+              const buttons = Array.from(btnScope.querySelectorAll('button, input[type="submit"]'));
+              submitBtn = buttons.find(btn => {
+                const text = btn.innerText || btn.textContent || btn.value || '';
+                return text.trim() === buttonText;
+              });
+              
+              if (submitBtn) {
+                submitBtn.click();
+                return true;
+              } else if (targetForm) {
+                targetForm.submit();
+                return true;
+              }
+            }
+            
+            return false;
+          } catch (e) {
+            console.error(e);
+            return false;
+          }
+        })();
+      ''');
+
+      return result.toString() == 'true';
+    });
   }
 
   Future<bool> _executeCustomJs(
@@ -445,11 +576,18 @@ class ScriptExecutor {
   }
 
   String _buildClickScriptLogic(Map<String, dynamic> params) {
+    final triggerTextJson = jsonEncode(params['出现文字'] ?? '');
+    final clickTextJson = jsonEncode(params['点击文本'] ?? '');
+    final exactMatch = params['完全匹配'] ?? false;
+    final afterTextJson = jsonEncode(params['在此之后'] ?? '');
+    final beforeTextJson = jsonEncode(params['在此之前'] ?? '');
+    final selectionIndex = params['多个筛选'] ?? 1;
+
     // Unified logic: Always use Expert Mode features with Fuzzy Matching
     return '''
-      const triggerTexts = "${params['出现文字'] ?? ''}".split(';').filter(t => t.trim());
+      const triggerTexts = ($triggerTextJson).split(';').filter(t => t.trim());
       if (triggerTexts.length > 0) {
-        const pageText = document.body.textContent;
+        const pageText = document.body.textContent || '';
         const hasText = triggerTexts.some(text => 
           text && pageText.includes(text.trim())
         );
@@ -457,7 +595,7 @@ class ScriptExecutor {
       }
       
       // Target texts to click
-      const clickTexts = "${params['点击文本'] ?? ''}".split(';').map(t => t.trim()).filter(t => t);
+      const clickTexts = ($clickTextJson).split(';').map(t => t.trim()).filter(t => t);
       if (clickTexts.length === 0) return false;
 
       // Get all reasonable elements
@@ -469,7 +607,7 @@ class ScriptExecutor {
       // Filter by text content
       let matchedLinks = allElements.filter(el => {
         const text = el.innerText || el.textContent || el.value || '';
-        const exactMatch = ${params['完全匹配'] ?? false};
+        const exactMatch = $exactMatch;
         
         return clickTexts.some(cText => {
           if (exactMatch) {
@@ -486,16 +624,13 @@ class ScriptExecutor {
       });
 
       // Filter by position constraints if specified
-      const afterText = "${params['在此之后'] ?? ''}".trim();
-      const beforeText = "${params['在此之前'] ?? ''}".trim();
+      const afterText = ($afterTextJson).trim();
+      const beforeText = ($beforeTextJson).trim();
       
       if (afterText || beforeText) {
         matchedLinks = matchedLinks.filter(link => {
           const linkHTML = link.outerHTML;
           const bodyHTML = document.body.innerHTML;
-          // Use a more robust way to find position if possible, but innerHTML index is a reasonable fallback for now
-          // Note: This is simple string matching on HTML, which can be brittle if HTML structure changes dynamically
-          // A better approach would be traversing the DOM tree, but that's complex to implement in a single injected script.
           const linkPosition = bodyHTML.indexOf(linkHTML);
           
           if (linkPosition === -1) return false;
@@ -510,15 +645,10 @@ class ScriptExecutor {
           
           // Check "在此之前" constraint
           if (beforeText) {
-            // Find the last occurrence of beforeText that is BEFORE the link? 
-            // Or just any occurrence? Usually "Before X" means the link appears before X.
-            // So we need to find an X that is > linkPosition.
             const beforePosition = bodyHTML.indexOf(beforeText, linkPosition);
-             if (beforePosition === -1) {
-               // Try searching from beginning if not found after
-               // But strictly "Before Search" usually implies the search text is further down the page
-               return false;
-             }
+            if (beforePosition === -1) {
+              return false;
+            }
           }
           
           return true;
@@ -528,7 +658,7 @@ class ScriptExecutor {
       if (matchedLinks.length === 0) return false;
 
       // Apply selection index
-      const selectionIndex = ${params['多个筛选'] ?? 1};
+      const selectionIndex = $selectionIndex;
       let targetIndex = 0;
       
       if (selectionIndex === 0) {
@@ -552,15 +682,26 @@ class ScriptExecutor {
     ''';
   }
 
+  String _normalizeUrl(String input) {
+    var url = input.trim();
+    if (url.isEmpty) return '';
+    final lower = url.toLowerCase();
+    if (lower.startsWith('http://') ||
+        lower.startsWith('https://') ||
+        lower.startsWith('file://') ||
+        lower.startsWith('about:') ||
+        lower.startsWith('javascript:') ||
+        lower.startsWith('data:') ||
+        lower.startsWith('blob:')) {
+      return url;
+    }
+    return 'http://$url';
+  }
+
   Future<bool> _executeNavigate(
       InAppWebViewController controller, Script script) async {
-    var url = script.params['网址'] as String? ?? '';
-    if (url.isNotEmpty &&
-        !url.startsWith('http://') &&
-        !url.startsWith('https://') &&
-        !url.startsWith('about:')) {
-      url = 'http://$url';
-    }
+    final rawUrl = script.params['网址'] as String? ?? '';
+    final url = _normalizeUrl(rawUrl);
     if (url.isEmpty) return false;
 
     try {
@@ -579,89 +720,94 @@ class ScriptExecutor {
     final afterText = script.params['在此之后'] as String? ?? '';
     final beforeText = script.params['在此之前'] as String? ?? '';
 
-    // If no specific image src, click first clickable image
-    final result = await controller.evaluateJavascript(source: '''
-      (function() {
-        try {
-          // 1. Find all images
-          let images = Array.from(document.querySelectorAll('img'));
-          
-          // 2. Filter by keyword/src if provided
-          if ('$imageSrc') {
-            const keyword = '$imageSrc'.toLowerCase();
-            images = images.filter(img => {
-              const src = (img.src || '').toLowerCase();
-              const alt = (img.alt || '').toLowerCase();
-              const title = (img.title || '').toLowerCase();
-              return src.includes(keyword) || alt.includes(keyword) || title.includes(keyword);
-            });
-          }
-          
-          // 3. Filter by position (After/Before)
-          const afterText = "$afterText".trim();
-          const beforeText = "$beforeText".trim();
-          
-          if (afterText || beforeText) {
-            const bodyHTML = document.body.innerHTML;
+    final imageSrcJson = jsonEncode(imageSrc);
+    final afterTextJson = jsonEncode(afterText);
+    final beforeTextJson = jsonEncode(beforeText);
+
+    return await _pollUntilSuccess(() async {
+      final result = await controller.evaluateJavascript(source: '''
+        (function() {
+          try {
+            // 1. Find all images
+            let images = Array.from(document.querySelectorAll('img'));
             
-            images = images.filter(img => {
-              const imgHTML = img.outerHTML;
-              const imgPosition = bodyHTML.indexOf(imgHTML);
-              
-              if (imgPosition === -1) return false;
-              
-              if (afterText) {
-                const afterPosition = bodyHTML.indexOf(afterText);
-                if (afterPosition === -1 || imgPosition <= afterPosition) return false;
-              }
-              
-              if (beforeText) {
-                const beforePosition = bodyHTML.indexOf(beforeText, imgPosition);
-                if (beforePosition === -1) return false;
-              }
-              
-              return true;
-            });
-          }
-
-          if (images.length === 0) return false;
-
-          // 4. Apply Multiple Selection Logic
-          const selectionIndex = $multipleSelection;
-          let targetImg = null;
-
-          if (selectionIndex === 0) {
-            // Random
-            const randomIndex = Math.floor(Math.random() * images.length);
-            targetImg = images[randomIndex];
-          } else if (selectionIndex > 0) {
-            // Positive Index (1-based)
-            const index = selectionIndex - 1;
-            if (index < images.length) targetImg = images[index];
-          } else {
-            // Negative Index (-1 means last)
-            const index = images.length + selectionIndex;
-            if (index >= 0) targetImg = images[index];
-          }
-          
-          if (targetImg) {
-            targetImg.click();
-            // Also try clicking parent if image itself isn't clickable but parent is anchor
-            if (!targetImg.onclick && targetImg.parentElement && targetImg.parentElement.tagName === 'A') {
-              targetImg.parentElement.click();
+            // 2. Filter by keyword/src if provided
+            const imageKeyword = ($imageSrcJson).toLowerCase();
+            if (imageKeyword) {
+              images = images.filter(img => {
+                const src = (img.src || '').toLowerCase();
+                const alt = (img.alt || '').toLowerCase();
+                const title = (img.title || '').toLowerCase();
+                return src.includes(imageKeyword) || alt.includes(imageKeyword) || title.includes(imageKeyword);
+              });
             }
-            return true;
-          }
-          
-          return false;
-        } catch (e) {
-          console.error(e);
-          return false;
-        }
-      })();
-    ''');
+            
+            // 3. Filter by position (After/Before)
+            const afterText = ($afterTextJson).trim();
+            const beforeText = ($beforeTextJson).trim();
+            
+            if (afterText || beforeText) {
+              const bodyHTML = document.body.innerHTML;
+              
+              images = images.filter(img => {
+                const imgHTML = img.outerHTML;
+                const imgPosition = bodyHTML.indexOf(imgHTML);
+                
+                if (imgPosition === -1) return false;
+                
+                if (afterText) {
+                  const afterPosition = bodyHTML.indexOf(afterText);
+                  if (afterPosition === -1 || imgPosition <= afterPosition) return false;
+                }
+                
+                if (beforeText) {
+                  const beforePosition = bodyHTML.indexOf(beforeText, imgPosition);
+                  if (beforePosition === -1) return false;
+                }
+                
+                return true;
+              });
+            }
 
-    return result.toString() == 'true';
+            if (images.length === 0) return false;
+
+            // 4. Apply Multiple Selection Logic
+            const selectionIndex = $multipleSelection;
+            let targetImg = null;
+
+            if (selectionIndex === 0) {
+              // Random
+              const randomIndex = Math.floor(Math.random() * images.length);
+              targetImg = images[randomIndex];
+            } else if (selectionIndex > 0) {
+              // Positive Index (1-based)
+              const index = selectionIndex - 1;
+              if (index < images.length) targetImg = images[index];
+            } else {
+              // Negative Index (-1 means last)
+              const index = images.length + selectionIndex;
+              if (index >= 0) targetImg = images[index];
+            }
+            
+            if (targetImg) {
+              targetImg.click();
+              // Also try clicking parent if image itself isn't clickable but parent is anchor
+              if (!targetImg.onclick && targetImg.parentElement && targetImg.parentElement.tagName === 'A') {
+                targetImg.parentElement.click();
+              }
+              return true;
+            }
+            
+            return false;
+          } catch (e) {
+            console.error(e);
+            return false;
+          }
+        })();
+      ''');
+
+      return result.toString() == 'true';
+    });
   }
 
   Future<bool> _executeLogicScriptAppearText(
@@ -677,28 +823,27 @@ class ScriptExecutor {
 
     if (appearText.isEmpty) return false;
 
+    final appearTextJson = jsonEncode(appearText);
+    final afterTextJson = jsonEncode(afterText);
+    final beforeTextJson = jsonEncode(beforeText);
+
     // Check if text exists with constraints
     final result = await controller.evaluateJavascript(source: '''
       (function() {
         try {
-          const targetText = "$appearText".trim();
+          const targetText = ($appearTextJson).trim();
           if (!targetText) return false;
           
           const bodyHTML = document.body.innerHTML;
-          const bodyText = document.body.innerText || document.body.textContent;
+          const bodyText = document.body.innerText || document.body.textContent || '';
           
+          const afterText = ($afterTextJson).trim();
+          const beforeText = ($beforeTextJson).trim();
+
           // Simple check if no constraints
-          if (!"$afterText" && !"$beforeText") {
+          if (!afterText && !beforeText) {
             return bodyText.includes(targetText);
           }
-          
-          // Constraint check
-          const afterText = "$afterText".trim();
-          const beforeText = "$beforeText".trim();
-          
-          // We need to find the target text position
-          // This is a simplified check using indexOf on HTML/Text
-          // For more complex DOM traversal, we'd need a TreeWalker
           
           let searchStartIndex = 0;
           let searchEndIndex = bodyHTML.length;
@@ -708,7 +853,6 @@ class ScriptExecutor {
             if (afterIndex !== -1) {
               searchStartIndex = afterIndex + afterText.length;
             } else {
-              // After text not found, so condition fails
               return false;
             }
           }
@@ -718,7 +862,6 @@ class ScriptExecutor {
             if (beforeIndex !== -1) {
               searchEndIndex = beforeIndex;
             } else {
-              // Before text not found after start index
               return false;
             }
           }
@@ -726,13 +869,9 @@ class ScriptExecutor {
           if (searchStartIndex >= searchEndIndex) return false;
           
           const searchArea = bodyHTML.substring(searchStartIndex, searchEndIndex);
-          // Remove tags to check text content? Or check HTML?
-          // "Appear Text" usually implies visible text.
-          // Let's try to strip tags or just check includes for now.
-          // Stripping tags is safer for "Text" check.
           const tempDiv = document.createElement('div');
           tempDiv.innerHTML = searchArea;
-          const searchAreaText = tempDiv.innerText || tempDiv.textContent;
+          const searchAreaText = tempDiv.innerText || tempDiv.textContent || '';
           
           return searchAreaText.includes(targetText);
         } catch (e) {
@@ -819,12 +958,15 @@ class ScriptExecutor {
     final targetValue = double.tryParse(targetValueStr);
     if (targetValue == null) return false;
 
+    final afterTextJson = jsonEncode(afterText);
+    final beforeTextJson = jsonEncode(beforeText);
+
     final result = await controller.evaluateJavascript(source: '''
       (function() {
         try {
           const bodyHTML = document.body.innerHTML;
-          const afterText = "$afterText".trim();
-          const beforeText = "$beforeText".trim();
+          const afterText = ($afterTextJson).trim();
+          const beforeText = ($beforeTextJson).trim();
           
           let searchStartIndex = 0;
           let searchEndIndex = bodyHTML.length;
@@ -932,12 +1074,8 @@ class ScriptExecutor {
     try {
       final windowName = script.params['窗口名称'] as String? ?? '';
       final windowUa = script.params['窗口UA'] as String? ?? 'Mobile';
-      var url = script.params['网址'] as String? ?? 'about:blank';
-      if (url != 'about:blank' &&
-          !url.startsWith('http://') &&
-          !url.startsWith('https://')) {
-        url = 'http://$url';
-      }
+      final rawUrl = script.params['网址'] as String? ?? 'about:blank';
+      final url = _normalizeUrl(rawUrl);
       final scriptPath = script.params['脚本集'] as String?;
       final executeImmediately = script.params['立即执行'] as bool? ?? false;
 
@@ -1091,6 +1229,11 @@ class ScriptExecutor {
       return false;
     }
 
+    final clickTextJson = jsonEncode(clickText);
+    final afterSearchJson = jsonEncode(afterSearch);
+    final beforeSearchJson = jsonEncode(beforeSearch);
+    final compareMethodJson = jsonEncode(compareMethod);
+
     // JavaScript logic to find elements, extract value, compare, and click
     final jsCode = '''
       (function() {
@@ -1098,16 +1241,7 @@ class ScriptExecutor {
           return document.evaluate(path, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
         }
 
-        function getAllElementsByXpath(path) {
-          var result = document.evaluate(path, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
-          var nodes = [];
-          for (var i = 0; i < result.snapshotLength; i++) {
-            nodes.push(result.snapshotItem(i));
-          }
-          return nodes;
-        }
-
-        var clickTexts = "$clickText".split(';').map(t => t.trim()).filter(t => t);
+        var clickTexts = ($clickTextJson).split(';').map(t => t.trim()).filter(t => t);
         if (clickTexts.length === 0) return "not_found";
 
         var allElements = Array.from(document.querySelectorAll('*')).filter(el => {
@@ -1126,22 +1260,25 @@ class ScriptExecutor {
         });
 
         // Filter by 'afterSearch' and 'beforeSearch' if provided
-        if ("$afterSearch" !== "") {
-           var afterNode = getElementByXpath("//*[contains(text(), '" + "$afterSearch" + "')]");
-           if (afterNode) {
-             elements = elements.filter(el => {
-               return (el.compareDocumentPosition(afterNode) & Node.DOCUMENT_POSITION_PRECEDING);
-             });
-           }
+        var afterSearchText = ($afterSearchJson).trim();
+        var beforeSearchText = ($beforeSearchJson).trim();
+
+        if (afterSearchText) {
+          elements = elements.filter(el => {
+            const allNodes = Array.from(document.querySelectorAll('*'));
+            const afterNode = allNodes.find(n => (n.innerText || n.textContent || '').includes(afterSearchText));
+            if (!afterNode) return false;
+            return (el.compareDocumentPosition(afterNode) & Node.DOCUMENT_POSITION_PRECEDING);
+          });
         }
 
-        if ("$beforeSearch" !== "") {
-           var beforeNode = getElementByXpath("//*[contains(text(), '" + "$beforeSearch" + "')]");
-           if (beforeNode) {
-             elements = elements.filter(el => {
-               return (el.compareDocumentPosition(beforeNode) & Node.DOCUMENT_POSITION_FOLLOWING);
-             });
-           }
+        if (beforeSearchText) {
+          elements = elements.filter(el => {
+            const allNodes = Array.from(document.querySelectorAll('*'));
+            const beforeNode = allNodes.find(n => (n.innerText || n.textContent || '').includes(beforeSearchText));
+            if (!beforeNode) return false;
+            return (el.compareDocumentPosition(beforeNode) & Node.DOCUMENT_POSITION_FOLLOWING);
+          });
         }
 
         if (elements.length === 0) return "not_found";
@@ -1167,13 +1304,13 @@ class ScriptExecutor {
         if (!targetElement) return "index_out_of_bounds";
 
         // Extract value from text (simple regex to find number)
-        var text = targetElement.innerText || targetElement.textContent;
+        var text = targetElement.innerText || targetElement.textContent || '';
         var match = text.match(/-?\\d+(\\.\\d+)?/);
         if (!match) return "no_number_found";
         
         var value = parseFloat(match[0]);
         var target = $targetValue;
-        var method = "$compareMethod";
+        var method = $compareMethodJson;
         var result = false;
 
         switch (method) {
@@ -1266,6 +1403,8 @@ class ScriptExecutor {
       return false;
     }
 
+    final targetTextJson = jsonEncode(targetText);
+
     int elapsedSeconds = 0;
     while (elapsedSeconds < timeoutSeconds) {
       double progress = elapsedSeconds / timeoutSeconds;
@@ -1274,8 +1413,8 @@ class ScriptExecutor {
       final jsCode = '''
         (function() {
           try {
-            const bodyText = document.body.innerText || document.body.textContent;
-            return bodyText.includes("${targetText.replaceAll('"', '\\\\"')}");
+            const bodyText = document.body.innerText || document.body.textContent || '';
+            return bodyText.includes($targetTextJson);
           } catch(e) {
             return false;
           }
@@ -1310,18 +1449,22 @@ class ScriptExecutor {
       return false;
     }
 
+    final selectorJson = jsonEncode(selector);
+    final attributeJson = jsonEncode(attribute);
+
     final jsCode = '''
       (function() {
         try {
-          const el = document.querySelector("${selector.replaceAll('"', '\\\\"')}");
+          const el = document.querySelector($selectorJson);
           if (!el) return null;
           
-          if ("$attribute" === "text") {
+          const attr = $attributeJson;
+          if (attr === "text") {
             return el.innerText || el.textContent;
-          } else if ("$attribute" === "html") {
+          } else if (attr === "html") {
             return el.innerHTML;
           } else {
-            return el.getAttribute("$attribute");
+            return el.getAttribute(attr);
           }
         } catch(e) {
           return null;

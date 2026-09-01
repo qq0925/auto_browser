@@ -129,6 +129,7 @@ class _RecordedActionNotificationState
   late Animation<Offset> _offsetAnimation;
   String _currentAction = '';
   Timer? _hideTimer;
+  StreamSubscription<String>? _actionSubscription;
 
   @override
   void initState() {
@@ -146,7 +147,7 @@ class _RecordedActionNotificationState
       curve: Curves.easeOut,
     ));
 
-    widget.actionStream.listen((action) {
+    _actionSubscription = widget.actionStream.listen((action) {
       if (mounted) {
         setState(() {
           _currentAction = action;
@@ -164,6 +165,7 @@ class _RecordedActionNotificationState
 
   @override
   void dispose() {
+    _actionSubscription?.cancel();
     _controller.dispose();
     _hideTimer?.cancel();
     super.dispose();

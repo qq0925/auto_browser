@@ -88,6 +88,8 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     '数值对比-点击文字',
     '新建窗口并执行脚本',
     '跳转脚本',
+    '设置Cookie',
+    '清除Cookie',
   ];
   final TextEditingController _delayController = TextEditingController();
   final TextEditingController _appearTextController = TextEditingController();
@@ -96,6 +98,14 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   final TextEditingController _beforeSearchController = TextEditingController();
   final TextEditingController _multipleSelectionController =
       TextEditingController();
+
+  // Cookie fields
+  final TextEditingController _cookieProfileNameController =
+      TextEditingController();
+  final TextEditingController _cookieNameController = TextEditingController();
+  final TextEditingController _cookieValueController = TextEditingController();
+  bool _cookieAutoReload = true;
+  bool _cookieClearAll = false;
 
   // 间隔时间 fields
   final TextEditingController _intervalHoursController =
@@ -202,8 +212,6 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       }
       _submitButtonTextController.text = params['提交按钮文字'] ?? '';
 
-      _submitButtonTextController.text = params['提交按钮文字'] ?? '';
-
       if (_selectedScriptType == '跳转脚本') {
         _targetScriptIndicesController.text = params['跳转的脚本序号'] ?? '';
       } else {
@@ -234,6 +242,12 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
       _notificationContentController.text = params['提醒内容'] ?? '';
 
+      _cookieProfileNameController.text = params['账号存档名称'] ?? '';
+      _cookieNameController.text = params['Cookie名称'] ?? '';
+      _cookieValueController.text = params['Cookie值'] ?? '';
+      _cookieAutoReload = params['设置后刷新页面'] ?? params['清除后刷新页面'] ?? true;
+      _cookieClearAll = params['清除全部站点'] ?? false;
+
       if (params['执行每个脚本前执行'] != null) {
         _beforeScript =
             Script.fromUserMap(Map<String, dynamic>.from(params['执行每个脚本前执行']));
@@ -258,6 +272,9 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     _afterSearchController.dispose();
     _beforeSearchController.dispose();
     _multipleSelectionController.dispose();
+    _cookieProfileNameController.dispose();
+    _cookieNameController.dispose();
+    _cookieValueController.dispose();
     _intervalHoursController.dispose();
     _intervalMinutesController.dispose();
     _intervalSecondsController.dispose();
@@ -273,6 +290,8 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     _variableNameController.dispose();
     _operationController.dispose();
     _scriptSetController.dispose();
+    _targetScriptIndicesController.dispose();
+    _windowNameController.dispose();
     _notificationContentController.dispose();
     super.dispose();
   }
@@ -725,6 +744,28 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           _buildFieldRow('提醒内容', _notificationContentController, '',
               required: true),
         ];
+
+      case '设置Cookie':
+        return [
+          _buildFieldRow(
+              '账号存档名称', _cookieProfileNameController, '选填，如：主账号 / 小号1 (优先应用存档)'),
+          _buildFieldRow('Cookie名称', _cookieNameController, '单项设置：名称 (如: token)'),
+          _buildFieldRow('Cookie值', _cookieValueController, '单项设置：对应值'),
+          _buildCheckboxRow('设置后刷新页面', _cookieAutoReload, (val) {
+            setState(() => _cookieAutoReload = val ?? true);
+          }),
+        ];
+
+      case '清除Cookie':
+        return [
+          _buildCheckboxRow('清除全部站点 Cookie', _cookieClearAll, (val) {
+            setState(() => _cookieClearAll = val ?? false);
+          }),
+          _buildCheckboxRow('清除后刷新页面', _cookieAutoReload, (val) {
+            setState(() => _cookieAutoReload = val ?? true);
+          }),
+        ];
+
       default:
         return [];
     }
@@ -1503,6 +1544,28 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           params['执行延迟'] = _convertDelayToMilliseconds();
         }
         params['提醒内容'] = _notificationContentController.text;
+        break;
+
+      case '设置Cookie':
+        if (_cookieProfileNameController.text.isNotEmpty) {
+          params['账号存档名称'] = _cookieProfileNameController.text;
+        }
+        if (_cookieNameController.text.isNotEmpty) {
+          params['Cookie名称'] = _cookieNameController.text;
+          params['Cookie值'] = _cookieValueController.text;
+        }
+        params['设置后刷新页面'] = _cookieAutoReload;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
+        break;
+
+      case '清除Cookie':
+        params['清除全部站点'] = _cookieClearAll;
+        params['清除后刷新页面'] = _cookieAutoReload;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
         break;
 
       default:

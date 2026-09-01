@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'dart:convert';
 
 class PageInfoDialog extends StatefulWidget {
   final String title;
@@ -83,19 +84,13 @@ class _PageInfoDialogState extends State<PageInfoDialog> {
   Future<void> _applySource() async {
     try {
       final newSource = _sourceController.text;
-      // Escape the source code for JavaScript string
-      final escapedSource = newSource
-          .replaceAll('\\', '\\\\')
-          .replaceAll("'", "\\'")
-          .replaceAll('\n', '\\n')
-          .replaceAll('\r', '\\r');
+      final jsonSource = jsonEncode(newSource);
 
       // Use JavaScript to replace the document content while maintaining the URL context
-      // This prevents breaking the page's origin and allows relative resources to load
       await widget.controller?.evaluateJavascript(source: '''
         (function() {
           document.open();
-          document.write('$escapedSource');
+          document.write($jsonSource);
           document.close();
         })();
       ''');

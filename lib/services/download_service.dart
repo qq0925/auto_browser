@@ -21,17 +21,19 @@ class DownloadService {
       final docDir = await getApplicationDocumentsDirectory();
       return docDir.path;
     } else if (Platform.isAndroid) {
-      // Android: 使用外部存储的 Download 目录
-      final externalDir = await getExternalStorageDirectory();
-      if (externalDir != null) {
-        // 尝试使用 Download 目录
-        final downloadPath =
-            path.join(externalDir.parent.parent.parent.parent.path, 'Download');
-        final downloadDir = Directory(downloadPath);
-        if (await downloadDir.exists()) {
-          return downloadPath;
+      // Android: 尝试获取外部存储目录
+      try {
+        final externalDir = await getExternalStorageDirectory();
+        if (externalDir != null) {
+          final downloadPath = path.join(
+              externalDir.parent.parent.parent.parent.path, 'Download');
+          final downloadDir = Directory(downloadPath);
+          if (await downloadDir.exists()) {
+            return downloadPath;
+          }
+          return externalDir.path;
         }
-      }
+      } catch (_) {}
       // 备用: 应用文档目录
       final docDir = await getApplicationDocumentsDirectory();
       return docDir.path;
@@ -55,6 +57,8 @@ class DownloadService {
     Function(String filePath)? onComplete,
     Function(String error)? onError,
   }) async {
+    final client = http.Client();
+    IOSink? sink;
     try {
       // 解析文件名
       String filename = suggestedFilename ?? _getFilenameFromUrl(url);
@@ -68,7 +72,7 @@ class DownloadService {
 
       // 开始下载
       final request = http.Request('GET', Uri.parse(url));
-      final response = await http.Client().send(request);
+      final response = await client.send(request);
 
       if (response.statusCode != 200) {
         onError?.call('下载失败: HTTP ${response.statusCode}');
@@ -81,29 +85,34 @@ class DownloadService {
 
       // 创建文件
       final file = File(uniquePath);
-      final sink = file.openWrite();
+      sink = file.openWrite();
 
       // 写入数据并报告进度
       await response.stream.listen(
         (List<int> chunk) {
-          sink.add(chunk);
+          sink?.add(chunk);
           receivedBytes += chunk.length;
           if (contentLength > 0) {
             onProgress?.call(receivedBytes / contentLength);
           }
         },
-        onDone: () async {
-          await sink.close();
-          onComplete?.call(uniquePath);
-        },
-        onError: (error) {
-          sink.close();
-          onError?.call('下载出错: $error');
-        },
         cancelOnError: true,
       ).asFuture();
+
+      await sink.flush();
+      await sink.close();
+      sink = null;
+
+      onComplete?.call(uniquePath);
     } catch (e) {
       onError?.call('下载失败: $e');
+    } finally {
+      if (sink != null) {
+        try {
+          await sink.close();
+        } catch (_) {}
+      }
+      client.close();
     }
   }
 

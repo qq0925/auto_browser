@@ -18,6 +18,13 @@ class _AutoRefreshDialogState extends State<AutoRefreshDialog> {
   String _unit = '秒'; // Default unit
 
   @override
+  void dispose() {
+    _intervalController.dispose();
+    _countController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Dialog(
       backgroundColor: const Color(0xFF333333), // Dark background

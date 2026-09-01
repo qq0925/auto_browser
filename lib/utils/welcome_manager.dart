@@ -66,7 +66,7 @@ class WelcomeManager {
       final localFile = File(path.join(documentsDir.path, _localFilename));
 
       if (await localFile.exists()) {
-        return 'file://${localFile.path}';
+        return Uri.file(localFile.path).toString();
       }
     } catch (e) {
       // Fall through to asset

@@ -249,6 +249,7 @@ class BrowserProvider extends ChangeNotifier {
     String? initialTitle,
     String? customName,
     String? customUserAgent,
+    bool switchToNewTab = true,
   }) async {
     final tab = BrowserTab(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -258,7 +259,9 @@ class BrowserProvider extends ChangeNotifier {
       customUserAgent: customUserAgent,
     );
     _tabs.add(tab);
-    _currentIndex = _tabs.length - 1;
+    if (switchToNewTab) {
+      _currentIndex = _tabs.length - 1;
+    }
     notifyListeners();
     _saveTabsState();
   }
@@ -271,36 +274,29 @@ class BrowserProvider extends ChangeNotifier {
   }
 
   void removeTab(int index) {
-    if (_tabs.length > 1) {
-      final tab = _tabs[index];
+    if (index < 0 || index >= _tabs.length) return;
+    final tab = _tabs[index];
 
-      // Prevent closing if executing script
-      if (tab.isExecutingScript) {
-        return; // Caller should show error message
-      }
-
-      InAppWebViewController.clearAllCache();
-      // tab.controller.clearLocalStorage(); // InAppWebView handles this differently or globally
-
-      _tabs.removeAt(index);
-      if (_currentIndex >= index) {
-        _currentIndex = _currentIndex > 0 ? _currentIndex - 1 : 0;
-      }
-      notifyListeners();
-      _saveTabsState();
-    } else if (_tabs.length == 1) {
-      // Last tab - check if executing, will be handled by caller
-      final tab = _tabs[0];
-      if (tab.isExecutingScript) {
-        return; // Prevent removal
-      }
-      // Allow removal - caller will create new default tab
-      InAppWebViewController.clearAllCache();
-      // tab.controller.clearLocalStorage();
-      _tabs.removeAt(index);
-      notifyListeners();
-      _saveTabsState();
+    // Prevent closing if executing script
+    if (tab.isExecutingScript) {
+      return; // Caller should show error message
     }
+
+    // Stop tab auto refresh timer
+    tab.stopAutoRefresh();
+
+    _tabs.removeAt(index);
+
+    if (_tabs.isEmpty) {
+      _currentIndex = 0;
+    } else if (_currentIndex >= _tabs.length) {
+      _currentIndex = _tabs.length - 1;
+    } else if (_currentIndex > index) {
+      _currentIndex--;
+    }
+
+    notifyListeners();
+    _saveTabsState();
   }
 
   void updateTabInfo(int index, String url, String title) {

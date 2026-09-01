@@ -4,6 +4,7 @@ class BottomGridMenu extends StatelessWidget {
   final VoidCallback onBookmarksHistory;
   final VoidCallback onAutoRefresh;
   final VoidCallback onRecordScript;
+  final VoidCallback onCookieManager;
   final VoidCallback onSettings;
   final bool isAutoRefreshActive;
   final bool isExecuting;
@@ -13,6 +14,7 @@ class BottomGridMenu extends StatelessWidget {
     required this.onBookmarksHistory,
     required this.onAutoRefresh,
     required this.onRecordScript,
+    required this.onCookieManager,
     required this.onSettings,
     this.isAutoRefreshActive = false,
     this.isExecuting = false,
@@ -35,9 +37,9 @@ class BottomGridMenu extends StatelessWidget {
           children: [
             GridView.count(
               shrinkWrap: true,
-              crossAxisCount: 4,
-              mainAxisSpacing: 16,
-              crossAxisSpacing: 16,
+              crossAxisCount: 5,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
               children: [
                 _buildMenuItem(
                     Icons.bookmarks_outlined, '书签/历史', onBookmarksHistory),
@@ -51,19 +53,15 @@ class BottomGridMenu extends StatelessWidget {
                 _buildMenuItem(
                   Icons.fiber_manual_record_outlined,
                   '录制脚本',
-                  isExecuting
-                      ? null
-                      : onRecordScript, // Disable callback if executing
+                  isExecuting ? null : onRecordScript,
                   color: isExecuting ? Colors.grey : Colors.white,
                 ),
+                _buildMenuItem(
+                    Icons.account_circle_outlined, '会话账号', onCookieManager),
                 _buildMenuItem(Icons.settings_outlined, '设置', onSettings),
               ],
             ),
             const SizedBox(height: 16),
-            // Close button (optional, or just tap outside)
-            // Screenshot shows "Exit" button but user didn't ask for it specifically in the "only want" list.
-            // But a close button is good UX.
-            // Actually, standard bottom sheet closes on tap outside.
           ],
         ),
       ),

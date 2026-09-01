@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -21,6 +22,7 @@ import '../widgets/bookmarks_history_dialog.dart';
 import '../widgets/auto_refresh_dialog.dart';
 import '../widgets/browser_settings_dialog.dart';
 import '../widgets/script_recording_overlay.dart';
+import '../widgets/cookie_manager_dialog.dart';
 import '../utils/welcome_manager.dart';
 
 class BrowserHomePage extends StatefulWidget {
@@ -141,8 +143,85 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
           }
         }
 
-        return Scaffold(
-          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        DateTime? lastBackPressTime;
+        final screenWidth = MediaQuery.of(context).size.width;
+        final panelWidth = (screenWidth * 0.45).clamp(320.0, 480.0);
+
+        return CallbackShortcuts(
+          bindings: {
+            // Ctrl+R 或 F5: 刷新当前标签页
+            const SingleActivator(LogicalKeyboardKey.keyR, control: true): () {
+              browserProvider.currentTab?.controller?.reload();
+            },
+            const SingleActivator(LogicalKeyboardKey.f5): () {
+              browserProvider.currentTab?.controller?.reload();
+            },
+            // Ctrl+T: 新建标签页
+            const SingleActivator(LogicalKeyboardKey.keyT, control: true): () {
+              _addNewTab();
+            },
+            // Ctrl+W: 关闭当前标签页
+            const SingleActivator(LogicalKeyboardKey.keyW, control: true): () {
+              if (browserProvider.tabs.length > 1) {
+                browserProvider.removeTab(browserProvider.currentIndex);
+              }
+            },
+            // Alt+Left: 网页后退
+            const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true): () {
+              if (browserProvider.currentTab?.canGoBack ?? false) {
+                browserProvider.currentTab?.controller?.goBack();
+              }
+            },
+            // Alt+Right: 网页前进
+            const SingleActivator(LogicalKeyboardKey.arrowRight, alt: true): () {
+              if (browserProvider.currentTab?.canGoForward ?? false) {
+                browserProvider.currentTab?.controller?.goForward();
+              }
+            },
+          },
+          child: PopScope(
+            canPop: false,
+            onPopInvokedWithResult: (didPop, result) async {
+              if (didPop) return;
+
+              // 1. 如果脚本侧边栏处于展开状态，优先收起
+              if (browserProvider.isScriptPanelExpanded) {
+                browserProvider.toggleScriptPanel();
+                return;
+              }
+
+              // 2. 如果当前网页可以后退，执行后退
+              final currentTab = browserProvider.currentTab;
+              if (currentTab != null && currentTab.canGoBack) {
+                if (scriptProvider.isRecording) {
+                  scriptProvider.recordAction('网页后退');
+                }
+                await currentTab.controller?.goBack();
+                return;
+              }
+
+              // 3. 双击退出防误触
+              final now = DateTime.now();
+              if (lastBackPressTime == null ||
+                  now.difference(lastBackPressTime!) >
+                      const Duration(seconds: 2)) {
+                lastBackPressTime = now;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(scriptProvider.isExecuting
+                        ? '脚本正在运行中，再次按下返回键将退出应用'
+                        : '再次按下返回键退出应用'),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+                return;
+              }
+
+              // 退出应用
+              SystemNavigator.pop();
+            },
+            child: Scaffold(
+              backgroundColor: Theme.of(context).scaffoldBackgroundColor,
           appBar: AppBar(
             backgroundColor: Theme.of(context).appBarTheme.backgroundColor,
             elevation: 0,
@@ -535,7 +614,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                 curve: Curves.easeInOut,
                 right: browserProvider.isScriptPanelExpanded
                     ? 0
-                    : -(MediaQuery.of(context).size.width * 0.5),
+                    : -panelWidth,
                 top: 50,
                 bottom: 50,
                 child: Row(
@@ -577,7 +656,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                     ),
                     // 脚本面板
                     Container(
-                      width: MediaQuery.of(context).size.width * 0.5,
+                      width: panelWidth,
                       decoration: BoxDecoration(
                         color: browserProvider.isDarkMode
                             ? Colors.grey[900]
@@ -651,10 +730,12 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
           ),
           bottomNavigationBar:
               _buildBottomBar(context, browserProvider, scriptProvider),
-        );
-      },
+        ),
+      ),
     );
-  }
+  },
+);
+}
 
   Widget _buildBottomBar(BuildContext context, BrowserProvider browser,
       ScriptProvider scriptProvider) {
@@ -761,6 +842,26 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                           );
                         }
                       },
+                      onCookieManager: () {
+                        Navigator.pop(context);
+                        if (browser.currentTab != null &&
+                            browser.currentTab!.url.isNotEmpty &&
+                            !browser.currentTab!.url.startsWith('file://')) {
+                          showDialog(
+                            context: context,
+                            builder: (context) => CookieManagerDialog(
+                              currentUrl: browser.currentTab!.url,
+                              onReloadRequired: () {
+                                browser.currentTab!.controller?.reload();
+                              },
+                            ),
+                          );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('请先打开目标网页后再管理 Cookie/账号')),
+                          );
+                        }
+                      },
                       onSettings: () {
                         Navigator.pop(context);
                         showDialog(
@@ -797,10 +898,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                   'AU',
                   style: TextStyle(
                       color: (browser.currentTab != null &&
-                              !browser.currentTab!.url
-                                  .endsWith('welcome.html') &&
-                              browser.currentTab!.url !=
-                                  'file:///welcome.html' &&
+                              !browser.currentTab!.url.endsWith('welcome.html') &&
+                              browser.currentTab!.url != 'file:///welcome.html' &&
                               browser.currentTab!.title != '欢迎使用')
                           ? Colors.white
                           : Colors.white38,
@@ -818,131 +917,129 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        height: 400,
-        decoration: const BoxDecoration(
-          color: Color(0xFF222222),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-        ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              const SizedBox(height: 16),
-              Expanded(
-                child: ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: browser.tabs.length,
-                  itemBuilder: (context, index) {
-                    final tab = browser.tabs[index];
-                    final isSelected = index == browser.currentIndex;
-                    final canClose = browser.canCloseTab(index);
-                    final displayTitle =
-                        tab.customName != null && tab.customName!.isNotEmpty
-                            ? tab.customName!
-                            : (tab.title.isEmpty ? '无标题' : tab.title);
+      builder: (bottomSheetContext) => Consumer<BrowserProvider>(
+        builder: (context, currentBrowser, child) => Container(
+          height: 400,
+          decoration: const BoxDecoration(
+            color: Color(0xFF222222),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+          ),
+          child: SafeArea(
+            child: Column(
+              children: [
+                const SizedBox(height: 16),
+                Expanded(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    itemCount: currentBrowser.tabs.length,
+                    itemBuilder: (context, index) {
+                      final tab = currentBrowser.tabs[index];
+                      final isSelected = index == currentBrowser.currentIndex;
+                      final canClose = currentBrowser.canCloseTab(index);
+                      final displayTitle =
+                          tab.customName != null && tab.customName!.isNotEmpty
+                              ? tab.customName!
+                              : (tab.title.isEmpty ? '无标题' : tab.title);
 
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF333333),
-                        borderRadius: BorderRadius.circular(8),
-                        border: isSelected
-                            ? Border.all(color: Colors.white, width: 1.5)
-                            : null,
-                      ),
-                      child: ListTile(
-                        contentPadding:
-                            const EdgeInsets.symmetric(horizontal: 12),
-                        title: Text(
-                          '${index + 1}. $displayTitle',
-                          style: const TextStyle(
-                              color: Colors.white, fontSize: 16),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF333333),
+                          borderRadius: BorderRadius.circular(8),
+                          border: isSelected
+                              ? Border.all(color: Colors.white, width: 1.5)
+                              : null,
                         ),
-                        trailing: IconButton(
-                          icon: Icon(
-                            Icons.close,
-                            color: canClose
-                                ? Colors.white70
-                                : Colors.grey.shade600,
-                            size: 20,
+                        child: ListTile(
+                          contentPadding:
+                              const EdgeInsets.symmetric(horizontal: 12),
+                          title: Text(
+                            '${index + 1}. $displayTitle',
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 16),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          onPressed: () {
-                            if (!canClose) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('该标签页正在执行脚本，无法关闭'),
-                                  duration: Duration(seconds: 2),
-                                ),
-                              );
-                              return;
-                            }
+                          trailing: IconButton(
+                            icon: Icon(
+                              Icons.close,
+                              color: canClose
+                                  ? Colors.white70
+                                  : Colors.grey.shade600,
+                              size: 20,
+                            ),
+                            onPressed: () {
+                              if (!canClose) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('该标签页正在执行脚本，无法关闭'),
+                                    duration: Duration(seconds: 2),
+                                  ),
+                                );
+                                return;
+                              }
 
-                            if (browser.tabs.length == 1) {
-                              browser.removeTab(index);
-                              Navigator.pop(context);
-                              _addNewTab();
-                            } else {
-                              browser.removeTab(index);
-                              if (browser.tabs.isEmpty) {
+                              if (currentBrowser.tabs.length <= 1) {
+                                currentBrowser.removeTab(index);
                                 Navigator.pop(context);
                                 _addNewTab();
+                              } else {
+                                currentBrowser.removeTab(index);
                               }
-                            }
+                            },
+                          ),
+                          onTap: () {
+                            currentBrowser.setCurrentIndex(index);
+                            Navigator.pop(context);
+                          },
+                          onLongPress: () {
+                            _showEditTabDialog(context, currentBrowser, index);
                           },
                         ),
-                        onTap: () {
-                          browser.setCurrentIndex(index);
-                          Navigator.pop(context);
-                        },
-                        onLongPress: () {
-                          _showEditTabDialog(context, browser, index);
-                        },
-                      ),
-                    );
-                  },
+                      );
+                    },
+                  ),
                 ),
-              ),
-              Container(
-                height: 1,
-                color: Colors.white10,
-              ),
-              Container(
-                height: 60,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text(
-                          '取消',
-                          style: TextStyle(color: Colors.white, fontSize: 16),
+                Container(
+                  height: 1,
+                  color: Colors.white10,
+                ),
+                Container(
+                  height: 60,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text(
+                            '取消',
+                            style: TextStyle(color: Colors.white, fontSize: 16),
+                          ),
                         ),
                       ),
-                    ),
-                    Container(
-                      width: 1,
-                      height: 24,
-                      color: Colors.white24,
-                    ),
-                    Expanded(
-                      child: TextButton(
-                        onPressed: () async {
-                          Navigator.pop(context);
-                          await _addNewTab();
-                        },
-                        child: const Text(
-                          '新建窗口',
-                          style: TextStyle(color: Colors.white, fontSize: 16),
+                      Container(
+                        width: 1,
+                        height: 24,
+                        color: Colors.white24,
+                      ),
+                      Expanded(
+                        child: TextButton(
+                          onPressed: () async {
+                            Navigator.pop(context);
+                            await _addNewTab();
+                          },
+                          child: const Text(
+                            '新建窗口',
+                            style: TextStyle(color: Colors.white, fontSize: 16),
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -957,7 +1054,7 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
 
     showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
+      builder: (dialogContext) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
           backgroundColor: Colors.grey[900],
           title: const Text('编辑窗口信息', style: TextStyle(color: Colors.white)),
@@ -1012,15 +1109,15 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
                 browser.updateTabCustomSettings(
                     index, nameController.text, selectedUa);
                 Navigator.pop(context);
-                Navigator.pop(context);
-                _showTabsList(context, browser);
               },
               child: const Text('保存', style: TextStyle(color: Colors.blue)),
             ),
           ],
         ),
       ),
-    );
+    ).then((_) {
+      nameController.dispose();
+    });
   }
 
   void _showLoadScriptDialog(
@@ -1076,6 +1173,8 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
           ),
         ),
       ),
-    );
+    ).then((_) {
+      controller.dispose();
+    });
   }
 }

@@ -142,6 +142,10 @@ class _BrowserViewState extends State<BrowserView> {
               supportZoom: true,
               builtInZoomControls: true,
               displayZoomControls: false,
+              forceDark: browserProvider.isDarkMode
+                  ? ForceDark.ON
+                  : ForceDark.OFF,
+              algorithmicDarkeningAllowed: true,
             ),
             initialUserScripts:
                 UnmodifiableListView<UserScript>(initialScripts),
@@ -498,8 +502,7 @@ class _BrowserViewState extends State<BrowserView> {
               Colors.white,
               () {
                 Navigator.pop(context);
-                browserProvider.addTab(initialUrl: url);
-                // 不切换到新标签页，保持当前页面
+                browserProvider.addTab(initialUrl: url, switchToNewTab: false);
               },
             ),
             const Divider(height: 1, color: Colors.grey),
@@ -510,10 +513,7 @@ class _BrowserViewState extends State<BrowserView> {
               Colors.white,
               () {
                 Navigator.pop(context);
-                browserProvider.addTab(initialUrl: url);
-                // 切换到新标签页
-                browserProvider
-                    .setCurrentIndex(browserProvider.tabs.length - 1);
+                browserProvider.addTab(initialUrl: url, switchToNewTab: true);
               },
             ),
             const Divider(height: 1, color: Colors.grey),
