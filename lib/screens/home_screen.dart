@@ -32,20 +32,77 @@ class BrowserHomePage extends StatefulWidget {
   State<BrowserHomePage> createState() => _BrowserHomePageState();
 }
 
-class _BrowserHomePageState extends State<BrowserHomePage> {
+class _BrowserHomePageState extends State<BrowserHomePage>
+    with WidgetsBindingObserver {
   final TextEditingController _urlController = TextEditingController();
+  bool _isAppStarting = true;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initPermissions();
+    _startAppInitFlow();
+  }
 
-    // Wait for provider to be initialized
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _urlController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // 当应用切回前台（如在 iOS 网络权限弹窗点击“允许”）时，自动探测并静默热刷新欢迎页
+      _silentlyRefreshWelcomeIfAvailable();
+    }
+  }
+
+  Future<void> _silentlyRefreshWelcomeIfAvailable() async {
     final browserProvider = context.read<BrowserProvider>();
+    final content = await WelcomeManager.fetchLatestRemoteContent(
+      timeout: const Duration(seconds: 3),
+    );
+    if (content != null && content.isNotEmpty && mounted) {
+      for (var tab in browserProvider.tabs) {
+        if (tab.url == 'about:blank' ||
+            tab.url.isEmpty ||
+            tab.url.contains('welcome.html')) {
+          tab.controller?.loadData(
+            data: content,
+            mimeType: 'text/html',
+            encoding: 'utf-8',
+            baseUrl: WebUri('file:///welcome.html'),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _startAppInitFlow() async {
+    final browserProvider = context.read<BrowserProvider>();
+
+    // 并发启动：1. 网络获取最新欢迎页（留出网络连接和权限弹窗时间）；2. Provider 初始化
+    final waitWelcome = WelcomeManager.getWelcomeContent(
+      remoteTimeout: const Duration(milliseconds: 2500),
+    );
+
     if (browserProvider.isInitialized) {
-      _initTabs();
+      await _initTabs();
     } else {
       browserProvider.addListener(_onProviderInitialized);
+    }
+
+    await waitWelcome;
+    // 稍微等待 300ms 保证 WebView 首次渲染就绪
+    await Future.delayed(const Duration(milliseconds: 300));
+
+    if (mounted) {
+      setState(() {
+        _isAppStarting = false;
+      });
     }
   }
 
@@ -117,12 +174,6 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
   }
 
   @override
-  void dispose() {
-    _urlController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Consumer2<BrowserProvider, ScriptProvider>(
       builder: (context, browserProvider, scriptProvider, child) {
@@ -145,10 +196,12 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
 
         DateTime? lastBackPressTime;
         final screenWidth = MediaQuery.of(context).size.width;
-        final panelWidth = (screenWidth * 0.45).clamp(320.0, 480.0);
+        final panelWidth = (screenWidth * 0.5).clamp(180.0, 420.0);
 
-        return CallbackShortcuts(
-          bindings: {
+        return Stack(
+          children: [
+            CallbackShortcuts(
+              bindings: {
             // Ctrl+R 或 F5: 刷新当前标签页
             const SingleActivator(LogicalKeyboardKey.keyR, control: true): () {
               browserProvider.currentTab?.controller?.reload();
@@ -732,10 +785,92 @@ class _BrowserHomePageState extends State<BrowserHomePage> {
               _buildBottomBar(context, browserProvider, scriptProvider),
         ),
       ),
-    );
+    ),
+
+    // 开屏启动 Loading 层（等待网络就绪并平滑淡出）
+    AnimatedOpacity(
+      opacity: _isAppStarting ? 1.0 : 0.0,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOut,
+      child: IgnorePointer(
+        ignoring: !_isAppStarting,
+        child: _buildSplashScreen(),
+      ),
+    ),
+  ],
+);
   },
 );
 }
+
+  Widget _buildSplashScreen() {
+    return Container(
+      color: const Color(0xFF1E1E2E),
+      width: double.infinity,
+      height: double.infinity,
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // 应用图标
+            Container(
+              width: 90,
+              height: 90,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.4),
+                    blurRadius: 16,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: Image.asset(
+                  'assets/app_icon.png',
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    color: Colors.blueAccent,
+                    child: const Icon(Icons.language,
+                        size: 48, color: Colors.white),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Auok 浏览器',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1.2,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '正在准备初始运行环境...',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.6),
+                fontSize: 13,
+              ),
+            ),
+            const SizedBox(height: 32),
+            const SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.blueAccent),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _buildBottomBar(BuildContext context, BrowserProvider browser,
       ScriptProvider scriptProvider) {
