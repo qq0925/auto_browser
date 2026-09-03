@@ -244,6 +244,15 @@ class BrowserProvider extends ChangeNotifier {
     _saveTabsState();
   }
 
+  bool _isAdBlockEnabled = true;
+  bool get isAdBlockEnabled => _isAdBlockEnabled;
+
+  void toggleAdBlock(bool value) {
+    _isAdBlockEnabled = value;
+    notifyListeners();
+    _saveTabsState();
+  }
+
   Future<void> addTab({
     String initialUrl = 'about:blank',
     String? initialTitle,
@@ -528,6 +537,7 @@ class BrowserProvider extends ChangeNotifier {
         'searchEngine': _searchEngine,
         'userAgent': _userAgent, // Save UserAgent
         'autoLeaveMode': _autoLeaveMode,
+        'isAdBlockEnabled': _isAdBlockEnabled,
       };
 
       await prefs.setString('last_tabs', jsonEncode(dataToSave));
@@ -546,6 +556,7 @@ class BrowserProvider extends ChangeNotifier {
         _isDarkMode = data['isDarkMode'] ?? false;
         _keepScreenOn = data['keepScreenOn'] ?? false;
         _autoLeaveMode = data['autoLeaveMode'] ?? false;
+        _isAdBlockEnabled = data['isAdBlockEnabled'] ?? true;
         _searchEngine = data['searchEngine'] ?? 'Baidu';
         _userAgent = data['userAgent'] ?? 'Mobile';
 

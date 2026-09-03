@@ -94,6 +94,16 @@ class BrowserSettingsDialog extends StatelessWidget {
                           activeColor: Colors.blue,
                           contentPadding: EdgeInsets.zero,
                         ),
+                        SwitchListTile(
+                          title: Text('广告与浮窗拦截',
+                              style: TextStyle(color: textColor)),
+                          subtitle: Text('屏蔽常见广告弹窗与全屏遮罩',
+                              style: TextStyle(color: Colors.grey, fontSize: 12)),
+                          value: provider.isAdBlockEnabled,
+                          onChanged: (value) => provider.toggleAdBlock(value),
+                          activeColor: Colors.blue,
+                          contentPadding: EdgeInsets.zero,
+                        ),
                       ],
                     );
                   },

@@ -88,6 +88,20 @@ class ScriptProvider extends ChangeNotifier {
   int get failureCount => _failureCount;
   String? get currentScriptFilePath => _currentTab?.scriptFilePath;
 
+  // 跨步骤动态变量字典
+  final Map<String, String> _variables = {};
+  Map<String, String> get variables => Map.unmodifiable(_variables);
+
+  void setVariable(String key, String value) {
+    _variables[key] = value;
+    notifyListeners();
+  }
+
+  void clearVariables() {
+    _variables.clear();
+    notifyListeners();
+  }
+
   void setWaitForPageLoadCallback(Future<void> Function() callback) {
     _waitForPageLoadCallback = callback;
   }
@@ -404,6 +418,7 @@ class ScriptProvider extends ChangeNotifier {
     // Reset status and counts
     _successCount = 0;
     _failureCount = 0;
+    _variables.clear();
     for (var script in executingTab.scripts) {
       script.status = ScriptStatus.idle;
       script.statusMessage = null;
@@ -440,6 +455,7 @@ class ScriptProvider extends ChangeNotifier {
               executingController,
               script,
               executionDelay: _executionDelay,
+              variables: _variables,
               onStatusChanged: (status, message, progress) async {
                 script.status = status;
                 script.statusMessage = message;

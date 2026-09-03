@@ -12,23 +12,52 @@ import 'cookie_service.dart';
 
 class ScriptExecutor {
   // Execute a script on the given controller
-  // Execute a script on the given controller
   Future<bool> execute(InAppWebViewController controller, Script script,
       {int executionDelay = 1000,
       Function(ScriptStatus status, String? message, double? progress)?
           onStatusChanged,
       Future<void> Function()? waitForPageLoad,
-      List<Script>? scripts}) async {
+      List<Script>? scripts,
+      Map<String, String>? variables}) async {
     if (!script.isEnabled) return false;
 
-    final repeatCount = script.params['重复次数'] ?? 1;
+    // 动态解析脚本参数中的变量 (${varName})
+    final resolvedScript = _resolveVariables(script, variables);
+
+    // 将变量注入至当前页面的 window._auokVars
+    if (variables != null && variables.isNotEmpty) {
+      try {
+        final varsJson = jsonEncode(variables);
+        await controller.evaluateJavascript(
+            source: 'try { window._auokVars = $varsJson; } catch(e) {}');
+      } catch (_) {}
+    }
+
+    final repeatCount = resolvedScript.params['重复次数'] ?? 1;
     bool success = true;
 
     for (var i = 0; i < repeatCount; i++) {
-      // 1. Wait for page load
+      // 1. 智能按需等待网页加载：
+      // - 导航类指令（进入网址、刷新网页、前进、后退）强制等待；
+      // - 或者当前 WebView 确处于加载中状态时才等待；
+      // - 纯页面内交互（点击、输入、提取）在就绪时直接秒级通过，单步提速 20-30 倍！
+      final isNavAction = resolvedScript.type == '进入网址' ||
+          resolvedScript.type == '刷新网页' ||
+          resolvedScript.type == '网页后退' ||
+          resolvedScript.type == '网页前进' ||
+          resolvedScript.params['等待网页加载'] == true;
+
       if (waitForPageLoad != null) {
-        onStatusChanged?.call(ScriptStatus.waiting, '等待网页加载...', null);
-        await waitForPageLoad();
+        bool needsWait = isNavAction;
+        if (!needsWait) {
+          try {
+            needsWait = await controller.isLoading();
+          } catch (_) {}
+        }
+        if (needsWait) {
+          onStatusChanged?.call(ScriptStatus.waiting, '等待网页加载...', null);
+          await waitForPageLoad();
+        }
       }
 
       // 2. Wait for delay (Script specific or Global)
@@ -71,13 +100,14 @@ class ScriptExecutor {
       }
 
       // 脚本看门狗超时（默认 30 秒，可在参数中自定义）
-      final timeoutSeconds = script.params['超时时间'] as int? ?? 30;
+      final timeoutSeconds = resolvedScript.params['超时时间'] as int? ?? 30;
       try {
         result = await _executeSingleStep(
           controller,
-          script,
+          resolvedScript,
           onStatusChanged,
           scripts,
+          variables: variables,
         ).timeout(Duration(seconds: timeoutSeconds));
       } on TimeoutException {
         onStatusChanged?.call(
@@ -89,11 +119,13 @@ class ScriptExecutor {
       }
 
       // Execute "After" Script
-      if (script.params['执行每个脚本后执行'] != null) {
-        final afterScriptMap = script.params['执行每个脚本后执行'];
+      if (resolvedScript.params['执行每个脚本后执行'] != null) {
+        final afterScriptMap = resolvedScript.params['执行每个脚本后执行'];
         if (afterScriptMap is Map<String, dynamic>) {
           final afterScript = Script.fromUserMap(afterScriptMap);
-          await execute(controller, afterScript, executionDelay: executionDelay,
+          await execute(controller, afterScript,
+              executionDelay: executionDelay,
+              variables: variables,
               onStatusChanged: (status, msg, prog) {
             if (status == ScriptStatus.running ||
                 status == ScriptStatus.waiting) {
@@ -124,8 +156,9 @@ class ScriptExecutor {
     Script script,
     Function(ScriptStatus status, String? message, double? progress)?
         onStatusChanged,
-    List<Script>? scripts,
-  ) async {
+    List<Script>? scripts, {
+    Map<String, String>? variables,
+  }) async {
     switch (script.type) {
       case "点击文字":
         return await _executeClickScript(controller, script);
@@ -254,7 +287,8 @@ class ScriptExecutor {
         return await _executeWaitForText(controller, script, onStatusChanged);
 
       case "提取文字":
-        return await _executeExtractText(controller, script, onStatusChanged);
+        return await _executeExtractText(controller, script, onStatusChanged,
+            variables: variables);
 
       case "设置Cookie":
         return await _executeSetCookie(controller, script, onStatusChanged);
@@ -387,23 +421,62 @@ class ScriptExecutor {
     return true;
   }
 
-  /// 智能微轮询：在指定的容错超时内（默认 3000ms），以 200ms 为间隔轮询目标动作
-  /// 一旦目标元素就绪并执行成功立即返回 true；仅在超时后仍失败才返回 false
+  /// 智能自适应微轮询：
+  /// - 前 3 次使用极速 40ms 间隔探测（已就绪元素秒级命中，无感响应）
+  /// - 随后按 120ms 平稳轮询，在 3000ms 超时窗口内兼顾极速与异步容错
   Future<bool> _pollUntilSuccess(
     Future<bool> Function() action, {
     Duration timeout = const Duration(milliseconds: 3000),
-    Duration interval = const Duration(milliseconds: 200),
   }) async {
     final stopwatch = Stopwatch()..start();
+    int attempts = 0;
     while (stopwatch.elapsed < timeout) {
       try {
         final success = await action();
         if (success) return true;
       } catch (_) {}
-      await Future.delayed(interval);
+      final stepDelay = attempts < 3 ? 40 : 120;
+      await Future.delayed(Duration(milliseconds: stepDelay));
+      attempts++;
     }
     return false;
   }
+
+  /// 视觉高亮脉冲光圈动画 JS 注入脚本（用于点击、表单输入前的科技感视觉反馈）
+  static const String _highlightJs = '''
+    function _auokHighlight(el) {
+      if (!el || typeof el.getBoundingClientRect !== 'function') return;
+      try {
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) return;
+        const ring = document.createElement('div');
+        ring.className = '_auok_tap_indicator';
+        ring.style.cssText = 'position:fixed;left:' + rect.left + 'px;top:' + rect.top + 'px;width:' + rect.width + 'px;height:' + rect.height + 'px;border-radius:8px;box-shadow:0 0 0 3px #3b82f6, 0 0 16px rgba(59,130,246,0.6);background:rgba(59,130,246,0.25);pointer-events:none;z-index:2147483647;transition:all 0.28s ease-out;';
+        document.documentElement.appendChild(ring);
+        setTimeout(function() {
+          ring.style.transform = 'scale(1.12)';
+          ring.style.opacity = '0';
+          setTimeout(function() { if (ring.parentNode) ring.parentNode.removeChild(ring); }, 300);
+        }, 220);
+      } catch(e) {}
+    }
+
+    // 现代框架（Vue 3 / React 18 / Uni-app / Angular）全仿真交互事件链
+    function _auokSimulateClick(el) {
+      if (!el) return;
+      try {
+        const opts = { bubbles: true, cancelable: true, view: window, composed: true };
+        if (typeof el.focus === 'function') el.focus();
+        try { el.dispatchEvent(new PointerEvent('pointerdown', opts)); } catch(_) {}
+        try { el.dispatchEvent(new MouseEvent('mousedown', opts)); } catch(_) {}
+        try { el.dispatchEvent(new PointerEvent('pointerup', opts)); } catch(_) {}
+        try { el.dispatchEvent(new MouseEvent('mouseup', opts)); } catch(_) {}
+        el.click();
+      } catch(e) {
+        try { el.click(); } catch(_) {}
+      }
+    }
+  ''';
 
   Future<bool> _executeClickScript(
       InAppWebViewController controller, Script script) async {
@@ -464,6 +537,7 @@ class ScriptExecutor {
     return await _pollUntilSuccess(() async {
       final result = await controller.evaluateJavascript(source: '''
         (function() {
+          $_highlightJs
           try {
             const formData = $jsonFormData;
             const buttonText = $jsonButtonText;
@@ -503,6 +577,7 @@ class ScriptExecutor {
               let input = findInput(fieldName, scope);
               
               if (input && input.type !== 'hidden' && input.type !== 'submit') {
+                try { if (typeof input.focus === 'function') input.focus(); } catch(_) {}
                 try {
                   const proto = Object.getPrototypeOf(input);
                   const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
@@ -514,8 +589,10 @@ class ScriptExecutor {
                 } catch (_) {
                   input.value = value;
                 }
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-                input.dispatchEvent(new Event('change', { bubbles: true }));
+                _auokHighlight(input);
+                input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+                try { if (typeof input.blur === 'function') input.blur(); } catch(_) {}
                 filledCount++;
               }
             }
@@ -531,7 +608,8 @@ class ScriptExecutor {
               });
               
               if (submitBtn) {
-                submitBtn.click();
+                _auokHighlight(submitBtn);
+                _auokSimulateClick(submitBtn);
                 return true;
               } else if (targetForm) {
                 targetForm.submit();
@@ -585,6 +663,7 @@ class ScriptExecutor {
 
     // Unified logic: Always use Expert Mode features with Fuzzy Matching
     return '''
+      $_highlightJs
       const triggerTexts = ($triggerTextJson).split(';').filter(t => t.trim());
       if (triggerTexts.length > 0) {
         const pageText = document.body.textContent || '';
@@ -598,11 +677,9 @@ class ScriptExecutor {
       const clickTexts = ($clickTextJson).split(';').map(t => t.trim()).filter(t => t);
       if (clickTexts.length === 0) return false;
 
-      // Get all reasonable elements
-      const allElements = Array.from(document.querySelectorAll('*')).filter(el => {
-        const tag = el.tagName.toLowerCase();
-        return !['html', 'head', 'style', 'script', 'meta', 'link', 'noscript', 'title', 'body'].includes(tag);
-      });
+      // 优先从常见可交互与文本容器节点中检索，避免扫描全量万级无关节点
+      const candidateSelectors = 'a, button, input, [role="button"], [onclick], label, span, p, h1, h2, h3, h4, h5, h6, li, td, th, b, strong, em, div';
+      const allElements = Array.from(document.querySelectorAll(candidateSelectors));
       
       // Filter by text content
       let matchedLinks = allElements.filter(el => {
@@ -618,10 +695,26 @@ class ScriptExecutor {
         });
       });
       
-      // Keep only the deepest elements to avoid clicking large container wrappers
-      matchedLinks = matchedLinks.filter(el => {
-          return !matchedLinks.some(otherEl => otherEl !== el && el.contains(otherEl));
-      });
+      // 高效剪枝：优先保留最深层匹配节点（避免误点外层大包裹容器）
+      if (matchedLinks.length > 1) {
+        const leafMatched = [];
+        for (let i = 0; i < matchedLinks.length; i++) {
+          const el = matchedLinks[i];
+          let isContainerOfOther = false;
+          for (let j = 0; j < matchedLinks.length; j++) {
+            if (i !== j && el.contains(matchedLinks[j])) {
+              isContainerOfOther = true;
+              break;
+            }
+          }
+          if (!isContainerOfOther) {
+            leafMatched.push(el);
+          }
+        }
+        if (leafMatched.length > 0) {
+          matchedLinks = leafMatched;
+        }
+      }
 
       // Filter by position constraints if specified
       const afterText = ($afterTextJson).trim();
@@ -674,7 +767,13 @@ class ScriptExecutor {
       
       const targetElement = matchedLinks[targetIndex];
       if (targetElement) {
-        targetElement.click();
+        _auokHighlight(targetElement);
+        _auokSimulateClick(targetElement);
+        // 若自身不是链接但父级或祖父级为 <a> 则联动触发
+        const anchor = targetElement.closest('a');
+        if (anchor && anchor !== targetElement) {
+          _auokSimulateClick(anchor);
+        }
         return true;
       }
       
@@ -727,6 +826,7 @@ class ScriptExecutor {
     return await _pollUntilSuccess(() async {
       final result = await controller.evaluateJavascript(source: '''
         (function() {
+          $_highlightJs
           try {
             // 1. Find all images
             let images = Array.from(document.querySelectorAll('img'));
@@ -790,10 +890,12 @@ class ScriptExecutor {
             }
             
             if (targetImg) {
-              targetImg.click();
-              // Also try clicking parent if image itself isn't clickable but parent is anchor
-              if (!targetImg.onclick && targetImg.parentElement && targetImg.parentElement.tagName === 'A') {
-                targetImg.parentElement.click();
+              _auokHighlight(targetImg);
+              _auokSimulateClick(targetImg);
+              // 若自身不是链接但父级为 <a> 则联动仿真触发
+              const anchor = targetImg.closest('a');
+              if (anchor && anchor !== targetImg) {
+                _auokSimulateClick(anchor);
               }
               return true;
             }
@@ -1113,29 +1215,21 @@ class ScriptExecutor {
           newTab.scriptFilePath = scriptPath;
 
           if (executeImmediately) {
-            // Trigger execution on the new tab
-            // We need to wait a bit for the tab to be ready?
-            // startExecution takes controller, which is set in onWebViewCreated.
-            // So we might need to wait for controller to be available.
-            // But startExecution is usually called from UI.
-            // Here we are calling it programmatically.
-
-            // We can't easily wait for controller here without blocking.
-            // But we can set a flag or try to execute after a short delay.
-            Future.delayed(const Duration(seconds: 1), () {
-              if (newTab.controller != null) {
-                scriptProvider.startExecution(
-                    newTab.controller!, browserProvider.tabs.length - 1);
-              } else {
-                // Retry once more
-                Future.delayed(const Duration(seconds: 2), () {
-                  if (newTab.controller != null) {
-                    scriptProvider.startExecution(
-                        newTab.controller!, browserProvider.tabs.length - 1);
-                  }
-                });
+            // 异步轮询等待新标签页 WebView 初始化完毕，最长等待 10 秒
+            () async {
+              int attempts = 0;
+              while (newTab.controller == null && attempts < 50) {
+                await Future.delayed(const Duration(milliseconds: 200));
+                attempts++;
               }
-            });
+              if (newTab.controller != null) {
+                final targetIndex = browserProvider.tabs.indexOf(newTab);
+                if (targetIndex != -1) {
+                  scriptProvider.startExecution(
+                      newTab.controller!, targetIndex);
+                }
+              }
+            }();
           }
         }
       }
@@ -1237,6 +1331,7 @@ class ScriptExecutor {
     // JavaScript logic to find elements, extract value, compare, and click
     final jsCode = '''
       (function() {
+        $_highlightJs
         function getElementByXpath(path) {
           return document.evaluate(path, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
         }
@@ -1322,7 +1417,12 @@ class ScriptExecutor {
         }
 
         if (result) {
-          targetElement.click();
+          _auokHighlight(targetElement);
+          _auokSimulateClick(targetElement);
+          const anchor = targetElement.closest('a');
+          if (anchor && anchor !== targetElement) {
+            _auokSimulateClick(anchor);
+          }
           return "clicked";
         } else {
           return "condition_not_met: " + value;
@@ -1439,10 +1539,12 @@ class ScriptExecutor {
       InAppWebViewController controller,
       Script script,
       Function(ScriptStatus status, String? message, double? progress)?
-          onStatusChanged) async {
+          onStatusChanged,
+      {Map<String, String>? variables}) async {
     final params = script.params;
     final selector = params['CSS选择器'] as String? ?? '';
-    final attribute = params['属性'] as String? ?? 'text'; // 'text', 'html', or attribute name
+    final attribute =
+        params['属性'] as String? ?? 'text'; // 'text', 'html', or attribute name
 
     if (selector.isEmpty) {
       onStatusChanged?.call(ScriptStatus.failure, '未指定CSS选择器', null);
@@ -1476,8 +1578,17 @@ class ScriptExecutor {
       final result = await controller.evaluateJavascript(source: jsCode);
       if (result != null) {
         final extractedValue = result.toString();
-        // Displaying as a notification status so the user can see it
-        onStatusChanged?.call(ScriptStatus.notification, '提取结果: $extractedValue', null);
+        final varName = params['变量名'] as String? ??
+            params['保存至变量'] as String? ??
+            '';
+        if (varName.isNotEmpty && variables != null) {
+          variables[varName] = extractedValue;
+          onStatusChanged?.call(
+              ScriptStatus.notification, '提取成功: \$$varName = $extractedValue', null);
+        } else {
+          onStatusChanged?.call(
+              ScriptStatus.notification, '提取结果: $extractedValue', null);
+        }
         return true;
       } else {
         onStatusChanged?.call(ScriptStatus.failure, '未找到元素或属性为空', null);
@@ -1487,5 +1598,37 @@ class ScriptExecutor {
       debugPrint('Extract text error: $e');
       return false;
     }
+  }
+
+  /// 递归解析脚本参数中的动态变量引用（将 ${varName} 替换为对应值）
+  Script _resolveVariables(Script original, Map<String, String>? vars) {
+    if (vars == null || vars.isEmpty) return original;
+    final newParams = <String, dynamic>{};
+    original.params.forEach((key, value) {
+      newParams[key] = _replaceVarInValue(value, vars);
+    });
+    return Script(
+      type: original.type,
+      params: newParams,
+      isEnabled: original.isEnabled,
+      status: original.status,
+      statusMessage: original.statusMessage,
+      progress: original.progress,
+    );
+  }
+
+  dynamic _replaceVarInValue(dynamic val, Map<String, String> vars) {
+    if (val is String) {
+      String str = val;
+      vars.forEach((k, v) {
+        str = str.replaceAll('\${$k}', v).replaceAll('\$$k', v);
+      });
+      return str;
+    } else if (val is Map) {
+      return val.map((k, v) => MapEntry(k, _replaceVarInValue(v, vars)));
+    } else if (val is List) {
+      return val.map((e) => _replaceVarInValue(e, vars)).toList();
+    }
+    return val;
   }
 }

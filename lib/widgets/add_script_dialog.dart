@@ -90,6 +90,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     '跳转脚本',
     '设置Cookie',
     '清除Cookie',
+    '提取文字',
   ];
   final TextEditingController _delayController = TextEditingController();
   final TextEditingController _appearTextController = TextEditingController();
@@ -97,6 +98,14 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   final TextEditingController _afterSearchController = TextEditingController();
   final TextEditingController _beforeSearchController = TextEditingController();
   final TextEditingController _multipleSelectionController =
+      TextEditingController();
+
+  // 提取文字 fields
+  final TextEditingController _extractSelectorController =
+      TextEditingController();
+  final TextEditingController _extractAttributeController =
+      TextEditingController(text: 'text');
+  final TextEditingController _extractVarNameController =
       TextEditingController();
 
   // Cookie fields
@@ -162,6 +171,11 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   final TextEditingController _notificationContentController =
       TextEditingController();
   final TextEditingController _repeatCountController = TextEditingController();
+
+  // 高级配置分层折叠与看门狗超时
+  bool _isAdvancedExpanded = false;
+  final TextEditingController _timeoutSecondsController =
+      TextEditingController(text: '30');
 
   Script? _beforeScript;
   Script? _afterScript;
@@ -248,6 +262,10 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       _cookieAutoReload = params['设置后刷新页面'] ?? params['清除后刷新页面'] ?? true;
       _cookieClearAll = params['清除全部站点'] ?? false;
 
+      _extractSelectorController.text = params['CSS选择器'] ?? '';
+      _extractAttributeController.text = params['属性'] ?? 'text';
+      _extractVarNameController.text = params['变量名'] ?? '';
+
       if (params['执行每个脚本前执行'] != null) {
         _beforeScript =
             Script.fromUserMap(Map<String, dynamic>.from(params['执行每个脚本前执行']));
@@ -255,6 +273,16 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       if (params['执行每个脚本后执行'] != null) {
         _afterScript =
             Script.fromUserMap(Map<String, dynamic>.from(params['执行每个脚本后执行']));
+      }
+
+      if (params['超时时间'] != null) {
+        _timeoutSecondsController.text = params['超时时间'].toString();
+        if (params['超时时间'] != 30) {
+          _isAdvancedExpanded = true;
+        }
+      }
+      if (_beforeScript != null || _afterScript != null) {
+        _isAdvancedExpanded = true;
       }
     } else {
       _selectedScriptType = scriptTypes[0];
@@ -264,6 +292,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   @override
   void dispose() {
     _repeatCountController.dispose();
+    _timeoutSecondsController.dispose();
     _customJsController.dispose();
 
     _delayController.dispose();
@@ -272,6 +301,9 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     _afterSearchController.dispose();
     _beforeSearchController.dispose();
     _multipleSelectionController.dispose();
+    _extractSelectorController.dispose();
+    _extractAttributeController.dispose();
+    _extractVarNameController.dispose();
     _cookieProfileNameController.dispose();
     _cookieNameController.dispose();
     _cookieValueController.dispose();
@@ -454,22 +486,11 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
                     const SizedBox(height: 16),
 
-                    // Nested Scripts Section (Available for all types except Global Settings)
+                    // 高级配置分层折叠（包含看门狗超时设置与前置/后置嵌套脚本）
                     if (_selectedScriptType != '全局设置') ...[
-                      const Divider(color: Colors.white24),
                       const SizedBox(height: 8),
-                      const Text(
-                        '嵌套脚本',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 12),
-                      _buildNestedScriptTile('执行每个脚本前执行', 'beforeScript'),
+                      _buildAdvancedSection(),
                       const SizedBox(height: 8),
-                      _buildNestedScriptTile('执行每个脚本后执行', 'afterScript'),
-                      const SizedBox(height: 16),
                     ],
                   ],
                 ),
@@ -764,6 +785,17 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           _buildCheckboxRow('清除后刷新页面', _cookieAutoReload, (val) {
             setState(() => _cookieAutoReload = val ?? true);
           }),
+        ];
+
+      case '提取文字':
+        return [
+          _buildFieldRow(
+              'CSS选择器', _extractSelectorController, '例如: .price 或 #order-id',
+              required: true),
+          _buildFieldRow('提取属性', _extractAttributeController,
+              'text: 文本, html: HTML, 或属性名如 href, src'),
+          _buildFieldRow('保存至变量', _extractVarNameController,
+              '例如: orderId，后续步骤可用 \${orderId} 动态引用'),
         ];
 
       default:
@@ -1235,6 +1267,108 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     );
   }
 
+  Widget _buildAdvancedSection() {
+    return Container(
+      decoration: BoxDecoration(
+        color: _theme.isDarkMode
+            ? Colors.white.withValues(alpha: 0.03)
+            : Colors.black.withValues(alpha: 0.02),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: _isAdvancedExpanded
+              ? Colors.blueAccent.withValues(alpha: 0.4)
+              : _theme.borderColor,
+          width: 1,
+        ),
+      ),
+      child: Column(
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () {
+              setState(() {
+                _isAdvancedExpanded = !_isAdvancedExpanded;
+              });
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.tune,
+                    size: 18,
+                    color: _isAdvancedExpanded
+                        ? Colors.blueAccent
+                        : (_theme.isDarkMode ? Colors.white70 : Colors.black54),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '高级配置 (选填)',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: _isAdvancedExpanded
+                          ? Colors.blueAccent
+                          : (_theme.isDarkMode ? Colors.white : Colors.black87),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  if (_beforeScript != null ||
+                      _afterScript != null ||
+                      _timeoutSecondsController.text != '30')
+                    Container(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.blueAccent.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text(
+                        '已自定义',
+                        style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.blueAccent,
+                            fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  const Spacer(),
+                  Icon(
+                    _isAdvancedExpanded
+                        ? Icons.keyboard_arrow_up
+                        : Icons.keyboard_arrow_down,
+                    size: 20,
+                    color: _theme.iconColor,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_isAdvancedExpanded) ...[
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.all(14.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildFieldRow(
+                    '看门狗超时时间 (秒)',
+                    _timeoutSecondsController,
+                    '30',
+                    hint: '脚本单步执行超过此时间未完成时视为超时',
+                  ),
+                  const SizedBox(height: 12),
+                  _buildNestedScriptTile('执行每个脚本前执行 (前置脚本)', 'beforeScript'),
+                  const SizedBox(height: 10),
+                  _buildNestedScriptTile('执行每个脚本后执行 (后置脚本)', 'afterScript'),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildNestedScriptTile(String label, String type) {
     final script = type == 'beforeScript' ? _beforeScript : _afterScript;
 
@@ -1568,6 +1702,20 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         }
         break;
 
+      case '提取文字':
+        if (_extractSelectorController.text.isEmpty) return;
+        params['CSS选择器'] = _extractSelectorController.text.trim();
+        params['属性'] = _extractAttributeController.text.isEmpty
+            ? 'text'
+            : _extractAttributeController.text.trim();
+        if (_extractVarNameController.text.isNotEmpty) {
+          params['变量名'] = _extractVarNameController.text.trim();
+        }
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
+        break;
+
       default:
         // For other types, just save delay if present
         if (_delayController.text.isNotEmpty) {
@@ -1582,6 +1730,11 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     }
     if (_afterScript != null) {
       params['执行每个脚本后执行'] = _afterScript!.toUserMap();
+    }
+
+    final timeout = int.tryParse(_timeoutSecondsController.text);
+    if (timeout != null && timeout > 0) {
+      params['超时时间'] = timeout;
     }
 
     final newScript = Script(

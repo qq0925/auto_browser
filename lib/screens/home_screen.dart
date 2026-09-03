@@ -23,6 +23,7 @@ import '../widgets/auto_refresh_dialog.dart';
 import '../widgets/browser_settings_dialog.dart';
 import '../widgets/script_recording_overlay.dart';
 import '../widgets/cookie_manager_dialog.dart';
+import '../widgets/floating_capsule.dart';
 import '../utils/welcome_manager.dart';
 
 class BrowserHomePage extends StatefulWidget {
@@ -779,6 +780,9 @@ class _BrowserHomePageState extends State<BrowserHomePage>
 
               // 脚本录制浮窗
               const ScriptRecordingOverlay(),
+
+              // 脚本执行极简悬浮状态胶囊（侧边栏收起时显示）
+              const FloatingCapsule(),
             ],
           ),
           bottomNavigationBar:
@@ -805,69 +809,136 @@ class _BrowserHomePageState extends State<BrowserHomePage>
 
   Widget _buildSplashScreen() {
     return Container(
-      color: const Color(0xFF1E1E2E),
       width: double.infinity,
       height: double.infinity,
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // 应用图标
-            Container(
-              width: 90,
-              height: 90,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0xFF0F172A), // 深邃星夜蓝
+            Color(0xFF090D16),
+            Color(0xFF05070B),
+          ],
+        ),
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // 顶部轻量极光光晕背景
+          Positioned(
+            top: -100,
+            child: Container(
+              width: 320,
+              height: 320,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.4),
-                    blurRadius: 16,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
+                shape: BoxShape.circle,
+                color: Colors.blueAccent.withValues(alpha: 0.12),
               ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(20),
-                child: Image.asset(
-                  'assets/app_icon.png',
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => Container(
-                    color: Colors.blueAccent,
-                    child: const Icon(Icons.language,
-                        size: 48, color: Colors.white),
+            ),
+          ),
+
+          // 中心品牌与微动效
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 应用 Logo（带双层外发光环与高质感圆角）
+              Container(
+                width: 92,
+                height: 92,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF2563EB).withValues(alpha: 0.35),
+                      blurRadius: 32,
+                      spreadRadius: 2,
+                      offset: const Offset(0, 8),
+                    ),
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.6),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.15),
+                    width: 1.2,
+                  ),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(23),
+                  child: Image.asset(
+                    'assets/app_icon.png',
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      color: const Color(0xFF1E293B),
+                      child: const Icon(
+                        Icons.rocket_launch_rounded,
+                        size: 42,
+                        color: Colors.blueAccent,
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'Auok 浏览器',
+              const SizedBox(height: 28),
+
+              // 品牌主标题
+              const Text(
+                'Auok',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 2.5,
+                ),
+              ),
+              const SizedBox(height: 6),
+
+              // 品牌副标（现代科技感排版）
+              Text(
+                '智能自动化极速浏览器',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.55),
+                  fontSize: 12,
+                  letterSpacing: 1.8,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+              const SizedBox(height: 36),
+
+              // 极简微光流线加载条（替代生硬转圈圈）
+              SizedBox(
+                width: 60,
+                height: 3,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(2),
+                  child: LinearProgressIndicator(
+                    backgroundColor: Colors.white.withValues(alpha: 0.08),
+                    valueColor: const AlwaysStoppedAnimation<Color>(
+                      Color(0xFF38BDF8), // 现代霓虹天蓝
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          // 底部极简版本署名
+          Positioned(
+            bottom: 36,
+            child: Text(
+              'FAST · AUTOMATED · PRIVACY',
               style: TextStyle(
-                color: Colors.white,
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.2,
+                color: Colors.white.withValues(alpha: 0.25),
+                fontSize: 10,
+                letterSpacing: 2.0,
+                fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              '正在准备初始运行环境...',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.6),
-                fontSize: 13,
-              ),
-            ),
-            const SizedBox(height: 32),
-            const SizedBox(
-              width: 22,
-              height: 22,
-              child: CircularProgressIndicator(
-                strokeWidth: 2.2,
-                valueColor: AlwaysStoppedAnimation<Color>(Colors.blueAccent),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

@@ -141,11 +141,38 @@ class _BrowserViewState extends State<BrowserView> {
               allowsLinkPreview: false, // 禁用 iOS 链接预览
               supportZoom: true,
               builtInZoomControls: true,
-              displayZoomControls: false,
               forceDark: browserProvider.isDarkMode
                   ? ForceDark.ON
                   : ForceDark.OFF,
               algorithmicDarkeningAllowed: true,
+              contentBlockers: browserProvider.isAdBlockEnabled
+                  ? [
+                      ContentBlocker(
+                        trigger: ContentBlockerTrigger(
+                          urlFilter:
+                              ".*(doubleclick\\.net|googlesyndication\\.com|adservice\\.google|pos\\.baidu\\.com|cpro\\.baidustatic\\.com|eclick\\.baidu\\.com|ad\\.toutiao\\.com|adnxs\\.com|popads\\.net|adroll\\.com).*",
+                        ),
+                        action: ContentBlockerAction(
+                          type: ContentBlockerActionType.BLOCK,
+                        ),
+                      ),
+                      ContentBlocker(
+                        trigger: ContentBlockerTrigger(
+                          urlFilter: ".*",
+                          resourceType: [
+                            ContentBlockerTriggerResourceType.IMAGE,
+                            ContentBlockerTriggerResourceType.RAW,
+                            ContentBlockerTriggerResourceType.SCRIPT,
+                          ],
+                        ),
+                        action: ContentBlockerAction(
+                          type: ContentBlockerActionType.CSS_DISPLAY_NONE,
+                          selector:
+                              ".ad, .ads, .advert, .advertisement, [id^='ad-'], [class^='ad-'], .popup-ad, .app-download-bar, .open-app-btn, .modal-ad, .bottom-ad, #app-banner",
+                        ),
+                      ),
+                    ]
+                  : [],
             ),
             initialUserScripts:
                 UnmodifiableListView<UserScript>(initialScripts),

@@ -131,7 +131,8 @@ class _CookieManagerDialogState extends State<CookieManagerDialog>
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
-        width: MediaQuery.of(context).size.width * 0.9,
+        width: MediaQuery.of(context).size.width * 0.92,
+        constraints: const BoxConstraints(maxWidth: 540),
         height: 520,
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -237,26 +238,42 @@ class _CookieManagerDialogState extends State<CookieManagerDialog>
           ),
         ),
         const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             OutlinedButton.icon(
-              icon: const Icon(Icons.save, size: 16),
-              label: const Text('存为新账号'),
+              style: OutlinedButton.styleFrom(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                visualDensity: VisualDensity.compact,
+              ),
+              icon: const Icon(Icons.save, size: 15),
+              label: const Text('存为新账号', style: TextStyle(fontSize: 12)),
               onPressed: _showSaveProfileDialog,
             ),
             OutlinedButton.icon(
-              icon: const Icon(Icons.file_upload_outlined, size: 16),
-              label: const Text('导出 JSON'),
+              style: OutlinedButton.styleFrom(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                visualDensity: VisualDensity.compact,
+              ),
+              icon: const Icon(Icons.file_upload_outlined, size: 15),
+              label: const Text('导出 JSON', style: TextStyle(fontSize: 12)),
               onPressed: _exportCookies,
             ),
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red.shade700,
                 foregroundColor: Colors.white,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                visualDensity: VisualDensity.compact,
               ),
-              icon: const Icon(Icons.delete_outline, size: 16),
-              label: const Text('清理站点'),
+              icon: const Icon(Icons.delete_outline, size: 15),
+              label: const Text('清理站点', style: TextStyle(fontSize: 12)),
               onPressed: () async {
                 await CookieService.clearCookiesForUrl(widget.currentUrl);
                 await _loadData();
