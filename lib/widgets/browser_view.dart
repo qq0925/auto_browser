@@ -49,6 +49,27 @@ class _BrowserViewState extends State<BrowserView> {
       initialScripts.add(scriptProvider.recordingUserScript);
     }
 
+    // 通用/桌面端浮窗广告安全拦截脚本（欢迎页与官方起始页严格加入白名单免拦截）
+    if (browserProvider.isAdBlockEnabled) {
+      initialScripts.add(UserScript(
+        source: '''
+          (function() {
+            try {
+              var href = window.location.href || '';
+              if (href.indexOf('welcome.html') !== -1 || href.indexOf('test.txsj.ink') !== -1 || href.indexOf('about:blank') !== -1) {
+                return; // 欢迎页免拦截白名单
+              }
+              var style = document.createElement('style');
+              style.id = '_auok_adblock_style';
+              style.textContent = '.popup-ad, .app-download-bar, .open-app-btn, .modal-ad, .bottom-ad, #app-banner { display: none !important; }';
+              (document.head || document.documentElement).appendChild(style);
+            } catch(e) {}
+          })();
+        ''',
+        injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+      ));
+    }
+
     return Container(
       color: browserProvider.isDarkMode ? Colors.black : Colors.white,
       child: Stack(
@@ -145,34 +166,55 @@ class _BrowserViewState extends State<BrowserView> {
                   ? ForceDark.ON
                   : ForceDark.OFF,
               algorithmicDarkeningAllowed: true,
-              contentBlockers: browserProvider.isAdBlockEnabled
-                  ? [
-                      ContentBlocker(
-                        trigger: ContentBlockerTrigger(
-                          urlFilter:
-                              ".*(doubleclick\\.net|googlesyndication\\.com|adservice\\.google|pos\\.baidu\\.com|cpro\\.baidustatic\\.com|eclick\\.baidu\\.com|ad\\.toutiao\\.com|adnxs\\.com|popads\\.net|adroll\\.com).*",
-                        ),
-                        action: ContentBlockerAction(
-                          type: ContentBlockerActionType.BLOCK,
-                        ),
-                      ),
-                      ContentBlocker(
-                        trigger: ContentBlockerTrigger(
-                          urlFilter: ".*",
-                          resourceType: [
-                            ContentBlockerTriggerResourceType.IMAGE,
-                            ContentBlockerTriggerResourceType.RAW,
-                            ContentBlockerTriggerResourceType.SCRIPT,
-                          ],
-                        ),
-                        action: ContentBlockerAction(
-                          type: ContentBlockerActionType.CSS_DISPLAY_NONE,
-                          selector:
-                              ".ad, .ads, .advert, .advertisement, [id^='ad-'], [class^='ad-'], .popup-ad, .app-download-bar, .open-app-btn, .modal-ad, .bottom-ad, #app-banner",
-                        ),
-                      ),
-                    ]
-                  : [],
+              contentBlockers:
+                  (browserProvider.isAdBlockEnabled && !Platform.isWindows)
+                      ? [
+                          ContentBlocker(
+                            trigger: ContentBlockerTrigger(
+                              urlFilter:
+                                  ".*(doubleclick\\.net|googlesyndication\\.com|adservice\\.google|pos\\.baidu\\.com|cpro\\.baidustatic\\.com|eclick\\.baidu\\.com|ad\\.toutiao\\.com|adnxs\\.com|popads\\.net|adroll\\.com).*",
+                              unlessTopUrl: [
+                                ".*welcome.*",
+                                ".*test\\.txsj\\.ink.*",
+                                "file:///.*",
+                                "about:blank",
+                              ],
+                              unlessDomain: [
+                                "test.txsj.ink",
+                                "txsj.ink",
+                              ],
+                            ),
+                            action: ContentBlockerAction(
+                              type: ContentBlockerActionType.BLOCK,
+                            ),
+                          ),
+                          ContentBlocker(
+                            trigger: ContentBlockerTrigger(
+                              urlFilter: ".*",
+                              unlessTopUrl: [
+                                ".*welcome.*",
+                                ".*test\\.txsj\\.ink.*",
+                                "file:///.*",
+                                "about:blank",
+                              ],
+                              unlessDomain: [
+                                "test.txsj.ink",
+                                "txsj.ink",
+                              ],
+                              resourceType: [
+                                ContentBlockerTriggerResourceType.IMAGE,
+                                ContentBlockerTriggerResourceType.RAW,
+                                ContentBlockerTriggerResourceType.SCRIPT,
+                              ],
+                            ),
+                            action: ContentBlockerAction(
+                              type: ContentBlockerActionType.CSS_DISPLAY_NONE,
+                              selector:
+                                  ".ad, .ads, .advert, .advertisement, [id^='ad-'], [class^='ad-'], .popup-ad, .app-download-bar, .open-app-btn, .modal-ad, .bottom-ad, #app-banner",
+                            ),
+                          ),
+                        ]
+                      : [],
             ),
             initialUserScripts:
                 UnmodifiableListView<UserScript>(initialScripts),
