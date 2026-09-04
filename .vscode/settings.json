@@ -1,3 +1,8 @@
 {
-    "cmake.ignoreCMakeListsMissing": true
+    "cmake.ignoreCMakeListsMissing": true,
+    "C_Cpp.default.includePath": [
+        "${workspaceFolder}/windows/runner",
+        "${workspaceFolder}/windows/flutter/ephemeral",
+        "${workspaceFolder}/windows/flutter/ephemeral/cpp_client_wrapper/include"
+    ]
 }

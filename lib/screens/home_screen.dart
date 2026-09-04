@@ -4,12 +4,14 @@ import 'package:provider/provider.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../providers/browser_provider.dart';
+import '../providers/download_provider.dart';
 import '../providers/script_provider.dart';
 import '../models/script.dart';
 import '../widgets/right_script_panel.dart';
 import '../widgets/add_script_dialog.dart';
 import '../widgets/global_settings_dialog.dart';
 import '../widgets/browser_view.dart';
+import '../widgets/download_manager_dialog.dart';
 
 import 'dart:async';
 import 'dart:io';
@@ -176,8 +178,8 @@ class _BrowserHomePageState extends State<BrowserHomePage>
 
   @override
   Widget build(BuildContext context) {
-    return Consumer2<BrowserProvider, ScriptProvider>(
-      builder: (context, browserProvider, scriptProvider, child) {
+    return Consumer3<BrowserProvider, ScriptProvider, DownloadProvider>(
+      builder: (context, browserProvider, scriptProvider, downloadProvider, child) {
         // Update ScriptProvider's current tab when it changes
         if (scriptProvider.currentTab != browserProvider.currentTab) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -493,13 +495,50 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                     ),
                   ),
                 ),
+                // 快捷下载管理入口（带角标）
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.download_rounded, color: Colors.white, size: 24),
+                      tooltip: '下载管理',
+                      onPressed: () => DownloadManagerDialog.show(context),
+                    ),
+                    if (downloadProvider.activeCount > 0)
+                      Positioned(
+                        top: 6,
+                        right: 6,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(
+                            color: Colors.redAccent,
+                            shape: BoxShape.circle,
+                          ),
+                          constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                          child: Text(
+                            downloadProvider.activeCount > 99
+                                ? '99+'
+                                : '${downloadProvider.activeCount}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
                 // Menu button area
                 SizedBox(
                   width: 48,
                   child: PopupMenuButton<String>(
                     icon: const Icon(Icons.more_vert, color: Colors.white),
                     onSelected: (value) {
-                      if (value == 'page_info') {
+                      if (value == 'downloads') {
+                        DownloadManagerDialog.show(context);
+                      } else if (value == 'page_info') {
                         if (browserProvider.currentTab != null) {
                           Navigator.push(
                             context,
@@ -586,6 +625,17 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                       }
                     },
                     itemBuilder: (context) => [
+                      const PopupMenuItem(
+                        value: 'downloads',
+                        child: Row(
+                          children: [
+                            Icon(Icons.download_rounded,
+                                color: Colors.black87, size: 20),
+                            SizedBox(width: 12),
+                            Text('下载管理'),
+                          ],
+                        ),
+                      ),
                       const PopupMenuItem(
                         value: 'page_info',
                         child: Row(
@@ -786,7 +836,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
             ],
           ),
           bottomNavigationBar:
-              _buildBottomBar(context, browserProvider, scriptProvider),
+              _buildBottomBar(context, browserProvider, scriptProvider, downloadProvider),
         ),
       ),
     ),
@@ -943,8 +993,11 @@ class _BrowserHomePageState extends State<BrowserHomePage>
     );
   }
 
-  Widget _buildBottomBar(BuildContext context, BrowserProvider browser,
-      ScriptProvider scriptProvider) {
+  Widget _buildBottomBar(
+      BuildContext context,
+      BrowserProvider browser,
+      ScriptProvider scriptProvider,
+      DownloadProvider downloadProvider) {
     return Container(
       color: Colors.grey[850],
       child: SafeArea(
@@ -1067,6 +1120,11 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                             const SnackBar(content: Text('请先打开目标网页后再管理 Cookie/账号')),
                           );
                         }
+                      },
+                      activeDownloadCount: downloadProvider.activeCount,
+                      onDownloads: () {
+                        Navigator.pop(context);
+                        DownloadManagerDialog.show(context);
                       },
                       onSettings: () {
                         Navigator.pop(context);

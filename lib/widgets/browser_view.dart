@@ -7,8 +7,7 @@ import 'dart:io';
 import '../models/browser_tab.dart';
 import '../providers/browser_provider.dart';
 import '../providers/script_provider.dart';
-import '../services/download_service.dart';
-
+import 'download_confirm_dialog.dart';
 import '../utils/welcome_manager.dart';
 
 class BrowserView extends StatefulWidget {
@@ -497,33 +496,31 @@ class _BrowserViewState extends State<BrowserView> {
             onDownloadStartRequest: (controller, downloadStartRequest) async {
               final url = downloadStartRequest.url.toString();
               final suggestedFilename = downloadStartRequest.suggestedFilename;
+              final mimeType = downloadStartRequest.mimeType;
 
-              // 显示开始下载提示
+              // 尝试提取当前网页的 Session Cookies 与 UA 鉴权
+              String? userAgent;
+              String? cookieString;
+              try {
+                final uaResult = await controller.evaluateJavascript(source: 'navigator.userAgent');
+                if (uaResult != null) userAgent = uaResult.toString();
+                final cookieManager = CookieManager.instance();
+                final cookies = await cookieManager.getCookies(url: WebUri(url));
+                if (cookies.isNotEmpty) {
+                  cookieString = cookies.map((c) => '${c.name}=${c.value}').join('; ');
+                }
+              } catch (_) {}
+
               if (context.mounted) {
-                DownloadService.showDownloadStarted(
+                DownloadConfirmDialog.show(
                   context,
-                  suggestedFilename ?? url.split('/').last,
+                  url: url,
+                  suggestedFilename: suggestedFilename,
+                  mimeType: mimeType,
+                  userAgent: userAgent,
+                  cookies: cookieString,
                 );
               }
-
-              // 开始下载
-              await DownloadService.downloadFile(
-                url: url,
-                suggestedFilename: suggestedFilename,
-                onProgress: (progress) {
-                  // 进度更新（可扩展显示进度条）
-                },
-                onComplete: (filePath) {
-                  if (context.mounted) {
-                    DownloadService.showDownloadComplete(context, filePath);
-                  }
-                },
-                onError: (error) {
-                  if (context.mounted) {
-                    DownloadService.showDownloadError(context, error);
-                  }
-                },
-              );
             },
           ),
         ],
@@ -598,6 +595,38 @@ class _BrowserViewState extends State<BrowserView> {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('链接已复制')),
                 );
+              },
+            ),
+            const Divider(height: 1, color: Colors.grey),
+            // 下载链接目标
+            _buildLinkActionItem(
+              context,
+              '下载目标文件',
+              Colors.lightBlueAccent,
+              () async {
+                Navigator.pop(context);
+                String? userAgent;
+                String? cookieString;
+                try {
+                  if (widget.tab.controller != null) {
+                    final uaResult = await widget.tab.controller!.evaluateJavascript(source: 'navigator.userAgent');
+                    if (uaResult != null) userAgent = uaResult.toString();
+                    final cookieManager = CookieManager.instance();
+                    final cookies = await cookieManager.getCookies(url: WebUri(url));
+                    if (cookies.isNotEmpty) {
+                      cookieString = cookies.map((c) => '${c.name}=${c.value}').join('; ');
+                    }
+                  }
+                } catch (_) {}
+
+                if (context.mounted) {
+                  DownloadConfirmDialog.show(
+                    context,
+                    url: url,
+                    userAgent: userAgent,
+                    cookies: cookieString,
+                  );
+                }
               },
             ),
             const Divider(height: 1, color: Colors.grey),

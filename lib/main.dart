@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'providers/browser_provider.dart';
+import 'providers/download_provider.dart';
 import 'providers/script_provider.dart';
 import 'screens/home_screen.dart';
 
@@ -13,6 +14,7 @@ void main() async {
       providers: [
         ChangeNotifierProvider(create: (_) => BrowserProvider()),
         ChangeNotifierProvider(create: (_) => ScriptProvider()),
+        ChangeNotifierProvider(create: (_) => DownloadProvider()),
       ],
       child: const MyApp(),
     ),

@@ -1,148 +1,114 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:open_filex/open_filex.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
-/// 下载管理服务 - 支持PC/Android/iOS三平台
+/// 下载与跨平台文件服务
+/// 深度适配 Windows、Android、iOS 三端的文件存储、打开与系统交互
 class DownloadService {
-  /// 获取下载目录
-  /// - Windows/macOS: 用户 Downloads 文件夹
-  /// - Android: 外部存储 Downloads 目录
-  /// - iOS: 应用 Documents 目录
+  /// 获取多端安全下载存储目录
+  /// - Windows/macOS: 用户系统 Downloads 目录
+  /// - Android: 公共 Downloads 目录或应用外部私有 Downloads 目录（兼容 Android 10+ 分区存储）
+  /// - iOS: 应用沙盒 Documents 目录（保证 App Store 合规）
   static Future<String> getDownloadDirectory() async {
-    if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
-      // PC平台: 获取Downloads目录
-      final downloadsDir = await getDownloadsDirectory();
-      if (downloadsDir != null) {
-        return downloadsDir.path;
-      }
-      // 备用: 文档目录
-      final docDir = await getApplicationDocumentsDirectory();
-      return docDir.path;
-    } else if (Platform.isAndroid) {
-      // Android: 尝试获取外部存储目录
-      try {
-        final externalDir = await getExternalStorageDirectory();
-        if (externalDir != null) {
-          final downloadPath = path.join(
-              externalDir.parent.parent.parent.parent.path, 'Download');
-          final downloadDir = Directory(downloadPath);
-          if (await downloadDir.exists()) {
-            return downloadPath;
-          }
-          return externalDir.path;
-        }
-      } catch (_) {}
-      // 备用: 应用文档目录
-      final docDir = await getApplicationDocumentsDirectory();
-      return docDir.path;
-    } else {
-      // iOS: 只能使用应用沙盒内的Documents目录
-      final docDir = await getApplicationDocumentsDirectory();
-      return docDir.path;
-    }
-  }
-
-  /// 从URL下载文件
-  /// [url] - 下载链接
-  /// [suggestedFilename] - 建议的文件名
-  /// [onProgress] - 进度回调 (0.0 - 1.0)
-  /// [onComplete] - 完成回调 (文件保存路径)
-  /// [onError] - 错误回调
-  static Future<void> downloadFile({
-    required String url,
-    String? suggestedFilename,
-    Function(double progress)? onProgress,
-    Function(String filePath)? onComplete,
-    Function(String error)? onError,
-  }) async {
-    final client = http.Client();
-    IOSink? sink;
     try {
-      // 解析文件名
-      String filename = suggestedFilename ?? _getFilenameFromUrl(url);
-
-      // 获取下载目录
-      final downloadDir = await getDownloadDirectory();
-      final filePath = path.join(downloadDir, filename);
-
-      // 检查文件是否已存在，如果存在则添加序号
-      final uniquePath = await _getUniqueFilePath(filePath);
-
-      // 开始下载
-      final request = http.Request('GET', Uri.parse(url));
-      final response = await client.send(request);
-
-      if (response.statusCode != 200) {
-        onError?.call('下载失败: HTTP ${response.statusCode}');
-        return;
-      }
-
-      // 获取文件大小
-      final contentLength = response.contentLength ?? 0;
-      int receivedBytes = 0;
-
-      // 创建文件
-      final file = File(uniquePath);
-      sink = file.openWrite();
-
-      // 写入数据并报告进度
-      await response.stream.listen(
-        (List<int> chunk) {
-          sink?.add(chunk);
-          receivedBytes += chunk.length;
-          if (contentLength > 0) {
-            onProgress?.call(receivedBytes / contentLength);
+      if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
+        final downloadsDir = await getDownloadsDirectory();
+        if (downloadsDir != null) {
+          if (!await downloadsDir.exists()) {
+            await downloadsDir.create(recursive: true);
           }
-        },
-        cancelOnError: true,
-      ).asFuture();
-
-      await sink.flush();
-      await sink.close();
-      sink = null;
-
-      onComplete?.call(uniquePath);
-    } catch (e) {
-      onError?.call('下载失败: $e');
-    } finally {
-      if (sink != null) {
+          return downloadsDir.path;
+        }
+        final docDir = await getApplicationDocumentsDirectory();
+        return docDir.path;
+      } else if (Platform.isAndroid) {
+        // 优先使用标准公共下载目录
         try {
-          await sink.close();
+          const publicDownloadPath = '/storage/emulated/0/Download';
+          final publicDir = Directory(publicDownloadPath);
+          if (await publicDir.exists()) {
+            return publicDownloadPath;
+          }
         } catch (_) {}
+
+        // 回退到外部私有存储目录下的 Download 文件夹（无需 WRITE_EXTERNAL_STORAGE 权限）
+        final extDir = await getExternalStorageDirectory();
+        if (extDir != null) {
+          final downloadDir = Directory(path.join(extDir.path, 'Download'));
+          if (!await downloadDir.exists()) {
+            await downloadDir.create(recursive: true);
+          }
+          return downloadDir.path;
+        }
+
+        // 最终兜底：内部文档目录
+        final docDir = await getApplicationDocumentsDirectory();
+        return docDir.path;
+      } else {
+        // iOS: 使用应用沙盒 Documents 目录
+        final docDir = await getApplicationDocumentsDirectory();
+        final downloadDir = Directory(path.join(docDir.path, 'Downloads'));
+        if (!await downloadDir.exists()) {
+          await downloadDir.create(recursive: true);
+        }
+        return downloadDir.path;
       }
-      client.close();
+    } catch (e) {
+      debugPrint('获取下载目录异常: $e');
+      final fallbackDir = await getApplicationDocumentsDirectory();
+      return fallbackDir.path;
     }
   }
 
-  /// 从URL中提取文件名
-  static String _getFilenameFromUrl(String url) {
+  /// 清洗并标准化文件名，过滤操作系统非法字符
+  static String sanitizeFileName(String rawName) {
+    var name = rawName.trim();
+    // 过滤 Windows/Linux/macOS 特殊非法字符: \ / : * ? " < > | \0
+    name = name.replaceAll(RegExp(r'[\\/:*?"<>|\x00]'), '_');
+    // 去除连续下划线
+    name = name.replaceAll(RegExp(r'_+'), '_');
+    // 去除前后点号和空格
+    name = name.trim().replaceAll(RegExp(r'^\.+|\.+$'), '');
+
+    if (name.isEmpty) {
+      name = 'download_${DateTime.now().millisecondsSinceEpoch}';
+    }
+    return name;
+  }
+
+  /// 从 URL、建议文件名或 Content-Disposition 提取文件名
+  static String extractFileName(String url, {String? suggestedFilename}) {
+    if (suggestedFilename != null && suggestedFilename.trim().isNotEmpty) {
+      return sanitizeFileName(suggestedFilename);
+    }
+
     try {
       final uri = Uri.parse(url);
-      final pathSegments = uri.pathSegments;
-      if (pathSegments.isNotEmpty) {
-        final lastSegment = pathSegments.last;
-        if (lastSegment.contains('.')) {
-          return Uri.decodeComponent(lastSegment);
+      final segments = uri.pathSegments.where((s) => s.isNotEmpty).toList();
+      if (segments.isNotEmpty) {
+        final last = Uri.decodeComponent(segments.last);
+        if (last.contains('.')) {
+          return sanitizeFileName(last);
         }
       }
     } catch (_) {}
 
-    // 默认文件名
-    return 'download_${DateTime.now().millisecondsSinceEpoch}';
+    return sanitizeFileName('download_${DateTime.now().millisecondsSinceEpoch}');
   }
 
-  /// 获取唯一文件路径（如果文件已存在则添加序号）
-  static Future<String> _getUniqueFilePath(String originalPath) async {
-    var file = File(originalPath);
+  /// 获取唯一文件保存路径（若存在同名文件则自动递增添加 (1)、(2)）
+  static Future<String> getUniqueFilePath(String targetPath) async {
+    var file = File(targetPath);
     if (!await file.exists()) {
-      return originalPath;
+      return targetPath;
     }
 
-    final dir = path.dirname(originalPath);
-    final extension = path.extension(originalPath);
-    final baseName = path.basenameWithoutExtension(originalPath);
+    final dir = path.dirname(targetPath);
+    final extension = path.extension(targetPath);
+    final baseName = path.basenameWithoutExtension(targetPath);
 
     int counter = 1;
     String newPath;
@@ -155,41 +121,193 @@ class DownloadService {
     return newPath;
   }
 
-  /// 显示下载开始的 SnackBar
+  /// 打开文件（跨平台兼容适配）
+  /// - Windows: 调用 explorer.exe 打开默认关联程序，0依赖且100%兼容MSIX
+  /// - Android/iOS: 优先调用 OpenFilex 打开；若系统无对应软件则提供分享弹窗
+  static Future<bool> openFile(BuildContext? context, String filePath) async {
+    final file = File(filePath);
+    if (!await file.exists()) {
+      if (context != null && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('文件不存在或已被移除')),
+        );
+      }
+      return false;
+    }
+
+    try {
+      if (Platform.isWindows) {
+        // Windows 原生通过 explorer.exe 唤起默认关联程序
+        await Process.run('explorer.exe', [filePath]);
+        return true;
+      } else {
+        // Android / iOS 使用 open_filex
+        final result = await OpenFilex.open(filePath);
+        if (result.type == ResultType.done) {
+          return true;
+        }
+
+        // 若打开失败（如找不到应用支持），提示或调用分享面板
+        if (context != null && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('无法直接打开此文件: ${result.message}，正在尝试调用系统分享'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+        await shareFile(filePath);
+        return true;
+      }
+    } catch (e) {
+      debugPrint('打开文件失败: $e');
+      if (context != null && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('打开文件异常: $e')),
+        );
+      }
+      return false;
+    }
+  }
+
+  /// 在系统文件资源管理器中定位并选中文件
+  /// - Windows: 使用 explorer.exe /select,"filePath"
+  /// - Android/iOS: 调用系统分享面板导出或查看
+  static Future<void> showInFolder(BuildContext? context, String filePath) async {
+    final file = File(filePath);
+    if (!await file.exists()) {
+      if (context != null && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('文件不存在')),
+        );
+      }
+      return;
+    }
+
+    try {
+      if (Platform.isWindows) {
+        await Process.run('explorer.exe', ['/select,', filePath]);
+      } else {
+        // 移动端唤起系统分享面板
+        await shareFile(filePath);
+      }
+    } catch (e) {
+      debugPrint('定位文件异常: $e');
+      if (context != null && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('操作异常: $e')),
+        );
+      }
+    }
+  }
+
+  /// 分享文件（移动端与桌面端均可支持）
+  static Future<void> shareFile(String filePath) async {
+    try {
+      final file = XFile(filePath);
+      await Share.shareXFiles([file], text: path.basename(filePath));
+    } catch (e) {
+      debugPrint('分享文件异常: $e');
+    }
+  }
+
+  /// 删除已下载文件及其临时分块文件
+  static Future<void> deleteFile(String filePath, {String? tempPath}) async {
+    try {
+      final file = File(filePath);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (e) {
+      debugPrint('删除文件失败: $e');
+    }
+
+    if (tempPath != null) {
+      try {
+        final tempFile = File(tempPath);
+        if (await tempFile.exists()) {
+          await tempFile.delete();
+        }
+      } catch (e) {
+        debugPrint('删除临时文件失败: $e');
+      }
+    }
+  }
+
+  /// 显示开始下载提示
   static void showDownloadStarted(BuildContext context, String filename) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('开始下载: $filename'),
-        backgroundColor: Colors.blue,
+        content: Row(
+          children: [
+            const Icon(Icons.download, color: Colors.white, size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '已开始下载: $filename',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: Colors.blueAccent,
         duration: const Duration(seconds: 2),
       ),
     );
   }
 
-  /// 显示下载完成的 SnackBar
-  static void showDownloadComplete(BuildContext context, String filePath) {
+  /// 显示下载完成提示
+  static void showDownloadComplete(
+    BuildContext context,
+    String filePath, {
+    VoidCallback? onOpen,
+  }) {
     final filename = path.basename(filePath);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('下载完成: $filename'),
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 3),
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle, color: Colors.lightGreenAccent, size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '下载完成: $filename',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: const Color(0xFF2E7D32),
+        duration: const Duration(seconds: 4),
         action: SnackBarAction(
-          label: '查看',
+          label: '打开',
           textColor: Colors.white,
-          onPressed: () {
-          },
+          onPressed: onOpen ?? () => openFile(context, filePath),
         ),
       ),
     );
   }
 
-  /// 显示下载失败的 SnackBar
+  /// 显示下载错误提示
   static void showDownloadError(BuildContext context, String error) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(error),
-        backgroundColor: Colors.red,
+        content: Row(
+          children: [
+            const Icon(Icons.error_outline, color: Colors.white, size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                error,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: Colors.redAccent,
         duration: const Duration(seconds: 3),
       ),
     );
