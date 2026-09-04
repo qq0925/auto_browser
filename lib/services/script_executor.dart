@@ -99,7 +99,7 @@ class ScriptExecutor {
         }
       }
 
-      // 脚本看门狗超时（默认 30 秒，可在参数中自定义）
+      // 脚本超时时间（默认 30 秒，可在参数中自定义）
       final timeoutSeconds = resolvedScript.params['超时时间'] as int? ?? 30;
       try {
         result = await _executeSingleStep(

@@ -172,7 +172,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       TextEditingController();
   final TextEditingController _repeatCountController = TextEditingController();
 
-  // 高级配置分层折叠与看门狗超时
+  // 高级配置分层折叠与超时时间
   bool _isAdvancedExpanded = false;
   final TextEditingController _timeoutSecondsController =
       TextEditingController(text: '30');
@@ -486,7 +486,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
                     const SizedBox(height: 16),
 
-                    // 高级配置分层折叠（包含看门狗超时设置与前置/后置嵌套脚本）
+                    // 高级配置分层折叠（包含超时设置与前置/后置嵌套脚本）
                     if (_selectedScriptType != '全局设置') ...[
                       const SizedBox(height: 8),
                       _buildAdvancedSection(),
@@ -1351,7 +1351,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildFieldRow(
-                    '看门狗超时时间 (秒)',
+                    '超时时间 (秒)',
                     _timeoutSecondsController,
                     '30',
                     hint: '脚本单步执行超过此时间未完成时视为超时',
