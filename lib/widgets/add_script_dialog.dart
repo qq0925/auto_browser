@@ -37,6 +37,14 @@ class _DialogTheme {
         dropdownColor = isDarkMode ? const Color(0xFF2C2C2C) : Colors.white;
 }
 
+class _ScriptTypeMeta {
+  final String category;
+  final IconData icon;
+  final String keywords;
+
+  const _ScriptTypeMeta(this.category, this.icon, this.keywords);
+}
+
 class _FormDataItem {
   final TextEditingController keyController;
   final TextEditingController valueController;
@@ -92,6 +100,54 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     '清除Cookie',
     '提取文字',
   ];
+
+  static final Map<String, _ScriptTypeMeta> _scriptTypeMetas = {
+    '点击文字': _ScriptTypeMeta('页面动作', Icons.touch_app_outlined, 'djwz,click,text,wenzi'),
+    '输入框提交': _ScriptTypeMeta('页面动作', Icons.input_rounded, 'srktj,input,submit,shurukuang'),
+    '进入网址': _ScriptTypeMeta('网页导航', Icons.link_rounded, 'jrwz,url,goto,navigate,wangzhi'),
+    '间隔时间': _ScriptTypeMeta('脚本控制', Icons.timer_outlined, 'jgsj,sleep,interval,wait,shijian'),
+    '自定义JS': _ScriptTypeMeta('脚本控制', Icons.code_rounded, 'zdjs,javascript,js,code'),
+    '点击图片': _ScriptTypeMeta('页面动作', Icons.image_outlined, 'djtp,image,click,tupian'),
+    '刷新网页': _ScriptTypeMeta('网页导航', Icons.refresh_rounded, 'sxwy,reload,refresh,shuaxin'),
+    '网页后退': _ScriptTypeMeta('网页导航', Icons.arrow_back_rounded, 'wyht,back,houtui'),
+    '网页前进': _ScriptTypeMeta('网页导航', Icons.arrow_forward_rounded, 'wyqj,forward,qianjin'),
+    '脚本替换': _ScriptTypeMeta('脚本控制', Icons.swap_horiz_rounded, 'jbth,replace,tihuan'),
+    '脚本停止': _ScriptTypeMeta('脚本控制', Icons.stop_circle_outlined, 'jbtz,stop,tingzhi'),
+    '脚本暂停': _ScriptTypeMeta('脚本控制', Icons.pause_circle_outline, 'jbzt,pause,zanting'),
+    '执行本地脚本集': _ScriptTypeMeta('脚本控制', Icons.folder_special_outlined, 'zxbdfb,subroutine,batch,bendi'),
+    '控制脚本开关': _ScriptTypeMeta('脚本控制', Icons.toggle_on_outlined, 'kzjb,toggle,switch,kaiguan'),
+    '通知栏提醒': _ScriptTypeMeta('辅助工具', Icons.notifications_active_outlined, 'tzltx,notify,notification,tongzhi'),
+    '逻辑脚本-出现文字': _ScriptTypeMeta('逻辑判断', Icons.rule_rounded, 'cxwz,text,if,waittext,chuxian'),
+    '逻辑脚本-时间对比': _ScriptTypeMeta('逻辑判断', Icons.schedule_rounded, 'sjdb,time,compare,shijian'),
+    '逻辑脚本-数值对比': _ScriptTypeMeta('逻辑判断', Icons.analytics_outlined, 'szdb,number,compare,shuzhi'),
+    '延时脚本': _ScriptTypeMeta('脚本控制', Icons.hourglass_empty_rounded, 'ysjb,delay,yanshi'),
+    '数值对比-点击文字': _ScriptTypeMeta('逻辑判断', Icons.ads_click_rounded, 'szdbdj,compare,click,shuzhi'),
+    '新建窗口并执行脚本': _ScriptTypeMeta('网页导航', Icons.open_in_new_rounded, 'xjck,newtab,window,chuangkou'),
+    '跳转脚本': _ScriptTypeMeta('脚本控制', Icons.redo_rounded, 'tzjb,jump,goto,tiaozhuan'),
+    '设置Cookie': _ScriptTypeMeta('数据管理', Icons.cookie_outlined, 'szcookie,setcookie,shezhi'),
+    '清除Cookie': _ScriptTypeMeta('数据管理', Icons.remove_circle_outline, 'qccookie,clearcookie,qingchu'),
+    '提取文字': _ScriptTypeMeta('数据管理', Icons.text_snippet_outlined, 'tqwz,extract,scrape,tiqu'),
+  };
+
+  Future<void> _openScriptTypeSelector() async {
+    final selected = await showDialog<String>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => _ScriptTypeSearchDialog(
+        currentType: _selectedScriptType,
+        scriptTypes: scriptTypes,
+        metas: _scriptTypeMetas,
+        isDarkMode: _theme.isDarkMode,
+      ),
+    );
+
+    if (selected != null && selected != _selectedScriptType && mounted) {
+      setState(() {
+        _selectedScriptType = selected;
+      });
+    }
+  }
+
   final TextEditingController _delayController = TextEditingController();
   final TextEditingController _appearTextController = TextEditingController();
   final TextEditingController _clickTextController = TextEditingController();
@@ -408,50 +464,46 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                             children: [
                               _buildLabel('脚本类型', color: labelColor),
                               const SizedBox(height: 6),
-                              DropdownButtonFormField<String>(
-                                value: _selectedScriptType,
-                                decoration: InputDecoration(
-                                  contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 12, vertical: 12),
-                                  filled: true,
-                                  fillColor: inputFillColor,
-                                  border: OutlineInputBorder(
+                              InkWell(
+                                onTap: widget.script == null ? _openScriptTypeSelector : null,
+                                borderRadius: BorderRadius.circular(8),
+                                child: Container(
+                                  height: 48,
+                                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                                  decoration: BoxDecoration(
+                                    color: inputFillColor,
                                     borderRadius: BorderRadius.circular(8),
-                                    borderSide: BorderSide(color: borderColor),
+                                    border: Border.all(color: borderColor),
                                   ),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: BorderSide(color: borderColor),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide:
-                                        const BorderSide(color: Colors.blue),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        _scriptTypeMetas[_selectedScriptType]?.icon ??
+                                            Icons.code_rounded,
+                                        size: 18,
+                                        color: Colors.blueAccent,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          _selectedScriptType,
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            color: textColor,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      if (widget.script == null) ...[
+                                        Icon(Icons.search_rounded,
+                                            size: 16, color: iconColor.withValues(alpha: 0.6)),
+                                        const SizedBox(width: 2),
+                                        Icon(Icons.arrow_drop_down, color: iconColor),
+                                      ],
+                                    ],
                                   ),
                                 ),
-                                dropdownColor: isDarkMode
-                                    ? const Color(0xFF2C2C2C)
-                                    : Colors.white,
-                                style:
-                                    TextStyle(fontSize: 14, color: textColor),
-                                icon: Icon(Icons.arrow_drop_down,
-                                    color: iconColor),
-                                menuMaxHeight: 300, // Limit height
-                                items: scriptTypes.map((String type) {
-                                  return DropdownMenuItem<String>(
-                                    value: type,
-                                    child: Text(type),
-                                  );
-                                }).toList(),
-                                onChanged: widget.script == null
-                                    ? (String? newValue) {
-                                        if (newValue != null) {
-                                          setState(() {
-                                            _selectedScriptType = newValue;
-                                          });
-                                        }
-                                      }
-                                    : null,
                               ),
                             ],
                           ),
@@ -1756,5 +1808,321 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       // Return new script for external handling (insertScript or addScript)
       Navigator.pop(context, newScript);
     }
+  }
+}
+
+/// 脚本类型快速模糊搜索与选择对话框
+class _ScriptTypeSearchDialog extends StatefulWidget {
+  final String currentType;
+  final List<String> scriptTypes;
+  final Map<String, _ScriptTypeMeta> metas;
+  final bool isDarkMode;
+
+  const _ScriptTypeSearchDialog({
+    required this.currentType,
+    required this.scriptTypes,
+    required this.metas,
+    required this.isDarkMode,
+  });
+
+  @override
+  State<_ScriptTypeSearchDialog> createState() =>
+      _ScriptTypeSearchDialogState();
+}
+
+class _ScriptTypeSearchDialogState extends State<_ScriptTypeSearchDialog> {
+  final TextEditingController _searchController = TextEditingController();
+  String _selectedCategory = '全部';
+
+  late List<String> _filteredTypes;
+
+  final List<String> _categories = [
+    '全部',
+    '页面动作',
+    '脚本控制',
+    '逻辑判断',
+    '网页导航',
+    '数据管理',
+    '辅助工具',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _filteredTypes = List.from(widget.scriptTypes);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _filter() {
+    final query = _searchController.text.trim().toLowerCase();
+    setState(() {
+      _filteredTypes = widget.scriptTypes.where((type) {
+        final meta = widget.metas[type];
+
+        // 检查分类过滤
+        if (_selectedCategory != '全部') {
+          if (meta?.category != _selectedCategory) {
+            return false;
+          }
+        }
+
+        // 检查关键词模糊匹配
+        if (query.isEmpty) return true;
+
+        if (type.toLowerCase().contains(query)) return true;
+        if (meta != null) {
+          if (meta.category.toLowerCase().contains(query)) return true;
+          if (meta.keywords.toLowerCase().contains(query)) return true;
+        }
+        return false;
+      }).toList();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.isDarkMode;
+    final bgColor = isDark ? const Color(0xFF242424) : Colors.white;
+    final cardBg = isDark ? const Color(0xFF2E2E2E) : const Color(0xFFF7F8FA);
+    final borderColor = isDark ? Colors.white12 : Colors.grey.shade300;
+    final textColor = isDark ? Colors.white : Colors.black87;
+
+    final dialogWidth = MediaQuery.of(context).size.width >= 560
+        ? 480.0
+        : MediaQuery.of(context).size.width * 0.92;
+
+    return Dialog(
+      backgroundColor: bgColor,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      child: SizedBox(
+        width: dialogWidth,
+        height: 520,
+        child: Column(
+          children: [
+            // 顶部标题栏
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
+              child: Row(
+                children: [
+                  const Icon(Icons.manage_search_rounded,
+                      color: Colors.blueAccent, size: 24),
+                  const SizedBox(width: 8),
+                  Text(
+                    '选择脚本类型',
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold,
+                      color: textColor,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: Icon(Icons.close_rounded,
+                        color: isDark ? Colors.white54 : Colors.black54),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+
+            // 搜索输入框
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: TextField(
+                controller: _searchController,
+                autofocus: true,
+                style: TextStyle(fontSize: 14, color: textColor),
+                decoration: InputDecoration(
+                  hintText: '输入关键词搜索 (如: 点击、文字、cookie、js)...',
+                  hintStyle: TextStyle(
+                    fontSize: 13,
+                    color: isDark ? Colors.white38 : Colors.black38,
+                  ),
+                  prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                  suffixIcon: _searchController.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear_rounded, size: 18),
+                          onPressed: () {
+                            _searchController.clear();
+                            _filter();
+                          },
+                        )
+                      : null,
+                  isDense: true,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  filled: true,
+                  fillColor: isDark ? Colors.white10 : Colors.grey.shade100,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+                onChanged: (_) => _filter(),
+                onSubmitted: (_) {
+                  if (_filteredTypes.isNotEmpty) {
+                    Navigator.pop(context, _filteredTypes.first);
+                  }
+                },
+              ),
+            ),
+
+            // 分类快捷标签栏
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: _categories.map((cat) {
+                  final isSelected = _selectedCategory == cat;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ChoiceChip(
+                      label: Text(cat),
+                      labelStyle: TextStyle(
+                        fontSize: 12,
+                        color: isSelected
+                            ? Colors.white
+                            : (isDark ? Colors.white70 : Colors.black87),
+                        fontWeight:
+                            isSelected ? FontWeight.bold : FontWeight.normal,
+                      ),
+                      selected: isSelected,
+                      selectedColor: Colors.blueAccent,
+                      backgroundColor:
+                          isDark ? Colors.white12 : Colors.grey.shade200,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        side: BorderSide.none,
+                      ),
+                      onSelected: (selected) {
+                        if (selected) {
+                          setState(() {
+                            _selectedCategory = cat;
+                          });
+                          _filter();
+                        }
+                      },
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+
+            const Divider(height: 1),
+
+            // 过滤结果列表
+            Expanded(
+              child: _filteredTypes.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.search_off_rounded,
+                            size: 40,
+                            color: isDark ? Colors.white24 : Colors.black26,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            '未找到匹配的脚本类型',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: isDark ? Colors.white38 : Colors.black38,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      itemCount: _filteredTypes.length,
+                      itemBuilder: (context, index) {
+                        final type = _filteredTypes[index];
+                        final meta = widget.metas[type];
+                        final isCurrent = type == widget.currentType;
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 6),
+                          decoration: BoxDecoration(
+                            color: isCurrent
+                                ? Colors.blueAccent.withAlpha(isDark ? 50 : 25)
+                                : cardBg,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: isCurrent
+                                  ? Colors.blueAccent
+                                  : borderColor,
+                            ),
+                          ),
+                          child: ListTile(
+                            dense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 2),
+                            leading: Icon(
+                              meta?.icon ?? Icons.code_rounded,
+                              size: 20,
+                              color: isCurrent
+                                  ? Colors.blueAccent
+                                  : (isDark ? Colors.white70 : Colors.black87),
+                            ),
+                            title: Text(
+                              type,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: isCurrent
+                                    ? FontWeight.bold
+                                    : FontWeight.w500,
+                                color: isCurrent ? Colors.blueAccent : textColor,
+                              ),
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (meta != null)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: isDark
+                                          ? Colors.white12
+                                          : Colors.grey.shade200,
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      meta.category,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: isDark
+                                            ? Colors.white60
+                                            : Colors.black54,
+                                      ),
+                                    ),
+                                  ),
+                                if (isCurrent) ...[
+                                  const SizedBox(width: 8),
+                                  const Icon(Icons.check_circle_rounded,
+                                      size: 18, color: Colors.blueAccent),
+                                ],
+                              ],
+                            ),
+                            onTap: () {
+                              Navigator.pop(context, type);
+                            },
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

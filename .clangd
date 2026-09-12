@@ -1,5 +1,8 @@
 CompileFlags:
   Add:
+    - -Ie:/auto_browser/auto_browser/windows/runner
+    - -Ie:/auto_browser/auto_browser/windows/flutter/ephemeral
+    - -Ie:/auto_browser/auto_browser/windows/flutter/ephemeral/cpp_client_wrapper/include
     - -Iwindows/runner
     - -Iwindows/flutter/ephemeral
     - -Iwindows/flutter/ephemeral/cpp_client_wrapper/include

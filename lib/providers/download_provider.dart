@@ -194,29 +194,57 @@ class DownloadProvider with ChangeNotifier {
       client.connectionTimeout = const Duration(seconds: 15);
       client.badCertificateCallback = (cert, host, port) => true; // 容错证书
 
-      final uri = Uri.parse(task.url);
-      final request = await client.getUrl(uri);
-      _activeRequests[task.id] = request;
+      Uri currentUri = Uri.parse(task.url);
+      HttpClientResponse? response;
+      int redirectCount = 0;
+      const maxRedirects = 5;
 
-      // 设置 User-Agent
-      if (task.userAgent != null && task.userAgent!.isNotEmpty) {
-        request.headers.set(HttpHeaders.userAgentHeader, task.userAgent!);
-      } else {
-        request.headers.set(HttpHeaders.userAgentHeader,
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 AuokBrowser');
+      while (redirectCount <= maxRedirects) {
+        final request = await client.getUrl(currentUri);
+        _activeRequests[task.id] = request;
+
+        // 设置 User-Agent
+        if (task.userAgent != null && task.userAgent!.isNotEmpty) {
+          request.headers.set(HttpHeaders.userAgentHeader, task.userAgent!);
+        } else {
+          request.headers.set(HttpHeaders.userAgentHeader,
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 AuokBrowser');
+        }
+
+        // 设置 Session Cookies
+        if (task.cookies != null && task.cookies!.isNotEmpty) {
+          request.headers.set(HttpHeaders.cookieHeader, task.cookies!);
+        }
+
+        // 设置断点续传 Range 请求头
+        if (existingLength > 0) {
+          request.headers.set(HttpHeaders.rangeHeader, 'bytes=$existingLength-');
+        }
+
+        final res = await request.close();
+        final code = res.statusCode;
+
+        // 处理 HTTP 301/302/303/307/308 重定向
+        if (code == HttpStatus.movedPermanently ||
+            code == HttpStatus.found ||
+            code == HttpStatus.seeOther ||
+            code == HttpStatus.temporaryRedirect ||
+            code == HttpStatus.permanentRedirect) {
+          final location = res.headers.value(HttpHeaders.locationHeader);
+          if (location != null && location.isNotEmpty) {
+            currentUri = currentUri.resolve(location);
+            redirectCount++;
+            continue;
+          }
+        }
+
+        response = res;
+        break;
       }
 
-      // 设置 Session Cookies
-      if (task.cookies != null && task.cookies!.isNotEmpty) {
-        request.headers.set(HttpHeaders.cookieHeader, task.cookies!);
+      if (response == null) {
+        throw '下载地址重定向次数过多，无法完成连接';
       }
-
-      // 设置断点续传 Range 请求头
-      if (existingLength > 0) {
-        request.headers.set(HttpHeaders.rangeHeader, 'bytes=$existingLength-');
-      }
-
-      final response = await request.close();
 
       // 判断 HTTP 状态码
       final statusCode = response.statusCode;

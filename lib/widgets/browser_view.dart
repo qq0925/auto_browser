@@ -69,6 +69,44 @@ class _BrowserViewState extends State<BrowserView> {
       ));
     }
 
+    // 跨平台/Windows 端下载点击主动捕获（解决 WebView2 底层缺失 DownloadStarting 事件的问题）
+    initialScripts.add(UserScript(
+      source: '''
+        (function() {
+          function handleDownloadClick(e) {
+            try {
+              var target = e.target;
+              while (target && target.tagName !== 'A' && target.tagName !== 'BUTTON') {
+                target = target.parentElement;
+              }
+              if (!target) return;
+
+              var href = target.getAttribute('href') || '';
+              var downloadAttr = target.getAttribute('download');
+
+              if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
+
+              var isDownloadExt = /\\.(apk|exe|msi|zip|rar|7z|tar|gz|bz2|dmg|iso|pkg|pdf|mp3|mp4|flv|mkv|avi|mov|docx|xlsx|pptx|torrent|deb|rpm|appx|msix)(\\?.*)?\$/i.test(href);
+
+              if (downloadAttr !== null || isDownloadExt) {
+                var fullUrl = target.href || href;
+                if (fullUrl && (fullUrl.startsWith('http://') || fullUrl.startsWith('https://'))) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  var suggestedName = downloadAttr || '';
+                  if (window.flutter_inappwebview && window.flutter_inappwebview.callHandler) {
+                    window.flutter_inappwebview.callHandler('onFileDownloadClick', fullUrl, suggestedName);
+                  }
+                }
+              }
+            } catch(err) {}
+          }
+          document.addEventListener('click', handleDownloadClick, true);
+        })();
+      ''',
+      injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+    ));
+
     return Container(
       color: browserProvider.isDarkMode ? Colors.black : Colors.white,
       child: Stack(
@@ -238,6 +276,23 @@ class _BrowserViewState extends State<BrowserView> {
                 callback: (args) {
                   if (args.isNotEmpty) {
                     scriptProvider.handleScriptMessage(args[0].toString());
+                  }
+                },
+              );
+
+              // 注册文件下载点击主动拦截处理器 (解决 Windows/WebView2 无 DownloadStarting 回调问题)
+              controller.addJavaScriptHandler(
+                handlerName: 'onFileDownloadClick',
+                callback: (args) async {
+                  if (args.isNotEmpty) {
+                    final rawUrl = args[0]?.toString() ?? '';
+                    final suggestedName =
+                        args.length > 1 && args[1] != null && args[1].toString().isNotEmpty
+                            ? args[1].toString()
+                            : null;
+                    if (rawUrl.isNotEmpty) {
+                      _triggerDownload(controller, rawUrl, suggestedFilename: suggestedName);
+                    }
                   }
                 },
               );
@@ -422,6 +477,14 @@ class _BrowserViewState extends State<BrowserView> {
               }
             },
             shouldOverrideUrlLoading: (controller, navigationAction) async {
+              final uri = navigationAction.request.url;
+              if (uri != null) {
+                final urlStr = uri.toString();
+                if (_isDownloadableUrl(urlStr)) {
+                  _triggerDownload(controller, urlStr);
+                  return NavigationActionPolicy.CANCEL;
+                }
+              }
               return NavigationActionPolicy.ALLOW;
             },
             onJsAlert: (controller, jsAlertRequest) async {
@@ -498,29 +561,12 @@ class _BrowserViewState extends State<BrowserView> {
               final suggestedFilename = downloadStartRequest.suggestedFilename;
               final mimeType = downloadStartRequest.mimeType;
 
-              // 尝试提取当前网页的 Session Cookies 与 UA 鉴权
-              String? userAgent;
-              String? cookieString;
-              try {
-                final uaResult = await controller.evaluateJavascript(source: 'navigator.userAgent');
-                if (uaResult != null) userAgent = uaResult.toString();
-                final cookieManager = CookieManager.instance();
-                final cookies = await cookieManager.getCookies(url: WebUri(url));
-                if (cookies.isNotEmpty) {
-                  cookieString = cookies.map((c) => '${c.name}=${c.value}').join('; ');
-                }
-              } catch (_) {}
-
-              if (context.mounted) {
-                DownloadConfirmDialog.show(
-                  context,
-                  url: url,
-                  suggestedFilename: suggestedFilename,
-                  mimeType: mimeType,
-                  userAgent: userAgent,
-                  cookies: cookieString,
-                );
-              }
+              _triggerDownload(
+                controller,
+                url,
+                suggestedFilename: suggestedFilename,
+                mimeType: mimeType,
+              );
             },
           ),
         ],
@@ -603,29 +649,10 @@ class _BrowserViewState extends State<BrowserView> {
               context,
               '下载目标文件',
               Colors.lightBlueAccent,
-              () async {
+              () {
                 Navigator.pop(context);
-                String? userAgent;
-                String? cookieString;
-                try {
-                  if (widget.tab.controller != null) {
-                    final uaResult = await widget.tab.controller!.evaluateJavascript(source: 'navigator.userAgent');
-                    if (uaResult != null) userAgent = uaResult.toString();
-                    final cookieManager = CookieManager.instance();
-                    final cookies = await cookieManager.getCookies(url: WebUri(url));
-                    if (cookies.isNotEmpty) {
-                      cookieString = cookies.map((c) => '${c.name}=${c.value}').join('; ');
-                    }
-                  }
-                } catch (_) {}
-
-                if (context.mounted) {
-                  DownloadConfirmDialog.show(
-                    context,
-                    url: url,
-                    userAgent: userAgent,
-                    cookies: cookieString,
-                  );
+                if (widget.tab.controller != null) {
+                  _triggerDownload(widget.tab.controller!, url);
                 }
               },
             ),
@@ -658,5 +685,57 @@ class _BrowserViewState extends State<BrowserView> {
         ),
       ),
     );
+  }
+
+  /// 校验 URL 是否指向常见下载文件或资源
+  bool _isDownloadableUrl(String url) {
+    try {
+      final uri = Uri.parse(url);
+      final path = uri.path.toLowerCase();
+      const downloadExts = [
+        '.apk', '.exe', '.msi', '.zip', '.rar', '.7z', '.tar', '.gz', '.bz2',
+        '.dmg', '.pkg', '.iso', '.pdf', '.mp3', '.mp4', '.flv', '.mkv', '.avi',
+        '.mov', '.docx', '.xlsx', '.pptx', '.torrent', '.deb', '.rpm', '.appx', '.msix'
+      ];
+      for (final ext in downloadExts) {
+        if (path.endsWith(ext)) return true;
+      }
+      if (uri.queryParameters.containsKey('download') ||
+          uri.queryParameters.containsKey('attachment')) {
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  /// 统一触发下载弹窗流程（自动提取并携带当前会话 Cookie 与 User-Agent）
+  Future<void> _triggerDownload(
+    InAppWebViewController controller,
+    String url, {
+    String? suggestedFilename,
+    String? mimeType,
+  }) async {
+    String? userAgent;
+    String? cookieString;
+    try {
+      final uaResult = await controller.evaluateJavascript(source: 'navigator.userAgent');
+      if (uaResult != null) userAgent = uaResult.toString();
+      final cookieManager = CookieManager.instance();
+      final cookies = await cookieManager.getCookies(url: WebUri(url));
+      if (cookies.isNotEmpty) {
+        cookieString = cookies.map((c) => '${c.name}=${c.value}').join('; ');
+      }
+    } catch (_) {}
+
+    if (mounted) {
+      DownloadConfirmDialog.show(
+        context,
+        url: url,
+        suggestedFilename: suggestedFilename,
+        mimeType: mimeType,
+        userAgent: userAgent,
+        cookies: cookieString,
+      );
+    }
   }
 }
