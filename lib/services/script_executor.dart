@@ -12,7 +12,7 @@ import 'cookie_service.dart';
 
 class ScriptExecutor {
   // Execute a script on the given controller
-  Future<bool> execute(InAppWebViewController controller, Script script,
+  Future<bool> execute(InAppWebViewController? controller, Script script,
       {int executionDelay = 1000,
       Function(ScriptStatus status, String? message, double? progress)?
           onStatusChanged,
@@ -25,7 +25,7 @@ class ScriptExecutor {
     final resolvedScript = _resolveVariables(script, variables);
 
     // 将变量注入至当前页面的 window._auokVars
-    if (variables != null && variables.isNotEmpty) {
+    if (controller != null && variables != null && variables.isNotEmpty) {
       try {
         final varsJson = jsonEncode(variables);
         await controller.evaluateJavascript(
@@ -49,7 +49,7 @@ class ScriptExecutor {
 
       if (waitForPageLoad != null) {
         bool needsWait = isNavAction;
-        if (!needsWait) {
+        if (!needsWait && controller != null) {
           try {
             needsWait = await controller.isLoading();
           } catch (_) {}
@@ -144,7 +144,14 @@ class ScriptExecutor {
       }
     }
 
-    if (success) {
+    const flowControlTypes = {
+      "跳转脚本",
+      "脚本替换",
+      "执行本地脚本集",
+      "脚本停止",
+      "脚本暂停",
+    };
+    if (success && !flowControlTypes.contains(resolvedScript.type)) {
       onStatusChanged?.call(ScriptStatus.success, null, 1.0);
     }
 
@@ -152,36 +159,52 @@ class ScriptExecutor {
   }
 
   Future<bool> _executeSingleStep(
-    InAppWebViewController controller,
+    InAppWebViewController? controller,
     Script script,
     Function(ScriptStatus status, String? message, double? progress)?
         onStatusChanged,
     List<Script>? scripts, {
     Map<String, String>? variables,
   }) async {
+    const nonControllerTypes = {
+      "控制脚本开关",
+      "跳转脚本",
+      "延时脚本",
+      "脚本停止",
+      "脚本暂停",
+      "脚本替换",
+      "执行本地脚本集",
+      "通知栏提醒",
+      "新建窗口并执行脚本",
+    };
+    if (controller == null && !nonControllerTypes.contains(script.type)) {
+      onStatusChanged?.call(ScriptStatus.failure, 'WebView 控制器未就绪', null);
+      return false;
+    }
+
     switch (script.type) {
       case "点击文字":
-        return await _executeClickScript(controller, script);
+        return await _executeClickScript(controller!, script);
       case "输入框提交":
-        return await _executeFormSubmit(controller, script);
+        return await _executeFormSubmit(controller!, script);
       case "间隔时间":
         return await _executeIntervalScript(
-            controller, script, onStatusChanged);
+            controller!, script, onStatusChanged);
       case "自定义JS":
-        return await _executeCustomJs(controller, script);
+        return await _executeCustomJs(controller!, script);
       case "进入网址":
-        return await _executeNavigate(controller, script);
+        return await _executeNavigate(controller!, script);
       case "点击图片":
-        return await _executeClickImage(controller, script);
+        return await _executeClickImage(controller!, script);
       case "刷新网页":
-        await controller.reload();
+        await controller!.reload();
         return true;
       case "网页后退":
-        final canBack = await controller.canGoBack();
+        final canBack = await controller!.canGoBack();
         if (canBack) await controller.goBack();
         return true;
       case "网页前进":
-        final canForward = await controller.canGoForward();
+        final canForward = await controller!.canGoForward();
         if (canForward) await controller.goForward();
         return true;
       case "脚本停止":
@@ -222,12 +245,12 @@ class ScriptExecutor {
 
       case "控制脚本开关":
         if (scripts != null) {
-          final indicesStr = script.params['脚本序号'] as String?;
-          final action = script.params['开关动作'] as String?;
+          final indicesStr = script.params['脚本序号']?.toString();
+          final action = script.params['开关动作']?.toString();
 
           if (indicesStr != null && action != null) {
             final indices = indicesStr
-                .split(' ')
+                .split(RegExp(r'[\s,，;；]+'))
                 .map((e) => int.tryParse(e))
                 .where((e) => e != null)
                 .cast<int>()
@@ -260,15 +283,15 @@ class ScriptExecutor {
 
       case "逻辑脚本-出现文字":
         return await _executeLogicScriptAppearText(
-            controller, script, onStatusChanged);
+            controller!, script, onStatusChanged);
 
       case "逻辑脚本-时间对比":
         return await _executeLogicScriptTimeComparison(
-            controller, script, onStatusChanged);
+            controller!, script, onStatusChanged);
 
       case "逻辑脚本-数值对比":
         return await _executeLogicScriptValueComparison(
-            controller, script, onStatusChanged);
+            controller!, script, onStatusChanged);
 
       case "新建窗口并执行脚本":
         return await _executeNewWindowScript(script, onStatusChanged);
@@ -278,23 +301,23 @@ class ScriptExecutor {
 
       case "数值对比-点击文字":
         return await _executeValueComparisonClickText(
-            controller, script, onStatusChanged);
+            controller!, script, onStatusChanged);
 
       case "滑动页面":
-        return await _executeScrollPage(controller, script, onStatusChanged);
+        return await _executeScrollPage(controller!, script, onStatusChanged);
 
       case "等待文字出现":
-        return await _executeWaitForText(controller, script, onStatusChanged);
+        return await _executeWaitForText(controller!, script, onStatusChanged);
 
       case "提取文字":
-        return await _executeExtractText(controller, script, onStatusChanged,
+        return await _executeExtractText(controller!, script, onStatusChanged,
             variables: variables);
 
       case "设置Cookie":
-        return await _executeSetCookie(controller, script, onStatusChanged);
+        return await _executeSetCookie(controller!, script, onStatusChanged);
 
       case "清除Cookie":
-        return await _executeClearCookie(controller, script, onStatusChanged);
+        return await _executeClearCookie(controller!, script, onStatusChanged);
 
       default:
         return true;
@@ -1245,7 +1268,7 @@ class ScriptExecutor {
       Script script,
       Function(ScriptStatus status, String? message, double? progress)?
           onStatusChanged) async {
-    final targetIndexStr = script.params['跳转的脚本序号'] as String? ?? '';
+    final targetIndexStr = script.params['跳转的脚本序号']?.toString() ?? '';
     final targetIndex = int.tryParse(targetIndexStr);
 
     if (targetIndex != null) {
@@ -1631,4 +1654,12 @@ class ScriptExecutor {
     }
     return val;
   }
+
+  @visibleForTesting
+  String buildClickScriptLogic(Map<String, dynamic> params) =>
+      _buildClickScriptLogic(params);
+
+  @visibleForTesting
+  Script resolveVariables(Script original, Map<String, String>? vars) =>
+      _resolveVariables(original, vars);
 }

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter_inappwebview/flutter_inappwebview.dart' show WebUri;
 import 'package:provider/provider.dart';
 import '../providers/script_provider.dart';
+import '../providers/browser_provider.dart';
 import '../models/script.dart';
 import 'add_script_dialog.dart';
 import 'dart:io';
@@ -594,16 +597,65 @@ class RightScriptPanel extends StatelessWidget {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
             ),
-            onSelected: (value) {
+            onSelected: (value) async {
               if (value == 'share') {
                 _showShareDialog(context, scriptProvider);
               } else if (value == 'clear') {
                 scriptProvider.clearScripts();
               } else if (value == 'save') {
                 _showSaveDialog(context, scriptProvider);
+              } else if (value == 'guide') {
+                try {
+                  final content = await rootBundle.loadString('assets/guide.html');
+                  if (context.mounted) {
+                    final tab = Provider.of<BrowserProvider>(context, listen: false).currentTab;
+                    await tab?.controller?.loadData(
+                        data: content,
+                        mimeType: 'text/html',
+                        encoding: 'utf-8',
+                        baseUrl: WebUri('file:///guide.html'));
+                  }
+                } catch (e) {
+                  debugPrint('Load guide.html failed: $e');
+                }
+              } else if (value == 'test_page') {
+                try {
+                  final content = await rootBundle.loadString('assets/test_page.html');
+                  if (context.mounted) {
+                    final tab = Provider.of<BrowserProvider>(context, listen: false).currentTab;
+                    await tab?.controller?.loadData(
+                        data: content,
+                        mimeType: 'text/html',
+                        encoding: 'utf-8',
+                        baseUrl: WebUri('file:///test_page.html'));
+                  }
+                } catch (e) {
+                  debugPrint('Load test_page.html failed: $e');
+                }
               }
             },
             itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'guide',
+                child: Row(
+                  children: [
+                    Icon(Icons.help_outline, color: Colors.lightBlueAccent, size: 18),
+                    SizedBox(width: 8),
+                    Text('使用教程', style: TextStyle(color: Colors.white)),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'test_page',
+                child: Row(
+                  children: [
+                    Icon(Icons.science_outlined, color: Colors.amberAccent, size: 18),
+                    SizedBox(width: 8),
+                    Text('测试网页', style: TextStyle(color: Colors.white)),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(height: 1),
               const PopupMenuItem(
                 value: 'share',
                 child: Text('分享', style: TextStyle(color: Colors.white)),
@@ -627,9 +679,31 @@ class RightScriptPanel extends StatelessWidget {
     final params = script.params;
     switch (script.type) {
       case '点击文字':
-        return '点击: ${params['点击文本'] ?? ''}';
+        final filter = params['多个筛选'];
+        String filterStr = '';
+        if (filter != null) {
+          if (filter == 0) {
+            filterStr = ' [随机]';
+          } else if (filter < 0) {
+            filterStr = ' [倒数第${-filter}个]';
+          } else {
+            filterStr = ' [第$filter个]';
+          }
+        }
+        return '点击: ${params['点击文本'] ?? ''}$filterStr';
       case '点击图片':
-        return '点击图片';
+        final imgFilter = params['多个筛选'];
+        String imgFilterStr = '';
+        if (imgFilter != null) {
+          if (imgFilter == 0) {
+            imgFilterStr = ' [随机]';
+          } else if (imgFilter < 0) {
+            imgFilterStr = ' [倒数第${-imgFilter}个]';
+          } else {
+            imgFilterStr = ' [第$imgFilter个]';
+          }
+        }
+        return '点击图片$imgFilterStr';
       case '输入框提交':
         final List<String> parts = [];
         if (params['提交按钮文字'] != null &&

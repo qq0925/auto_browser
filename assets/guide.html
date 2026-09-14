@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auok 浏览器自动化脚本引擎完全指南教程</title>
+  <style>
+    :root {
+      --bg-dark: #090d16;
+      --bg-card: rgba(22, 30, 46, 0.7);
+      --bg-card-hover: rgba(30, 41, 64, 0.85);
+      --border: rgba(255, 255, 255, 0.08);
+      --border-active: rgba(56, 189, 248, 0.35);
+      --primary: #38bdf8;
+      --primary-gradient: linear-gradient(135deg, #38bdf8 0%, #6366f1 50%, #a855f7 100%);
+      --accent-purple: #c084fc;
+      --accent-green: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #fb7185;
+      --text-main: #f8fafc;
+      --text-sub: #94a3b8;
+      --text-dim: #64748b;
+      --code-bg: rgba(15, 23, 42, 0.85);
+      --radius-lg: 16px;
+      --radius-md: 10px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      background-image: 
+        radial-gradient(at 10% 10%, rgba(56, 189, 248, 0.12) 0px, transparent 50%),
+        radial-gradient(at 90% 90%, rgba(168, 85, 247, 0.1) 0px, transparent 50%),
+        radial-gradient(at 50% 50%, rgba(99, 102, 241, 0.06) 0px, transparent 50%);
+      background-attachment: fixed;
+      color: var(--text-main);
+      line-height: 1.65;
+      padding-bottom: 80px;
+    }
+
+    /* Container & Layout */
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 20px;
+    }
+
+    /* Hero Banner */
+    .hero {
+      padding: 60px 0 40px;
+      text-align: center;
+      position: relative;
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 16px;
+      border-radius: 9999px;
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid var(--border-active);
+      color: var(--primary);
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      letter-spacing: 0.5px;
+    }
+    .hero h1 {
+      font-size: clamp(32px, 5vw, 46px);
+      font-weight: 800;
+      background: var(--primary-gradient);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 16px;
+      letter-spacing: -0.5px;
+    }
+    .hero p {
+      font-size: 16px;
+      color: var(--text-sub);
+      max-width: 700px;
+      margin: 0 auto 28px;
+    }
+    .hero-actions {
+      display: flex;
+      justify-content: center;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    /* Modern Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 22px;
+      border-radius: var(--radius-md);
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.25s ease;
+      cursor: pointer;
+      border: none;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #0284c7, #2563eb);
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(2, 132, 199, 0.35);
+    }
+    .btn-primary:hover {
+      box-shadow: 0 6px 24px rgba(2, 132, 199, 0.5);
+      transform: translateY(-2px);
+    }
+    .btn-glass {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-main);
+      border: 1px solid var(--border);
+      backdrop-filter: blur(10px);
+    }
+    .btn-glass:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: var(--border-active);
+      transform: translateY(-2px);
+    }
+
+    /* Section Styles */
+    section {
+      margin-top: 50px;
+    }
+    .section-header {
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .section-num {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 14px;
+      border: 1px solid var(--border-active);
+    }
+    .section-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    /* Glass Cards */
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 20px;
+    }
+    .card {
+      background: var(--bg-card);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+    .card:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--border-active);
+      box-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.4);
+      transform: translateY(-2px);
+    }
+    .card-icon {
+      font-size: 24px;
+      margin-bottom: 14px;
+      display: inline-block;
+    }
+    .card h3 {
+      font-size: 17px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--text-main);
+    }
+    .card p {
+      font-size: 14px;
+      color: var(--text-sub);
+      line-height: 1.6;
+    }
+
+    /* Highlight Alerts */
+    .alert {
+      background: rgba(56, 189, 248, 0.08);
+      border-left: 4px solid var(--primary);
+      border-radius: 0 8px 8px 0;
+      padding: 14px 18px;
+      margin: 16px 0;
+      font-size: 14px;
+      color: #bae6fd;
+    }
+    .alert-success {
+      background: rgba(52, 211, 153, 0.08);
+      border-left-color: var(--accent-green);
+      color: #a7f3d0;
+    }
+    .alert-warning {
+      background: rgba(251, 191, 36, 0.08);
+      border-left-color: var(--accent-amber);
+      color: #fde68a;
+    }
+
+    /* Code Blocks & Examples */
+    .code-box {
+      background: var(--code-bg);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      margin: 12px 0;
+      font-family: Consolas, Monaco, "Courier New", monospace;
+      font-size: 13px;
+      color: #e2e8f0;
+      overflow-x: auto;
+      line-height: 1.5;
+    }
+    .code-box .highlight {
+      color: var(--primary);
+      font-weight: bold;
+    }
+    .code-box .comment {
+      color: var(--text-dim);
+    }
+
+    /* Interactive Table */
+    .table-box {
+      width: 100%;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      margin-top: 16px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      text-align: left;
+    }
+    th, td {
+      padding: 14px 18px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    th {
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text-main);
+      font-weight: 600;
+    }
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .tag-blue { background: rgba(56, 189, 248, 0.15); color: #38bdf8; }
+    .tag-purple { background: rgba(192, 132, 252, 0.15); color: #c084fc; }
+    .tag-green { background: rgba(52, 211, 153, 0.15); color: #34d399; }
+    .tag-amber { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      margin-top: 60px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      color: var(--text-dim);
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Hero Banner -->
+    <header class="hero">
+      <div class="hero-badge">⚡ Auok 自动化引擎官方使用教程</div>
+      <h1>掌握浏览器自动化脚本的力量</h1>
+      <p>无需繁琐的编程基础，通过可视化录制与 25+ 种强大动作模块，轻松实现自动签到、表单批量提交、网页巡检与智能流程编排。</p>
+      <div class="hero-actions">
+        <a href="test_page.html" class="btn btn-primary">进入交互式测试基准页 ↗</a>
+        <a href="#quickstart" class="btn btn-glass">快速入门指南</a>
+        <a href="#script-types" class="btn btn-glass">25+ 脚本参考速查</a>
+      </div>
+    </header>
+
+    <!-- 1. 快速入门 -->
+    <section id="quickstart">
+      <div class="section-header">
+        <div class="section-num">1</div>
+        <h2 class="section-title">核心概念与运行原理</h2>
+      </div>
+      <div class="card-grid">
+        <div class="card">
+          <div class="card-icon">🎯</div>
+          <h3>按标签页隔离运行</h3>
+          <p>每个浏览器标签页拥有自己独立的脚本执行上下文与状态队列，支持多标签页并发运行不同任务，互不干扰。</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">⚡</div>
+          <h3>全仿真事件交互链</h3>
+          <p>针对现代 Vue 3、React 18、Angular 等框架，底层原生派发完整的 PointerDown、MouseDown、PointerUp、Click 等全套事件，杜绝“点了没反应”。</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🛡️</div>
+          <h3>毫秒级智能等待与超时防护</h3>
+          <p>自动识别页面加载状态，纯页面内交互秒级秒通，具备每步 30 秒安全超时熔断，防止任务死锁。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. 可视化录制模式秘籍 -->
+    <section id="recording">
+      <div class="section-header">
+        <div class="section-num">2</div>
+        <h2 class="section-title">脚本录制模式使用秘籍</h2>
+      </div>
+      <div class="card">
+        <p style="margin-bottom: 14px; font-size: 15px;">
+          点击底栏菜单的 <strong>【开始录制】</strong>，屏幕左下角将出现红点闪烁的录制状态栏。此时您在网页上的真实点击与表单提交操作都将被实时捕获！
+        </p>
+
+        <div class="alert alert-success">
+          <strong>✓ 默认严格完全匹配 (exactMatch: true)</strong><br>
+          录制点击文字时，系统会自动开启完全匹配，精准绑定当前文字，彻底避免回放时因为模糊匹配（includes）误触长段落或其他包含该关键词的非目标元素。
+        </div>
+
+        <div class="alert">
+          <strong>✓ 多重重名元素智能补全 (多个筛选: N)</strong><br>
+          当网页存在多个完全同名的按钮（例如列表中有 5 个“删除”按钮）：
+          <ul style="margin: 6px 0 0 18px; line-height: 1.6;">
+            <li>点击第 1 个：系统智能记录为 <code>多个筛选: 1</code>，浮窗提示 <code>(第1个/共5个)</code>；</li>
+            <li>点击第 2 个：系统智能记录为 <code>多个筛选: 2</code>，浮窗提示 <code>(第2个/共5个)</code>；</li>
+            <li>页面仅有唯一该元素时：参数保持精炼，无额外冗余。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. “多个筛选”参数核心法则 -->
+    <section id="multi-selection">
+      <div class="section-header">
+        <div class="section-num">3</div>
+        <h2 class="section-title">核心参数详解：“多个筛选”从 1 到 -1</h2>
+      </div>
+      <div class="card">
+        <p style="margin-bottom: 14px;">
+          在“点击文字”、“点击图片”、“输入框提交”以及“数值对比”等核心动作中，<strong>「多个筛选」</strong>让您可以精准锁定任意位置的目标：
+        </p>
+        <div class="table-box">
+          <table>
+            <thead>
+              <tr>
+                <th>输入值</th>
+                <th>匹配含义</th>
+                <th>右侧面板直观展示</th>
+                <th>典型实战应用场景</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong style="color: #38bdf8;">1</strong></td>
+                <td>第 1 个元素 (首项)</td>
+                <td><code>点击: 确定 [第1个]</code></td>
+                <td>表格首行操作、页面置顶按钮</td>
+              </tr>
+              <tr>
+                <td><strong style="color: #38bdf8;">2, 3, 4...</strong></td>
+                <td>正向第 N 个元素</td>
+                <td><code>点击: 编辑 [第2个]</code></td>
+                <td>选中列表指定行的操作项</td>
+              </tr>
+              <tr>
+                <td><strong style="color: #f87171;">-1</strong></td>
+                <td><strong>倒数第 1 个 (末项/最后一个)</strong></td>
+                <td><code>点击: 删除 [倒数第1个]</code></td>
+                <td><strong>动态加载列表的最新一条数据、翻页尾页</strong></td>
+              </tr>
+              <tr>
+                <td><strong style="color: #f87171;">-2</strong></td>
+                <td>倒数第 2 个元素</td>
+                <td><code>点击: 确定 [倒数第2个]</code></td>
+                <td>倒数第二项操作、多级尾部导航</td>
+              </tr>
+              <tr>
+                <td><strong style="color: #fbbf24;">0</strong></td>
+                <td><strong>完全随机抽取 1 项</strong></td>
+                <td><code>点击: 点赞 [随机]</code></td>
+                <td>模拟真实随机浏览、抽奖、投票模拟</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. 25+ 脚本类型参考手册 -->
+    <section id="script-types">
+      <div class="section-header">
+        <div class="section-num">4</div>
+        <h2 class="section-title">25+ 脚本动作类型完全速查手册</h2>
+      </div>
+      <div class="card">
+        <div class="table-box">
+          <table>
+            <thead>
+              <tr>
+                <th>分类</th>
+                <th>脚本动作名称</th>
+                <th>核心功能与参数</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="tag tag-blue">页面动作</span></td>
+                <td><strong>点击文字</strong></td>
+                <td>在网页中仿真点击匹配的文本。支持出现文字、点击文本、完全匹配、在此之前/之后、多个筛选。</td>
+              </tr>
+              <tr>
+                <td><span class="tag tag-blue">页面动作</span></td>
+                <td><strong>点击图片</strong></td>
+                <td>根据图片 src 关键词定位并点击图片。支持在此之前/之后、多个筛选。</td>
+              </tr>
+              <tr>
+                <td><span class="tag tag-blue">页面动作</span></td>
+                <td><strong>滑动页面</strong></td>
+                <td>模拟用户向上、向下或向指定元素平滑滚动，触发网页下拉懒加载。</td>
+              </tr>
+              <tr>
+                <td><span class="tag tag-green">数据管理</span></td>
+                <td><strong>输入框提交</strong></td>
+                <td>快速填充指定表单字段，并仿真点击指定的提交按钮。</td>
+              </tr>
+              <tr>
+                <td><span class="tag tag-green">数据管理</span></td>
+                <td><strong>提取文字</strong></td>
+                <td>提取页面指定元素文本或属性，自动存入跨步骤变量（如 <code>${orderId}</code>）。</td>
+              </tr>
+              <tr>
+                <td><span class="tag tag-green">数据管理</span></td>
+                <td><strong>设置Cookie / 清除Cookie</strong></td>
+                <td>一键切换账号身份 Cookie 档案，支持自动刷新页面载入登录态。</td>
+              </tr>
+              <tr>
+                <td><span class="tag tag-purple">脚本控制</span></td>
+                <td><strong>跳转脚本</strong></td>
+                <td>跳转至当前脚本集的任意指定序号（如跳转至第 1 步实现死循环监控）。</td>
+              </tr>
+              <tr>
+                <td><span class="tag tag-purple">脚本控制</span></td>
+                <td><strong>控制脚本开关</strong></td>
+                <td>动态将列表中某些步骤启用、禁用或反相（支持逗号或空格分隔如 <code>1, 3, 5</code>）。</td>
+              </tr>
+              <tr>
+                <td><span class="tag tag-purple">脚本控制</span></td>
+                <td><strong>执行本地脚本集 / 脚本替换</strong></td>
+                <td>将其他已保存的 <code>.json</code> 脚本集作为子函数调用，或完全替换当前脚本。</td>
+              </tr>
+              <tr>
+                <td><span class="tag tag-amber">逻辑判断</span></td>
+                <td><strong>逻辑脚本-数值对比</strong></td>
+                <td>提取页面指定区域数字并与目标值对比（&gt;、&lt;、=、&gt;=、&lt;=），根据结果跳转分支。</td>
+              </tr>
+              <tr>
+                <td><span class="tag tag-amber">逻辑判断</span></td>
+                <td><strong>数值对比-点击文字</strong></td>
+                <td>当提取到的数值满足条件时，立刻自动点击指定文本按钮。</td>
+              </tr>
+              <tr>
+                <td><span class="tag tag-amber">逻辑判断</span></td>
+                <td><strong>等待文字出现</strong></td>
+                <td>轮询等待异步加载的文字（如“支付成功”、“加载完毕”），超时可控。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. 变量系统与实战范例 -->
+    <section id="variables">
+      <div class="section-header">
+        <div class="section-num">5</div>
+        <h2 class="section-title">跨步骤动态变量系统 (${varName})</h2>
+      </div>
+      <div class="card">
+        <p style="margin-bottom: 12px;">
+          在整个自动化流程中，后一步骤可以自由引用前置步骤提取的数据。变量语法支持标准 <code>${varName}</code> 以及简写 <code>$varName</code>：
+        </p>
+
+        <div class="code-box">
+<span class="comment">// 步骤 1：提取网页中的订单号</span>
+【提取文字】 -> 选择器: <span class="highlight">"#order-number"</span> -> 保存至变量: <span class="highlight">"orderId"</span>
+
+<span class="comment">// 步骤 2：在后续网址导航或输入框中动态引用</span>
+【进入网址】 -> 网址: <span class="highlight">"https://api.example.com/check?id=${orderId}"</span>
+
+<span class="comment">// 步骤 3：在通知栏或自定义脚本中消费</span>
+【通知栏提醒】 -> 提醒内容: <span class="highlight">"订单 ${orderId} 已自动审核通过！"</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6. 避坑指南与最佳实践 -->
+    <section id="best-practices">
+      <div class="section-header">
+        <div class="section-num">6</div>
+        <h2 class="section-title">避坑指南与高手进阶技巧</h2>
+      </div>
+      <div class="card-grid">
+        <div class="card">
+          <div class="card-icon">💡</div>
+          <h3>1. 善用执行延迟 (100ms - 500ms)</h3>
+          <p>部分由 Ajax 驱动的网页在点击后需要少量时间渲染弹窗，建议在点击动作后加入 300ms 左右的执行延迟，体验极为平滑稳定。</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🔄</div>
+          <h3>2. 动态轮询巧用【跳转脚本】</h3>
+          <p>若需循环等待或监控某个状态，可以在流程末尾放置一个【跳转脚本】，跳转回步骤 1，即可实现自动化无人值守轮询巡检。</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">⚡</div>
+          <h3>3. 搭配【等待文字出现】防白屏</h3>
+          <p>对于跨页面大跳转，在【进入网址】之后紧跟一个【等待文字出现】，确保目标页面的核心 DOM 加载完成后再继续后续操作。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+      <p>Auok Browser 自动化脚本引擎 &bull; 打造极致轻快、高效与高自由度的跨平台浏览器体验</p>
+    </footer>
+  </div>
+</body>
+</html>

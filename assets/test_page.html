@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auok 脚本引擎全功能交互式测试基准页</title>
+  <style>
+    :root {
+      --bg-primary: #0f172a;
+      --bg-card: rgba(30, 41, 59, 0.7);
+      --border: rgba(255, 255, 255, 0.1);
+      --accent: #38bdf8;
+      --accent-glow: rgba(56, 189, 248, 0.3);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --success: #34d399;
+      --warning: #fbbf24;
+      --danger: #f87171;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    body {
+      background: linear-gradient(135deg, #0b0f19 0%, #0f172a 50%, #1e1b4b 100%);
+      color: var(--text-main);
+      min-height: 100vh;
+      padding: 24px 16px 120px;
+    }
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 32px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      background: linear-gradient(to right, #38bdf8, #818cf8, #c084fc);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
+    }
+    header p {
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 600;
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent);
+      border: 1px solid var(--accent-glow);
+      margin-top: 10px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
+      gap: 20px;
+    }
+    @media (max-width: 640px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: var(--bg-card);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+      position: relative;
+    }
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #38bdf8;
+    }
+    .card-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+      line-height: 1.5;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      border: 1px solid transparent;
+      outline: none;
+    }
+    .btn:active {
+      transform: scale(0.97);
+    }
+    .btn-primary {
+      background: #0284c7;
+      color: #fff;
+    }
+    .btn-primary:hover {
+      background: #0369a1;
+    }
+    .btn-success {
+      background: #059669;
+      color: #fff;
+    }
+    .btn-success:hover {
+      background: #047857;
+    }
+    .btn-danger {
+      background: #dc2626;
+      color: #fff;
+    }
+    .btn-danger:hover {
+      background: #b91c1c;
+    }
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.08);
+      color: #e2e8f0;
+      border-color: var(--border);
+    }
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
+    .btn-group {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .table-container {
+      width: 100%;
+      overflow-x: auto;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      margin-bottom: 12px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      text-align: left;
+    }
+    th, td {
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    th {
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    tr:last-child td {
+      border-bottom: none;
+    }
+    .input-field {
+      width: 100%;
+      padding: 10px 12px;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: #fff;
+      font-size: 13px;
+      margin-bottom: 10px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .input-field:focus {
+      border-color: var(--accent);
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+    /* Fixed bottom log console */
+    #console-box {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: rgba(15, 23, 42, 0.95);
+      backdrop-filter: blur(12px);
+      border-top: 1px solid var(--accent);
+      padding: 10px 16px;
+      z-index: 9999;
+      max-height: 110px;
+      overflow-y: auto;
+      font-family: monospace;
+      font-size: 12px;
+      color: #34d399;
+      box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5);
+    }
+    .log-item {
+      margin-bottom: 4px;
+      line-height: 1.4;
+    }
+    .log-time {
+      color: var(--text-muted);
+      margin-right: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Auok 脚本引擎基准测试套件</h1>
+      <p>用于全面检验脚本录制与回放执行的完全匹配、多重筛选索引、表单输入、数值对比与事件仿真能力</p>
+      <span class="badge">引擎版本: v1.0.9+7 兼容基准</span>
+    </header>
+
+    <div class="grid">
+      <!-- 1. 完全匹配 vs 包含匹配测试 -->
+      <div class="card">
+        <div class="card-title">① 完全匹配与模糊匹配对比测试</div>
+        <div class="card-desc">
+          包含一个孤立的“确定”按钮、一个包含确定字样的“确定并提交”按钮、以及一段含有“确定”字样的说明段落。
+          验证在<strong>完全匹配: true</strong>下只精准点击“确定”。
+        </div>
+        <div class="btn-group" style="margin-bottom: 12px;">
+          <button class="btn btn-primary" onclick="logEvent('点击了纯文字【确定】按钮')">确定</button>
+          <button class="btn btn-secondary" onclick="logEvent('点击了【确定并提交】组合按钮')">确定并提交</button>
+        </div>
+        <p style="font-size: 12px; color: var(--text-muted); background: rgba(255,255,255,0.03); padding: 8px; border-radius: 6px;">
+          说明文本：请点击确定以保存当前自动化流程数据。
+        </p>
+      </div>
+
+      <!-- 2. 多重相同文字筛选测试 -->
+      <div class="card">
+        <div class="card-title">② 多个相同文字筛选（正数 / 倒数 / 随机）</div>
+        <div class="card-desc">
+          列表中有 5 行完全相同的“编辑”与“删除”按钮。
+          测试参数：1 (第1个)、2 (第2个)、-1 (倒数第1个/即第5个)、-2 (倒数第2个/第4个)、0 (随机)。
+        </div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>序号</th>
+                <th>项目名称</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>#1</td>
+                <td>数据流 A</td>
+                <td>
+                  <button class="btn btn-secondary" onclick="logEvent('点击了 第 1 个【编辑】')">编辑</button>
+                  <button class="btn btn-danger" onclick="logEvent('点击了 第 1 个【删除】')">删除</button>
+                </td>
+              </tr>
+              <tr>
+                <td>#2</td>
+                <td>数据流 B</td>
+                <td>
+                  <button class="btn btn-secondary" onclick="logEvent('点击了 第 2 个【编辑】')">编辑</button>
+                  <button class="btn btn-danger" onclick="logEvent('点击了 第 2 个【删除】')">删除</button>
+                </td>
+              </tr>
+              <tr>
+                <td>#3</td>
+                <td>数据流 C</td>
+                <td>
+                  <button class="btn btn-secondary" onclick="logEvent('点击了 第 3 个【编辑】')">编辑</button>
+                  <button class="btn btn-danger" onclick="logEvent('点击了 第 3 个【删除】')">删除</button>
+                </td>
+              </tr>
+              <tr>
+                <td>#4</td>
+                <td>数据流 D</td>
+                <td>
+                  <button class="btn btn-secondary" onclick="logEvent('点击了 第 4 个【编辑】 (倒数第2个)')">编辑</button>
+                  <button class="btn btn-danger" onclick="logEvent('点击了 第 4 个【删除】 (倒数第2个)')">删除</button>
+                </td>
+              </tr>
+              <tr>
+                <td>#5</td>
+                <td>数据流 E</td>
+                <td>
+                  <button class="btn btn-secondary" onclick="logEvent('点击了 第 5 个【编辑】 (倒数第1个/最后一个)')">编辑</button>
+                  <button class="btn btn-danger" onclick="logEvent('点击了 第 5 个【删除】 (倒数第1个/最后一个)')">删除</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 3. 表单数据填充与提交测试 -->
+      <div class="card">
+        <div class="card-title">③ 输入框与表单提交测试</div>
+        <div class="card-desc">
+          用于测试“输入框提交”脚本动作，自动键入表单数据并触发表单提交按钮。
+        </div>
+        <form id="test-login-form" onsubmit="event.preventDefault(); logEvent('表单提交成功! 用户名: ' + document.getElementById('username-input').value);">
+          <label for="username-input">用户名 (或识别名/字段名)</label>
+          <input class="input-field" id="username-input" name="用户名" placeholder="请输入测试用户名" />
+
+          <label for="email-input">电子邮箱</label>
+          <input class="input-field" id="email-input" name="邮箱" type="email" placeholder="example@auok.dev" />
+
+          <div style="display: flex; gap: 8px; margin-top: 6px;">
+            <button type="submit" class="btn btn-success">提交表单</button>
+            <button type="button" class="btn btn-secondary" onclick="document.getElementById('test-login-form').reset(); logEvent('表单已重置');">重置</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- 4. 条件判断与数值对比测试 -->
+      <div class="card">
+        <div class="card-title">④ 条件判断与数值对比测试</div>
+        <div class="card-desc">
+          测试“逻辑脚本-数值对比”或“数值对比-点击文字”。提取页面上的数字并与目标值进行比对。
+        </div>
+        <div style="background: rgba(0,0,0,0.3); padding: 14px; border-radius: 8px; margin-bottom: 12px;">
+          当前系统积分: <strong id="user-score" style="color: #fbbf24; font-size: 18px;">88.5</strong> 分
+        </div>
+        <div class="btn-group">
+          <button class="btn btn-secondary" onclick="updateScore(10)">加 10 分</button>
+          <button class="btn btn-secondary" onclick="updateScore(-10)">减 10 分</button>
+          <button class="btn btn-primary" onclick="logEvent('恭喜触发【兑换奖励】')">兑换奖励</button>
+        </div>
+      </div>
+
+      <!-- 5. 文字提取与变量插值测试 -->
+      <div class="card">
+        <div class="card-title">⑤ 文字提取与动态变量测试</div>
+        <div class="card-desc">
+          用于测试“提取文字”指令将页面内容保存到变量（如 ${orderId}），并在后续脚本中动态引用的全流程。
+        </div>
+        <div style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; margin-bottom: 12px; font-family: monospace;">
+          订单流水编号: <span id="target-order-id" style="color: #38bdf8; font-weight: bold;">AUOK-2026-8899</span>
+        </div>
+        <button class="btn btn-secondary" onclick="logEvent('已拷贝/记录订单: ' + document.getElementById('target-order-id').innerText)">查询此订单</button>
+      </div>
+
+      <!-- 6. 图片与多媒体元素交互 -->
+      <div class="card">
+        <div class="card-title">⑥ 图片点击与关键词测试</div>
+        <div class="card-desc">
+          测试“点击图片”指令的 src / 关键词匹配与仿真点击。
+        </div>
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <img id="test-logo-img" src="app_icon.png" alt="AuokLogo" style="width: 56px; height: 56px; border-radius: 12px; cursor: pointer; border: 1px solid var(--border);" onclick="logEvent('点击了 Logo 图片')">
+          <span style="font-size: 13px; color: var(--text-muted);">点击左侧 Logo 图标触发测试事件</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 实时交互事件监控台 -->
+  <div id="console-box">
+    <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px; margin-bottom: 4px;">
+      <span style="font-weight: bold; color: #38bdf8;">⚡ 自动化交互事件监听控制台</span>
+      <span style="cursor: pointer; color: var(--text-muted);" onclick="document.getElementById('log-list').innerHTML = '';">清空控制台</span>
+    </div>
+    <div id="log-list">
+      <div class="log-item"><span class="log-time">[00:00:00]</span> 页面就绪，等待执行脚本或录制测试...</div>
+    </div>
+  </div>
+
+  <script>
+    function logEvent(msg) {
+      const now = new Date();
+      const timeStr = now.toTimeString().split(' ')[0] + '.' + String(now.getMilliseconds()).padStart(3, '0');
+      const logList = document.getElementById('log-list');
+      const item = document.createElement('div');
+      item.className = 'log-item';
+      item.innerHTML = '<span class="log-time">[' + timeStr + ']</span> ' + msg;
+      logList.appendChild(item);
+      document.getElementById('console-box').scrollTop = document.getElementById('console-box').scrollHeight;
+    }
+
+    function updateScore(delta) {
+      const el = document.getElementById('user-score');
+      let score = parseFloat(el.innerText) || 0;
+      score = Math.max(0, score + delta);
+      el.innerText = score.toFixed(1);
+      logEvent('积分已更新为: ' + el.innerText);
+    }
+  </script>
+</body>
+</html>

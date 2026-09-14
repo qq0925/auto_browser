@@ -310,20 +310,58 @@ class ScriptProvider extends ChangeNotifier {
 
     switch (type) {
       case '点击文字':
-        // Parse text and selection index if provided
-        final parts = content.split('|');
-        final text = parts[0];
-        final selectionIndex = parts.length > 1 ? (int.tryParse(parts[1]) ?? 1) : 1;
-        
+        // 解析文字与位置筛选参数（支持结构化 JSON 与传统分隔符格式）
+        String text = '';
+        int selectionIndex = 1;
+        int totalMatches = 1;
+
+        if (content.startsWith('{')) {
+          try {
+            final data = json.decode(content) as Map<String, dynamic>;
+            text = (data['text'] ?? '').toString();
+            selectionIndex = (data['index'] as num?)?.toInt() ?? 1;
+            totalMatches = (data['total'] as num?)?.toInt() ?? 1;
+          } catch (_) {}
+        }
+        if (text.isEmpty) {
+          final parts = content.split('|');
+          text = parts[0];
+          selectionIndex =
+              parts.length > 1 ? (int.tryParse(parts[1]) ?? 1) : 1;
+          totalMatches = parts.length > 2
+              ? (int.tryParse(parts[2]) ?? 1)
+              : selectionIndex;
+        }
+
+        final params = <String, dynamic>{
+          '点击文本': text,
+          '完全匹配': true, // 录制默认完全匹配
+        };
+
+        // 智能补全：当页面检测到多个完全匹配文字或指定非首项筛选（如 -1 倒数、0 随机）时，自动填充筛选
+        if (totalMatches > 1 || selectionIndex != 1) {
+          params['多个筛选'] = selectionIndex;
+        }
+
         addScript(Script(
           type: '点击文字',
-          params: {
-            '点击文本': text,
-            if (selectionIndex != 1) '多个筛选': selectionIndex
-          },
+          params: params,
           isEnabled: true,
         ));
-        _lastRecordedActionController.add('点击文字: $text${selectionIndex != 1 ? ' (第$selectionIndex个)' : ''}');
+
+        final String hint;
+        if (selectionIndex == 0) {
+          hint = ' (随机)';
+        } else if (selectionIndex < 0) {
+          hint = ' (倒数第${-selectionIndex}个)';
+        } else if (totalMatches > 1) {
+          hint = ' (第$selectionIndex个/共$totalMatches个)';
+        } else if (selectionIndex > 1) {
+          hint = ' (第$selectionIndex个)';
+        } else {
+          hint = '';
+        }
+        _lastRecordedActionController.add('点击文字: $text$hint');
         break;
 
       case '点击提交按钮':
@@ -942,61 +980,125 @@ class ScriptProvider extends ChangeNotifier {
           return;
         }
 
-        // Helper function to figure out the 1-based index of the target
-        function getSelectionIndex(clickedElement, text) {
-           const allElements = Array.from(document.querySelectorAll('*')).filter(el => {
-             const tag = el.tagName.toLowerCase();
-             return !['html', 'head', 'style', 'script', 'meta', 'link', 'noscript', 'title', 'body'].includes(tag);
-           });
-           let matchedLinks = allElements.filter(el => {
-             const elText = el.innerText || el.textContent || el.value || '';
-             return elText.includes(text);
-           });
-           matchedLinks = matchedLinks.filter(el => {
-             return !matchedLinks.some(otherEl => otherEl !== el && el.contains(otherEl));
-           });
-           
-           let index = matchedLinks.findIndex(el => el === clickedElement || el.contains(clickedElement) || clickedElement.contains(el));
-           return index !== -1 ? index + 1 : 1;
+        // 智能完全匹配与多重元素定位函数（算法与 ScriptExecutor 100% 对齐）
+        function getExactMatchInfo(clickedElement, targetText) {
+          var trimmedTarget = (targetText || '').trim();
+          if (!trimmedTarget) return { index: 1, total: 1 };
+
+          // 优先检索常见可交互与文本容器节点，与执行器 candidateSelectors 一致
+          var candidateSelectors = 'a, button, input, [role="button"], [onclick], label, span, p, h1, h2, h3, h4, h5, h6, li, td, th, b, strong, em, div';
+          var allElements = Array.from(document.querySelectorAll(candidateSelectors));
+
+          // 严格完全匹配 (trim 后全等)
+          var matchedElements = allElements.filter(function(el) {
+            var text = el.innerText || el.textContent || el.value || '';
+            return text.trim() === trimmedTarget;
+          });
+
+          // 高效剪枝：优先保留最深层叶子匹配节点（与 ScriptExecutor 剪枝算法 100% 对齐）
+          if (matchedElements.length > 1) {
+            var leafMatched = [];
+            for (var i = 0; i < matchedElements.length; i++) {
+              var el = matchedElements[i];
+              var isContainerOfOther = false;
+              for (var j = 0; j < matchedElements.length; j++) {
+                if (i !== j && el.contains(matchedElements[j])) {
+                  isContainerOfOther = true;
+                  break;
+                }
+              }
+              if (!isContainerOfOther) {
+                leafMatched.push(el);
+              }
+            }
+            if (leafMatched.length > 0) {
+              matchedElements = leafMatched;
+            }
+          }
+
+          var total = matchedElements.length;
+          if (total === 0) return { index: 1, total: 1 };
+
+          // 定位当前被点击元素在 matchedElements 中的位置（支持精确节点或父子包含）
+          var index = matchedElements.findIndex(function(el) {
+            return el === clickedElement || el.contains(clickedElement) || clickedElement.contains(el);
+          });
+
+          return {
+            index: index !== -1 ? index + 1 : 1,
+            total: total
+          };
         }
 
-        // Priority 2: Links and Text
-        // Relaxed check: Any element with text that looks like a link or button
-        let linkElement = target.closest('a');
+        // Priority 2: 链接与按钮交互元素 (a, button, role=button, input[type=button/submit])
+        var linkElement = target.closest('a');
         if (linkElement) {
-          let linkText = linkElement.innerText || linkElement.textContent || '';
-          linkText = linkText.trim();
-          if (linkText) {
-            let idx = getSelectionIndex(linkElement, linkText);
-            postMessage('点击文字|' + linkText + '|' + idx);
+          var linkText = (linkElement.innerText || linkElement.textContent || '').trim();
+          if (linkText && linkText.length < 100) {
+            var linkInfo = getExactMatchInfo(linkElement, linkText);
+            postMessage('点击文字|' + JSON.stringify({
+              text: linkText,
+              index: linkInfo.index,
+              total: linkInfo.total
+            }));
             return;
           }
         }
-        
-        // Check for elements with role="button" or cursor:pointer that have text
-        let roleBtn = target.closest('[role="button"]');
-        if (roleBtn) {
-           let btnText = roleBtn.innerText || roleBtn.textContent || '';
-           btnText = btnText.trim();
-           if (btnText) {
-             let idx = getSelectionIndex(roleBtn, btnText);
-             postMessage('点击文字|' + btnText + '|' + idx);
-             return;
-           }
+
+        var btnElement = target.closest('button');
+        if (btnElement) {
+          var btnText = (btnElement.innerText || btnElement.textContent || btnElement.value || '').trim();
+          if (btnText && btnText.length < 100) {
+            var btnInfo = getExactMatchInfo(btnElement, btnText);
+            postMessage('点击文字|' + JSON.stringify({
+              text: btnText,
+              index: btnInfo.index,
+              total: btnInfo.total
+            }));
+            return;
+          }
         }
-        
-        // Check for generic elements with text that are clicked
-        // This is the "Click Text" fallback
-        // We only want to capture if it has text and is not an input/textarea
+
+        var roleBtn = target.closest('[role="button"]');
+        if (roleBtn) {
+          var roleBtnText = (roleBtn.innerText || roleBtn.textContent || '').trim();
+          if (roleBtnText && roleBtnText.length < 100) {
+            var roleBtnInfo = getExactMatchInfo(roleBtn, roleBtnText);
+            postMessage('点击文字|' + JSON.stringify({
+              text: roleBtnText,
+              index: roleBtnInfo.index,
+              total: roleBtnInfo.total
+            }));
+            return;
+          }
+        }
+
+        // input 按钮（type="button", "submit", "reset"）
+        if (target.tagName === 'INPUT' && (target.type === 'button' || target.type === 'submit' || target.type === 'reset')) {
+          var btnVal = (target.value || '').trim();
+          if (btnVal && btnVal.length < 100) {
+            var inputBtnInfo = getExactMatchInfo(target, btnVal);
+            postMessage('点击文字|' + JSON.stringify({
+              text: btnVal,
+              index: inputBtnInfo.index,
+              total: inputBtnInfo.total
+            }));
+            return;
+          }
+        }
+
+        // 通用文本节点（span, p, div, label, li 等）
         if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA' && target.tagName !== 'SELECT') {
-           let text = target.innerText || target.textContent || '';
-           text = text.trim();
-           // Limit length and ensure it's not a huge block of text
-           if (text.length > 0 && text.length < 50) {
-              let idx = getSelectionIndex(target, text);
-              postMessage('点击文字|' + text + '|' + idx);
-              return;
-           }
+          var text = (target.innerText || target.textContent || '').trim();
+          if (text.length > 0 && text.length < 60) {
+            var genericInfo = getExactMatchInfo(target, text);
+            postMessage('点击文字|' + JSON.stringify({
+              text: text,
+              index: genericInfo.index,
+              total: genericInfo.total
+            }));
+            return;
+          }
         }
 
         // Priority 3: Non-text elements (SVG icons, Icon buttons, font icons)

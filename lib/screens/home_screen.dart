@@ -384,6 +384,31 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                                                     data: 'assets/welcome.html',
                                                     mimeType: 'text/html',
                                                     encoding: 'utf-8');
+                                          } else if (url == 'guide.html' ||
+                                              url == 'about:guide') {
+                                            final content = await rootBundle
+                                                .loadString('assets/guide.html');
+                                            await browserProvider
+                                                .currentTab!.controller
+                                                ?.loadData(
+                                                    data: content,
+                                                    mimeType: 'text/html',
+                                                    encoding: 'utf-8',
+                                                    baseUrl: WebUri(
+                                                        'file:///guide.html'));
+                                          } else if (url == 'test_page.html' ||
+                                              url == 'test.html' ||
+                                              url == 'about:test') {
+                                            final content = await rootBundle
+                                                .loadString('assets/test_page.html');
+                                            await browserProvider
+                                                .currentTab!.controller
+                                                ?.loadData(
+                                                    data: content,
+                                                    mimeType: 'text/html',
+                                                    encoding: 'utf-8',
+                                                    baseUrl: WebUri(
+                                                        'file:///test_page.html'));
                                           } else {
                                             if (!url.startsWith('http://') &&
                                                 !url.startsWith('https://') &&
