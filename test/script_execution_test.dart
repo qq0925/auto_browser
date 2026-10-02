@@ -116,6 +116,25 @@ void main() {
       // 校验叶子节点剪枝算法
       expect(js.contains('leafMatched'), true);
     });
+
+    test('点击文字 JS 包含白鹭引擎 (Egret) Canvas 穿透探针与虚拟点击', () {
+      final params = {
+        '点击文本': '商城',
+        '完全匹配': false,
+        '多个筛选': 1,
+      };
+
+      final js = executor.buildClickScriptLogic(params);
+
+      // 验证包含白鹭引擎 Canvas 穿透探针
+      expect(js.contains('_auokFindEgretStage'), true);
+      expect(js.contains('_auokGetEgretContext'), true);
+      expect(js.contains('_auokScanEgretNodes'), true);
+      expect(js.contains('_auokTriggerEgretClick'), true);
+      expect(js.contains('_tryEgretFallback'), true);
+      expect(js.contains('window.clickVirtual'), true);
+      expect(js.contains('window.scanEgretElements'), true);
+    });
   });
 }
 

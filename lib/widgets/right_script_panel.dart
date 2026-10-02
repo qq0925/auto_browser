@@ -738,6 +738,18 @@ class RightScriptPanel extends StatelessWidget {
         return '停止运行';
       case '脚本暂停':
         return '暂停运行';
+      case '自定义JS':
+        final path = params['jsFilePath']?.toString();
+        if (path != null && path.isNotEmpty) {
+          final filename = path.split(RegExp(r'[\\/]')).last;
+          return '文件: $filename';
+        }
+        final code = (params['代码'] ?? params['js内容'] ?? '').toString().trim();
+        if (code.isNotEmpty) {
+          final firstLine = code.split('\n').first.trim();
+          return firstLine.length > 25 ? '${firstLine.substring(0, 25)}...' : firstLine;
+        }
+        return 'JS代码块';
       default:
         if (params.containsKey('执行延迟')) {
           return '延迟: ${params['执行延迟']}ms';

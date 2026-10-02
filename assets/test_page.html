@@ -225,7 +225,7 @@
     <header>
       <h1>Auok 脚本引擎基准测试套件</h1>
       <p>用于全面检验脚本录制与回放执行的完全匹配、多重筛选索引、表单输入、数值对比与事件仿真能力</p>
-      <span class="badge">引擎版本: v1.0.9+7 兼容基准</span>
+      <span class="badge">引擎版本: v1.1.0+8 兼容基准</span>
     </header>
 
     <div class="grid">
@@ -366,6 +366,22 @@
           <span style="font-size: 13px; color: var(--text-muted);">点击左侧 Logo 图标触发测试事件</span>
         </div>
       </div>
+
+      <!-- 7. 白鹭引擎 (Egret) Canvas 游戏虚拟点击仿真专区 -->
+      <div class="card" style="border-color: rgba(16, 185, 129, 0.4);">
+        <div class="card-title" style="color: #34d399;">⑦ 白鹭引擎 (Egret) Canvas 游戏虚拟点击测试专区</div>
+        <div class="card-desc">
+          下方区域为单一 HTML5 &lt;canvas&gt; 画布，DOM 树上无任何文本节点。
+          测试 Auok 原生指令「点击文字: 商城」与「点击文字: 返回游戏」是否能自动穿透 Canvas 舞台并触发虚拟点击。
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <canvas id="egret-game-canvas" width="360" height="80" style="background: #0f172a; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; width: 100%; max-width: 360px; height: 80px;"></canvas>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button class="btn btn-secondary" onclick="if (window.clickVirtual) window.clickVirtual('商城'); else logEvent('未就绪');">JS触发: clickVirtual('商城')</button>
+            <button class="btn btn-secondary" onclick="if (window.clickVirtual) window.clickVirtual('返回游戏'); else logEvent('未就绪');">JS触发: clickVirtual('返回游戏')</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -399,6 +415,92 @@
       el.innerText = score.toFixed(1);
       logEvent('积分已更新为: ' + el.innerText);
     }
+
+    // 初始化白鹭引擎 (Egret) 虚拟 Canvas 画布与 Stage 舞台仿真
+    (function initEgretSimulator() {
+      const canvas = document.getElementById('egret-game-canvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+
+      // 绘制游戏画布背景与虚拟按钮
+      function drawScene() {
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // 按钮 1: 商城
+        ctx.fillStyle = '#2563eb';
+        ctx.beginPath();
+        ctx.roundRect ? ctx.roundRect(20, 20, 130, 40, 6) : ctx.rect(20, 20, 130, 40);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 15px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('🛒 商城', 85, 40);
+
+        // 按钮 2: 返回游戏
+        ctx.fillStyle = '#059669';
+        ctx.beginPath();
+        ctx.roundRect ? ctx.roundRect(190, 20, 140, 40, 6) : ctx.rect(190, 20, 140, 40);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText('🎮 返回游戏', 260, 40);
+      }
+      drawScene();
+
+      // 构建模拟白鹭 Stage 与可交互节点树
+      const nodeShop = {
+        text: '商城',
+        visible: true,
+        touchEnabled: true,
+        x: 20,
+        y: 20,
+        width: 130,
+        height: 40,
+        localToGlobal: function(x, y) { return { x: 20 + x, y: 20 + y }; },
+        dispatchEvent: function(e) {
+          logEvent('🎮 [白鹭Canvas] 触发游戏虚拟事件:【商城】(Type: ' + (e.type || 'touchTap') + ')');
+          return true;
+        }
+      };
+
+      const nodeBack = {
+        text: '返回游戏',
+        visible: true,
+        touchEnabled: true,
+        x: 190,
+        y: 20,
+        width: 140,
+        height: 40,
+        localToGlobal: function(x, y) { return { x: 190 + x, y: 20 + y }; },
+        dispatchEvent: function(e) {
+          logEvent('🎮 [白鹭Canvas] 触发游戏虚拟事件:【返回游戏】(Type: ' + (e.type || 'touchTap') + ')');
+          return true;
+        }
+      };
+
+      // 挂载到 canvas 上供探针查找
+      canvas.stage = {
+        $hitTest: true,
+        visible: true,
+        $children: [nodeShop, nodeBack]
+      };
+
+      // 同时也支持物理点击响应
+      canvas.addEventListener('click', function(e) {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const x = (e.clientX - rect.left) * scaleX;
+        const y = (e.clientY - rect.top) * scaleY;
+
+        if (x >= 20 && x <= 150 && y >= 20 && y <= 60) {
+          nodeShop.dispatchEvent({ type: 'physicalClick' });
+        } else if (x >= 190 && x <= 330 && y >= 20 && y <= 60) {
+          nodeBack.dispatchEvent({ type: 'physicalClick' });
+        }
+      });
+    })();
   </script>
 </body>
 </html>

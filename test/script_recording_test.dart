@@ -117,5 +117,27 @@ void main() {
 
       await subscription.cancel();
     });
+
+    test('白鹭引擎 Canvas 游戏虚拟节点录制：JS源码包含舞台碰撞探测与坐标反算', () {
+      expect(ScriptProvider.recordingJs.contains('tryRecordEgretCanvas'), true);
+      expect(ScriptProvider.recordingJs.contains('findEgretStage'), true);
+      expect(ScriptProvider.recordingJs.contains('pointerup'), true);
+      expect(ScriptProvider.recordingJs.contains('localToGlobal'), true);
+
+      // 模拟接收从 Canvas 游戏录制派发的点击文字消息
+      final payload = json.encode({
+        'text': '商城',
+        'index': 1,
+        'total': 1,
+      });
+
+      scriptProvider.handleScriptMessage('点击文字|$payload');
+
+      expect(testTab.scripts.length, 1);
+      final script = testTab.scripts[0];
+      expect(script.type, '点击文字');
+      expect(script.params['点击文本'], '商城');
+      expect(script.params['完全匹配'], true);
+    });
   });
 }

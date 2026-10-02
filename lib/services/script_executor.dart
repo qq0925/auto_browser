@@ -501,6 +501,227 @@ class ScriptExecutor {
     }
   ''';
 
+  /// 白鹭引擎 (Egret) 与 Canvas 游戏舞台智能探测 JS 脚本
+  /// 支持穿透 HTML5 Canvas 画布，通过 Stage 舞台树遍历可交互节点，
+  /// 并支持引擎级 touchTap 事件直接派发与 Canvas 屏幕物理触控合成双通道触发
+  static const String _egretCanvasProbeJs = r'''
+    function _auokFindEgretStage(rootObj, depth) {
+      if (!rootObj || depth > 3) return null;
+      try {
+        if (rootObj.$hitTest || rootObj.hitTest) return rootObj;
+        if (rootObj.stage && (rootObj.stage.$hitTest || rootObj.stage.hitTest)) return rootObj.stage;
+        for (const k in rootObj) {
+          try {
+            if (k.startsWith('$') || k.indexOf('egret') !== -1 || k === 'player' || k === 'stage') {
+              const res = _auokFindEgretStage(rootObj[k], depth + 1);
+              if (res) return res;
+            }
+          } catch(_) {}
+        }
+      } catch(_) {}
+      return null;
+    }
+
+    function _auokGetEgretContext() {
+      try {
+        const canvases = Array.from(document.querySelectorAll('canvas'));
+        if (canvases.length === 0) return null;
+
+        let stage = null;
+        let targetCanvas = null;
+
+        for (const c of canvases) {
+          stage = _auokFindEgretStage(c, 0);
+          if (stage) {
+            targetCanvas = c;
+            break;
+          }
+        }
+
+        if (!stage) {
+          const player = document.querySelector('.egret-player');
+          if (player) {
+            stage = _auokFindEgretStage(player, 0);
+            if (stage) targetCanvas = canvases[0];
+          }
+        }
+
+        if (!stage && typeof window !== 'undefined') {
+          if (window.stage) stage = _auokFindEgretStage(window.stage, 0);
+          if (!stage && window.egret) stage = _auokFindEgretStage(window.egret, 0);
+          if (!stage && window.player) stage = _auokFindEgretStage(window.player, 0);
+          if (stage) targetCanvas = canvases[0];
+        }
+
+        if (stage && targetCanvas) {
+          return { stage: stage, canvas: targetCanvas };
+        }
+      } catch(e) {
+        console.warn('[Auok] Get Egret context error:', e);
+      }
+      return null;
+    }
+
+    function _auokScanEgretNodes(stage) {
+      if (!stage) return [];
+      const items = [];
+
+      function traverse(node) {
+        if (!node || node.visible === false) return;
+
+        let text = node.text || (node.labelDisplay && node.labelDisplay.text) || node.label || node.prompt;
+        if (typeof text === 'string' && text.trim() !== '') {
+          const isClickable = Boolean(
+            node.touchEnabled ||
+            (node.$EventDispatcher && node.$EventDispatcher.$events && node.$EventDispatcher.$events['touchTap']) ||
+            (typeof node.hasEventListener === 'function' && node.hasEventListener('touchTap'))
+          );
+
+          if (isClickable) {
+            let gx = Math.round(node.x || 0);
+            let gy = Math.round(node.y || 0);
+            if (typeof node.localToGlobal === 'function') {
+              try {
+                const pt = node.localToGlobal(0, 0);
+                if (pt && typeof pt.x === 'number') {
+                  gx = Math.round(pt.x);
+                  gy = Math.round(pt.y);
+                }
+              } catch(_) {}
+            }
+
+            items.push({
+              text: text.trim(),
+              target: node,
+              globalX: gx,
+              globalY: gy,
+              width: node.width || 0,
+              height: node.height || 0
+            });
+          }
+        }
+
+        if (node.$children && node.$children.length > 0) {
+          for (let i = 0; i < node.$children.length; i++) traverse(node.$children[i]);
+        } else if (node.numChildren && node.getChildAt) {
+          for (let i = 0; i < node.numChildren; i++) traverse(node.getChildAt(i));
+        }
+      }
+
+      traverse(stage);
+      return items;
+    }
+
+    function _auokTriggerEgretClick(canvas, foundItem) {
+      if (!canvas || !foundItem || !foundItem.target) return false;
+      const targetNode = foundItem.target;
+
+      // 视觉光圈高亮投射到 canvas 屏幕区域
+      try {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = rect.width / (canvas.width || rect.width);
+        const scaleY = rect.height / (canvas.height || rect.height);
+        const clientX = rect.left + foundItem.globalX * scaleX;
+        const clientY = rect.top + foundItem.globalY * scaleY;
+        const w = Math.max(30, (foundItem.width || 40) * scaleX);
+        const h = Math.max(20, (foundItem.height || 30) * scaleY);
+
+        const ring = document.createElement('div');
+        ring.className = '_auok_tap_indicator';
+        ring.style.cssText = 'position:fixed;left:' + clientX + 'px;top:' + clientY + 'px;width:' + w + 'px;height:' + h + 'px;border-radius:6px;box-shadow:0 0 0 3px #10b981, 0 0 16px rgba(16,185,129,0.7);background:rgba(16,185,129,0.25);pointer-events:none;z-index:2147483647;transition:all 0.28s ease-out;';
+        document.documentElement.appendChild(ring);
+        setTimeout(function() {
+          ring.style.transform = 'scale(1.15)';
+          ring.style.opacity = '0';
+          setTimeout(function() { if (ring.parentNode) ring.parentNode.removeChild(ring); }, 300);
+        }, 220);
+      } catch(_) {}
+
+      let success = false;
+
+      // 通道 A：引擎级 touchTap 事件直接派发
+      try {
+        let event = null;
+        if (typeof window !== 'undefined' && window.egret && window.egret.TouchEvent) {
+          event = new window.egret.TouchEvent(window.egret.TouchEvent.TOUCH_TAP, true, true);
+        } else {
+          event = {
+            type: 'touchTap',
+            bubbles: true,
+            cancelable: true,
+            target: targetNode,
+            currentTarget: targetNode,
+            $isDefaultPrevented: false
+          };
+        }
+        if (typeof targetNode.dispatchEvent === 'function') {
+          targetNode.dispatchEvent(event);
+          success = true;
+        }
+      } catch (_) {}
+
+      // 通道 B & C：Canvas 屏幕物理触控与鼠标事件合成
+      try {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = rect.width / (canvas.width || rect.width);
+        const scaleY = rect.height / (canvas.height || rect.height);
+        const offsetX = foundItem.width ? (foundItem.width / 2) : 20;
+        const offsetY = foundItem.height ? (foundItem.height / 2) : 10;
+        const clientX = rect.left + (foundItem.globalX + offsetX) * scaleX;
+        const clientY = rect.top + (foundItem.globalY + offsetY) * scaleY;
+
+        if (typeof Touch !== 'undefined' && typeof TouchEvent !== 'undefined') {
+          const touchObj = new Touch({
+            identifier: Date.now(),
+            target: canvas,
+            clientX: clientX,
+            clientY: clientY,
+            pageX: clientX,
+            pageY: clientY
+          });
+          canvas.dispatchEvent(new TouchEvent('touchstart', {
+            touches: [touchObj],
+            targetTouches: [touchObj],
+            changedTouches: [touchObj],
+            bubbles: true
+          }));
+          setTimeout(() => {
+            canvas.dispatchEvent(new TouchEvent('touchend', {
+              touches: [],
+              targetTouches: [],
+              changedTouches: [touchObj],
+              bubbles: true
+            }));
+          }, 50);
+        }
+
+        const mouseOpts = { bubbles: true, cancelable: true, clientX: clientX, clientY: clientY, view: window };
+        canvas.dispatchEvent(new MouseEvent('mousedown', mouseOpts));
+        canvas.dispatchEvent(new MouseEvent('mouseup', mouseOpts));
+        canvas.dispatchEvent(new MouseEvent('click', mouseOpts));
+        success = true;
+      } catch(_) {}
+
+      return success;
+    }
+
+    // 挂载全局辅助函数供自定义JS或控制台直接调用
+    if (typeof window !== 'undefined') {
+      window.scanEgretElements = function() {
+        const ctx = _auokGetEgretContext();
+        return ctx ? _auokScanEgretNodes(ctx.stage) : [];
+      };
+      window.clickVirtual = function(keyword, exact) {
+        const ctx = _auokGetEgretContext();
+        if (!ctx) return false;
+        const nodes = _auokScanEgretNodes(ctx.stage);
+        const match = nodes.find(n => exact ? n.text === keyword : n.text.includes(keyword));
+        if (!match) return false;
+        return _auokTriggerEgretClick(ctx.canvas, match);
+      };
+    }
+  ''';
+
   Future<bool> _executeClickScript(
       InAppWebViewController controller, Script script) async {
     final params = script.getClickParams();
@@ -684,21 +905,69 @@ class ScriptExecutor {
     final beforeTextJson = jsonEncode(params['在此之前'] ?? '');
     final selectionIndex = params['多个筛选'] ?? 1;
 
-    // Unified logic: Always use Expert Mode features with Fuzzy Matching
+    // Unified logic: Always use Expert Mode features with Fuzzy Matching and Egret Canvas fallback
     return '''
       $_highlightJs
+      $_egretCanvasProbeJs
+
+      function _tryEgretFallback() {
+        const ctx = _auokGetEgretContext();
+        if (!ctx) return false;
+        const egretNodes = _auokScanEgretNodes(ctx.stage);
+        if (!egretNodes || egretNodes.length === 0) return false;
+
+        const matchedEgret = egretNodes.filter(item => {
+          const exactMatch = $exactMatch;
+          return clickTexts.some(cText => {
+            if (exactMatch) {
+              return item.text === cText;
+            } else {
+              return item.text.includes(cText);
+            }
+          });
+        });
+
+        if (matchedEgret.length === 0) return false;
+
+        const selectionIndex = $selectionIndex;
+        let targetIndex = 0;
+        if (selectionIndex === 0) {
+          targetIndex = Math.floor(Math.random() * matchedEgret.length);
+        } else if (selectionIndex > 0) {
+          targetIndex = Math.min(selectionIndex - 1, matchedEgret.length - 1);
+        } else {
+          targetIndex = Math.max(0, matchedEgret.length + selectionIndex);
+        }
+
+        const found = matchedEgret[targetIndex];
+        if (found) {
+          return _auokTriggerEgretClick(ctx.canvas, found);
+        }
+        return false;
+      }
+
+      // 目标文字判断
+      const clickTexts = ($clickTextJson).split(';').map(t => t.trim()).filter(t => t);
+      if (clickTexts.length === 0) return false;
+
+      // 出现文字校验（同时检测普通 DOM 文本与 Canvas 白鹭游戏舞台）
       const triggerTexts = ($triggerTextJson).split(';').filter(t => t.trim());
       if (triggerTexts.length > 0) {
         const pageText = document.body.textContent || '';
-        const hasText = triggerTexts.some(text => 
+        let hasText = triggerTexts.some(text => 
           text && pageText.includes(text.trim())
         );
+        if (!hasText) {
+          const ctx = _auokGetEgretContext();
+          if (ctx) {
+            const egretNodes = _auokScanEgretNodes(ctx.stage);
+            hasText = triggerTexts.some(text =>
+              egretNodes.some(n => n.text && n.text.includes(text.trim()))
+            );
+          }
+        }
         if (!hasText) return false;
       }
-      
-      // Target texts to click
-      const clickTexts = ($clickTextJson).split(';').map(t => t.trim()).filter(t => t);
-      if (clickTexts.length === 0) return false;
 
       // 优先从常见可交互与文本容器节点中检索，避免扫描全量万级无关节点
       const candidateSelectors = 'a, button, input, [role="button"], [onclick], label, span, p, h1, h2, h3, h4, h5, h6, li, td, th, b, strong, em, div';
@@ -771,7 +1040,10 @@ class ScriptExecutor {
         });
       }
       
-      if (matchedLinks.length === 0) return false;
+      // 若常规 DOM 树中未匹配到，自动无感触发 Canvas / 白鹭引擎虚拟穿透探针
+      if (matchedLinks.length === 0) {
+        return _tryEgretFallback();
+      }
 
       // Apply selection index
       const selectionIndex = $selectionIndex;
@@ -1535,9 +1807,18 @@ class ScriptExecutor {
 
       final jsCode = '''
         (function() {
+          $_egretCanvasProbeJs
           try {
             const bodyText = document.body.innerText || document.body.textContent || '';
-            return bodyText.includes($targetTextJson);
+            if (bodyText.includes($targetTextJson)) return true;
+            const ctx = _auokGetEgretContext();
+            if (ctx) {
+              const egretNodes = _auokScanEgretNodes(ctx.stage);
+              if (egretNodes && egretNodes.some(n => n.text && n.text.includes($targetTextJson))) {
+                return true;
+              }
+            }
+            return false;
           } catch(e) {
             return false;
           }

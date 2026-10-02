@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/script_provider.dart';
 import '../providers/browser_provider.dart';
@@ -630,60 +631,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           }),
         ];
       case '自定义JS':
-        return [
-          // File Picker Row
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  _jsFilePath != null
-                      ? '已选择: ${_jsFilePath!.split(Platform.pathSeparator).last}'
-                      : '未选择文件',
-                  style: TextStyle(
-                    color: _jsFilePath != null ? Colors.green : Colors.grey,
-                    fontSize: 13,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: 8),
-              ElevatedButton.icon(
-                onPressed: () async {
-                  FilePickerResult? result =
-                      await FilePicker.platform.pickFiles(
-                    type: FileType.any,
-                  );
-
-                  if (result != null && result.files.single.path != null) {
-                    final path = result.files.single.path!;
-                    if (!path.toLowerCase().endsWith('.js')) {
-                      if (!mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('请选择 .js 格式的文件'),
-                          backgroundColor: Colors.orange,
-                        ),
-                      );
-                      return;
-                    }
-                    File file = File(result.files.single.path!);
-                    String content = await file.readAsString();
-                    setState(() {
-                      _jsFilePath = result.files.single.path;
-                      _customJsController.text = content;
-                    });
-                  }
-                },
-                icon: const Icon(Icons.folder_open, size: 16),
-                label: const Text('选择JS文件'),
-                style: ElevatedButton.styleFrom(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                ),
-              ),
-            ],
-          ),
-        ];
+        return _buildCustomJsFields();
       case '进入网址':
       case '新建标签页并执行脚本':
         return [
@@ -1148,6 +1096,285 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     );
   }
 
+  /// 构建自定义JS专用配置字段：同时支持大文本框直接编写/粘贴与本地文件选择
+  List<Widget> _buildCustomJsFields() {
+    final isDark = _theme.isDarkMode;
+    return [
+      // 1. 顶部文件状态与工具栏
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: _theme.tileColor,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: _theme.borderColor),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              _jsFilePath != null ? Icons.description_rounded : Icons.code_rounded,
+              size: 18,
+              color: _jsFilePath != null ? Colors.green : Colors.blueAccent,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _jsFilePath != null
+                        ? '已关联: ${_jsFilePath!.split(Platform.pathSeparator).last}'
+                        : '直接编写或选择本地 .js 文件',
+                    style: TextStyle(
+                      color: _jsFilePath != null
+                          ? (_theme.isDarkMode ? Colors.greenAccent : Colors.green.shade700)
+                          : _theme.textColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (_jsFilePath != null)
+                    Text(
+                      _jsFilePath!,
+                      style: TextStyle(
+                        color: _theme.hintColor,
+                        fontSize: 11,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            // 选择JS文件按钮
+            ElevatedButton.icon(
+              onPressed: () async {
+                FilePickerResult? result = await FilePicker.platform.pickFiles(
+                  type: FileType.any,
+                );
+
+                if (result != null && result.files.single.path != null) {
+                  final path = result.files.single.path!;
+                  if (!path.toLowerCase().endsWith('.js')) {
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('请选择 .js 格式的文件'),
+                        backgroundColor: Colors.orange,
+                      ),
+                    );
+                    return;
+                  }
+                  File file = File(path);
+                  String content = await file.readAsString();
+                  setState(() {
+                    _jsFilePath = path;
+                    _customJsController.text = content;
+                  });
+                }
+              },
+              icon: const Icon(Icons.folder_open_rounded, size: 15),
+              label: const Text('选择文件', style: TextStyle(fontSize: 12)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF5E81AC),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                elevation: 0,
+              ),
+            ),
+            if (_jsFilePath != null || _customJsController.text.isNotEmpty) ...[
+              const SizedBox(width: 6),
+              // 清空内容与文件关联
+              IconButton(
+                icon: const Icon(Icons.clear_all_rounded, size: 18),
+                tooltip: '清空代码与关联',
+                color: Colors.redAccent.shade200,
+                onPressed: () {
+                  setState(() {
+                    _jsFilePath = null;
+                    _customJsController.clear();
+                  });
+                },
+              ),
+            ],
+          ],
+        ),
+      ),
+
+      // 2. 代码大文本框标题栏与快捷粘贴
+      Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: [
+                Text(
+                  'JavaScript 脚本代码',
+                  style: TextStyle(
+                    color: _theme.textColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '(支持直接编写与粘贴)',
+                  style: TextStyle(
+                    color: _theme.hintColor,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+            InkWell(
+              onTap: () async {
+                final data = await Clipboard.getData(Clipboard.kTextPlain);
+                if (data?.text != null && data!.text!.isNotEmpty) {
+                  setState(() {
+                    _customJsController.text = data.text!;
+                  });
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('已从剪贴板粘贴代码'),
+                        duration: Duration(seconds: 1),
+                      ),
+                    );
+                  }
+                }
+              },
+              borderRadius: BorderRadius.circular(4),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                child: Row(
+                  children: [
+                    Icon(Icons.paste_rounded, size: 14, color: Colors.blueAccent),
+                    const SizedBox(width: 4),
+                    Text(
+                      '粘贴剪贴板',
+                      style: TextStyle(fontSize: 12, color: Colors.blueAccent),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+
+      // 3. 代码编辑器大文本框
+      Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isDark ? Colors.blueAccent.withAlpha(80) : Colors.blueGrey.shade200,
+          ),
+        ),
+        child: TextField(
+          controller: _customJsController,
+          maxLines: 12,
+          minLines: 7,
+          style: TextStyle(
+            fontFamily: 'Consolas',
+            fontSize: 12.5,
+            color: isDark ? const Color(0xFFE2E8F0) : const Color(0xFF1E293B),
+            height: 1.45,
+          ),
+          decoration: InputDecoration(
+            hintText: '// 在此直接编写或粘贴 JavaScript 代码\n'
+                '// 示例 1: 普通网页点击\n'
+                '// document.querySelector("#myBtn")?.click();\n\n'
+                '// 示例 2: 白鹭引擎 (Egret) 游戏虚拟点击\n'
+                '// window.clickVirtual && window.clickVirtual("商城");\n\n'
+                '// 示例 3: 异步流程\n'
+                '// await new Promise(r => setTimeout(r, 1000));',
+            hintStyle: TextStyle(
+              fontFamily: 'Consolas',
+              fontSize: 12,
+              color: isDark ? Colors.white30 : Colors.black26,
+              height: 1.45,
+            ),
+            contentPadding: const EdgeInsets.all(12),
+            border: InputBorder.none,
+          ),
+        ),
+      ),
+
+      // 4. 常用代码片段快捷 Chip 列表
+      Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(
+              '常用模板:',
+              style: TextStyle(fontSize: 11, color: _theme.hintColor),
+            ),
+            _buildSnippetChip(
+              '🎮 游戏虚拟点击',
+              '// 触发白鹭 Canvas 游戏虚拟点击\nif (window.clickVirtual) {\n  window.clickVirtual("商城");\n}',
+            ),
+            _buildSnippetChip(
+              '⏱️ 异步延时',
+              '// 等待 1000 毫秒\nawait new Promise(r => setTimeout(r, 1000));',
+            ),
+            _buildSnippetChip(
+              '📜 页面置底滚动',
+              'window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });',
+            ),
+            _buildSnippetChip(
+              '🔍 游戏节点扫描',
+              'console.log("[Auok] 自动化节点扫描:", window.scanEgretElements ? window.scanEgretElements() : "无引擎");',
+            ),
+          ],
+        ),
+      ),
+    ];
+  }
+
+  Widget _buildSnippetChip(String label, String codeSnippet) {
+    final isDark = _theme.isDarkMode;
+    return InkWell(
+      onTap: () {
+        final current = _customJsController.text;
+        if (current.trim().isEmpty) {
+          setState(() {
+            _customJsController.text = codeSnippet;
+          });
+        } else {
+          setState(() {
+            _customJsController.text = '$current\n\n$codeSnippet';
+          });
+        }
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: isDark ? Colors.white10 : Colors.grey.shade200,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isDark ? Colors.white12 : Colors.grey.shade300,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: isDark ? Colors.lightBlueAccent.shade100 : Colors.blue.shade700,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildScriptPathField() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1571,14 +1798,25 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         break;
 
       case '自定义JS':
-        if (_customJsController.text.isEmpty) return;
+        final jsCode = _customJsController.text.trim();
+        if (jsCode.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('请输入 JS 代码或选择 JS 文件'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+          return;
+        }
         if (_delayController.text.isNotEmpty) {
           params['执行延迟'] = _convertDelayToMilliseconds();
         }
         params['代码'] = _customJsController.text;
         params['js内容'] = _customJsController.text;
-        if (_jsFilePath != null) {
+        if (_jsFilePath != null && _jsFilePath!.isNotEmpty) {
           params['jsFilePath'] = _jsFilePath;
+        } else {
+          params.remove('jsFilePath');
         }
         break;
 
