@@ -281,31 +281,33 @@ class _BrowserHomePageState extends State<BrowserHomePage>
           appBar: AppBar(
             backgroundColor: Theme.of(context).appBarTheme.backgroundColor,
             elevation: 0,
-            toolbarHeight: 60, // Flatter toolbar
+            toolbarHeight: 48, // 紧凑型高屏占比工具栏
             titleSpacing:
                 0, // Remove default spacing to control layout manually
             title: Row(
               children: [
-                const SizedBox(width: 10), // Small left margin
+                const SizedBox(width: 8), // 紧凑型左侧间距
                 Expanded(
                   child: Container(
-                    height: 48,
-                    margin: const EdgeInsets.only(top: 6, bottom: 6),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    height: 36,
+                    margin: const EdgeInsets.symmetric(vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
                     decoration: BoxDecoration(
                       color: Colors.grey[700],
-                      borderRadius: BorderRadius.circular(4),
+                      borderRadius: BorderRadius.circular(6),
                       border: Border.all(
                         color: Colors.grey[600]!,
                         width: 1,
                       ),
                     ),
                     child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         // Bookmark button
                         IconButton(
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                              minWidth: 32, minHeight: 32),
                           icon: Icon(
                             browserProvider.currentTab != null &&
                                     browserProvider.isBookmarked(
@@ -317,7 +319,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                                         browserProvider.currentTab!.url)
                                 ? Colors.amber
                                 : Colors.white,
-                            size: 28,
+                            size: 20,
                           ),
                           onPressed: browserProvider.currentTab != null &&
                                   browserProvider.currentTab!.url !=
@@ -347,10 +349,10 @@ class _BrowserHomePageState extends State<BrowserHomePage>
 
                         // Vertical Divider
                         Container(
-                          height: 24,
+                          height: 18,
                           width: 1,
                           color: Colors.white38,
-                          margin: const EdgeInsets.symmetric(horizontal: 4),
+                          margin: const EdgeInsets.symmetric(horizontal: 2),
                         ),
 
                         // URL GestureDetector
@@ -462,7 +464,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                             child: Container(
                               color: Colors.transparent,
                               padding:
-                                  const EdgeInsets.symmetric(horizontal: 8),
+                                  const EdgeInsets.symmetric(horizontal: 6),
                               alignment: Alignment.centerLeft,
                               child: Text(
                                 (browserProvider.currentTab?.url ==
@@ -475,7 +477,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                                     ? 'Auok浏览器'
                                     : '${browserProvider.currentIndex + 1}. ${(browserProvider.currentTab?.title.isEmpty ?? true) ? '无标题' : browserProvider.currentTab!.title}',
                                 style: const TextStyle(
-                                    color: Colors.white, fontSize: 16),
+                                    color: Colors.white, fontSize: 14.5),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
@@ -484,8 +486,11 @@ class _BrowserHomePageState extends State<BrowserHomePage>
 
                         // Refresh button
                         IconButton(
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                              minWidth: 32, minHeight: 32),
                           icon: const Icon(Icons.refresh,
-                              color: Colors.white, size: 24),
+                              color: Colors.white, size: 20),
                           onPressed: () async {
                             if (scriptProvider.isRecording) {
                               scriptProvider.recordAction('刷新网页');
@@ -525,28 +530,33 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                   alignment: Alignment.center,
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.download_rounded, color: Colors.white, size: 24),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                          minWidth: 36, minHeight: 36),
+                      icon: const Icon(Icons.download_rounded,
+                          color: Colors.white, size: 21),
                       tooltip: '下载管理',
                       onPressed: () => DownloadManagerDialog.show(context),
                     ),
                     if (downloadProvider.activeCount > 0)
                       Positioned(
-                        top: 6,
-                        right: 6,
+                        top: 2,
+                        right: 2,
                         child: Container(
-                          padding: const EdgeInsets.all(4),
+                          padding: const EdgeInsets.all(3),
                           decoration: const BoxDecoration(
                             color: Colors.redAccent,
                             shape: BoxShape.circle,
                           ),
-                          constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                          constraints: const BoxConstraints(
+                              minWidth: 15, minHeight: 15),
                           child: Text(
                             downloadProvider.activeCount > 99
                                 ? '99+'
                                 : '${downloadProvider.activeCount}',
                             style: const TextStyle(
                               color: Colors.white,
-                              fontSize: 9,
+                              fontSize: 8.5,
                               fontWeight: FontWeight.bold,
                             ),
                             textAlign: TextAlign.center,
@@ -557,9 +567,11 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                 ),
                 // Menu button area
                 SizedBox(
-                  width: 48,
+                  width: 36,
                   child: PopupMenuButton<String>(
-                    icon: const Icon(Icons.more_vert, color: Colors.white),
+                    padding: EdgeInsets.zero,
+                    icon: const Icon(Icons.more_vert,
+                        color: Colors.white, size: 21),
                     onSelected: (value) {
                       if (value == 'downloads') {
                         DownloadManagerDialog.show(context);
@@ -702,6 +714,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                     ],
                   ),
                 ),
+                const SizedBox(width: 4),
               ],
             ),
             bottom: PreferredSize(
@@ -1163,7 +1176,11 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                 },
               ),
               IconButton(
-                icon: const Icon(Icons.tab, color: Colors.white),
+                icon: _buildTabCountIcon(
+                  count: browser.tabs.length,
+                  bgColor: Colors.grey[850] ?? const Color(0xFF303030),
+                ),
+                tooltip: '标签页 (${browser.tabs.length})',
                 onPressed: () {
                   _showTabsList(context, browser);
                 },
@@ -1202,13 +1219,71 @@ class _BrowserHomePageState extends State<BrowserHomePage>
     );
   }
 
+  /// 绘制带有当前标签数量的双层叠放标签图标（参考移动端多标签按钮设计）
+  Widget _buildTabCountIcon({required int count, required Color bgColor}) {
+    final displayText = count > 99 ? '99+' : '$count';
+    final fontSize = count > 99
+        ? 7.5
+        : (count >= 10 ? 9.0 : 10.5);
+
+    return SizedBox(
+      width: 22,
+      height: 22,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          // 后层标签框（偏左上）
+          Positioned(
+            left: 1,
+            top: 1,
+            child: Container(
+              width: 16,
+              height: 16,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.white, width: 1.6),
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+          ),
+          // 前层标签框（偏右下，带底栏背景色遮盖重叠边缘）
+          Positioned(
+            left: 4.5,
+            top: 4.5,
+            child: Container(
+              width: 16,
+              height: 16,
+              decoration: BoxDecoration(
+                color: bgColor,
+                border: Border.all(color: Colors.white, width: 1.6),
+                borderRadius: BorderRadius.circular(3),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                displayText,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: fontSize,
+                  fontWeight: FontWeight.bold,
+                  height: 1.0,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showTabsList(BuildContext context, BrowserProvider browser) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (bottomSheetContext) => Consumer<BrowserProvider>(
-        builder: (context, currentBrowser, child) => Container(
-          height: 400,
+      isScrollControlled: true,
+      builder: (bottomSheetContext) =>
+          Consumer2<BrowserProvider, ScriptProvider>(
+        builder: (context, currentBrowser, scriptProvider, child) => Container(
+          height: 420,
           decoration: const BoxDecoration(
             color: Color(0xFF222222),
             borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
@@ -1230,6 +1305,9 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                               ? tab.customName!
                               : (tab.title.isEmpty ? '无标题' : tab.title);
 
+                      final isExecuting = tab.isExecutingScript;
+                      final statusSummary = tab.executionStatusSummary;
+
                       return Container(
                         margin: const EdgeInsets.only(bottom: 8),
                         decoration: BoxDecoration(
@@ -1239,51 +1317,124 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                               ? Border.all(color: Colors.white, width: 1.5)
                               : null,
                         ),
-                        child: ListTile(
-                          contentPadding:
-                              const EdgeInsets.symmetric(horizontal: 12),
-                          title: Text(
-                            '${index + 1}. $displayTitle',
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 16),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          trailing: IconButton(
-                            icon: Icon(
-                              Icons.close,
-                              color: canClose
-                                  ? Colors.white70
-                                  : Colors.grey.shade600,
-                              size: 20,
-                            ),
-                            onPressed: () {
-                              if (!canClose) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('该标签页正在执行脚本，无法关闭'),
-                                    duration: Duration(seconds: 2),
-                                  ),
-                                );
-                                return;
-                              }
-
-                              if (currentBrowser.tabs.length <= 1) {
-                                currentBrowser.removeTab(index);
-                                Navigator.pop(context);
-                                _addNewTab();
-                              } else {
-                                currentBrowser.removeTab(index);
-                              }
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(8),
+                            onTap: () {
+                              currentBrowser.setCurrentIndex(index);
+                              Navigator.pop(context);
                             },
+                            onLongPress: () {
+                              _showEditTabDialog(context, currentBrowser, index);
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 10,
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  // 左侧信息展示区
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        // 正在执行脚本的标签右上角显示：全局延迟，全局循环次数，列表执行情况
+                                        if (isExecuting &&
+                                            statusSummary.isNotEmpty) ...[
+                                          Align(
+                                            alignment: Alignment.centerRight,
+                                            child: Padding(
+                                              padding: const EdgeInsets.only(
+                                                  bottom: 2),
+                                              child: Text(
+                                                statusSummary,
+                                                style: TextStyle(
+                                                  color: tab.isPaused
+                                                      ? Colors.amberAccent
+                                                      : Colors.white,
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.normal,
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                        // 序号与标题
+                                        Text(
+                                          '${index + 1}. $displayTitle',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.normal,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        // 正在执行脚本时展示该标签页的当前网址
+                                        if (isExecuting) ...[
+                                          const SizedBox(height: 3),
+                                          Text(
+                                            tab.url.isEmpty
+                                                ? 'about:blank'
+                                                : tab.url,
+                                            style: const TextStyle(
+                                              color: Colors.white54,
+                                              fontSize: 12,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  // 右侧关闭按钮（与截图完全一致的圆圈叉号）
+                                  GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () {
+                                      if (!canClose) {
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          const SnackBar(
+                                            content:
+                                                Text('该标签页正在执行脚本，无法关闭'),
+                                            duration: Duration(seconds: 2),
+                                          ),
+                                        );
+                                        return;
+                                      }
+
+                                      if (currentBrowser.tabs.length <= 1) {
+                                        currentBrowser.removeTab(index);
+                                        Navigator.pop(context);
+                                        _addNewTab();
+                                      } else {
+                                        currentBrowser.removeTab(index);
+                                      }
+                                    },
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(4.0),
+                                      child: Icon(
+                                        Icons.cancel,
+                                        color: canClose
+                                            ? Colors.white
+                                            : Colors.white60,
+                                        size: 22,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
-                          onTap: () {
-                            currentBrowser.setCurrentIndex(index);
-                            Navigator.pop(context);
-                          },
-                          onLongPress: () {
-                            _showEditTabDialog(context, currentBrowser, index);
-                          },
                         ),
                       );
                     },

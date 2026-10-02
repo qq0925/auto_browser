@@ -20,6 +20,7 @@ class BrowserProvider extends ChangeNotifier {
   bool _isScriptPanelExpanded = false; // Default to false (collapsed)
   String _searchEngine = 'Baidu'; // Default to Baidu
   String? _nightCssContent;
+  int _maxHistoryDays = 4; // 最大历史记录保存天数，默认4天，0为永久保存
 
   // Hardcoded fallback CSS for Night Mode (High Specificity)
   static const String _fallbackNightCss = '''
@@ -58,6 +59,7 @@ class BrowserProvider extends ChangeNotifier {
   bool get isScriptPanelExpanded => _isScriptPanelExpanded;
   String get searchEngine => _searchEngine;
   String? get nightCssContent => _nightCssContent;
+  int get maxHistoryDays => _maxHistoryDays;
 
   BrowserTab? get currentTab =>
       _tabs.isNotEmpty && _currentIndex >= 0 && _currentIndex < _tabs.length
@@ -366,6 +368,7 @@ class BrowserProvider extends ChangeNotifier {
           url: url,
           visitedAt: DateTime.now(),
         ));
+    _cleanExpiredHistory();
     notifyListeners();
     _saveBookmarksAndHistory();
   }
@@ -454,6 +457,7 @@ class BrowserProvider extends ChangeNotifier {
   Future<void> _loadBookmarksAndHistory() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      _maxHistoryDays = prefs.getInt('max_history_days') ?? 4;
       final bookmarksJson = prefs.getStringList('bookmarks') ?? [];
       final historyJson = prefs.getStringList('history') ?? [];
 
@@ -476,9 +480,34 @@ class BrowserProvider extends ChangeNotifier {
           visitedAt: DateTime.parse(data['visitedAt']),
         );
       }));
+      _cleanExpiredHistory();
       notifyListeners();
     } catch (e) {
       debugPrint('Load bookmarks and history error: $e');
+    }
+  }
+
+  /// 依据设置的最大保存天数清理过期历史记录（0 表示永久保存）
+  void _cleanExpiredHistory() {
+    if (_maxHistoryDays <= 0) return;
+    final now = DateTime.now();
+    _history.removeWhere((item) {
+      final diffDays = now.difference(item.visitedAt).inDays;
+      return diffDays >= _maxHistoryDays;
+    });
+  }
+
+  /// 设置最大历史记录保存天数并持久化
+  Future<void> setMaxHistoryDays(int days) async {
+    _maxHistoryDays = days;
+    _cleanExpiredHistory();
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('max_history_days', days);
+      await _saveBookmarksAndHistory();
+    } catch (e) {
+      debugPrint('Save max history days error: $e');
     }
   }
 

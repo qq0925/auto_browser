@@ -143,6 +143,48 @@ class BrowserSettingsDialog extends StatelessWidget {
                     );
                   },
                 ),
+                Divider(height: 32, color: dividerColor),
+                _buildSectionTitle('数据与历史', textColor),
+                const SizedBox(height: 8),
+                Consumer<BrowserProvider>(
+                  builder: (context, provider, child) {
+                    final days = provider.maxHistoryDays;
+                    final currentText = days == 0 ? '永久' : '$days天';
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        '最大历史记录保存天数',
+                        style: TextStyle(color: textColor, fontSize: 15),
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '当前:$currentText',
+                            style: TextStyle(
+                              color: isDarkMode ? Colors.white60 : Colors.black54,
+                              fontSize: 14,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Icon(
+                            Icons.chevron_right,
+                            size: 18,
+                            color: isDarkMode ? Colors.white54 : Colors.grey,
+                          ),
+                        ],
+                      ),
+                      onTap: () => _showHistoryDaysDialog(
+                        context,
+                        provider,
+                        isDarkMode,
+                        textColor,
+                        backgroundColor,
+                        dividerColor,
+                      ),
+                    );
+                  },
+                ),
                 const SizedBox(height: 24),
                 SizedBox(
                   width: double.infinity,
@@ -163,6 +205,102 @@ class BrowserSettingsDialog extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 弹出最大历史记录保存天数选择框
+  void _showHistoryDaysDialog(
+    BuildContext context,
+    BrowserProvider provider,
+    bool isDarkMode,
+    Color textColor,
+    Color backgroundColor,
+    Color dividerColor,
+  ) {
+    final options = [
+      {'label': '1天', 'value': 1},
+      {'label': '4天', 'value': 4},
+      {'label': '7天', 'value': 7},
+      {'label': '15天', 'value': 15},
+      {'label': '30天', 'value': 30},
+      {'label': '永久保存', 'value': 0},
+    ];
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: backgroundColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20.0, vertical: 4.0),
+                child: Text(
+                  '最大历史记录保存天数',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                    color: textColor,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Divider(height: 1, color: dividerColor),
+              ...options.map((option) {
+                final isSelected = provider.maxHistoryDays == option['value'];
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    InkWell(
+                      onTap: () {
+                        provider.setMaxHistoryDays(option['value'] as int);
+                        Navigator.pop(dialogContext);
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20.0,
+                          vertical: 14.0,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              option['label'] as String,
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: isSelected
+                                    ? textColor
+                                    : (isDarkMode
+                                        ? Colors.white60
+                                        : Colors.black54),
+                                fontWeight: isSelected
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                              ),
+                            ),
+                            if (isSelected)
+                              const Icon(
+                                Icons.check,
+                                color: Colors.blue,
+                                size: 20,
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    Divider(height: 1, color: dividerColor),
+                  ],
+                );
+              }),
+            ],
           ),
         ),
       ),

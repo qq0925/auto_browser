@@ -143,12 +143,19 @@ class ScriptProvider extends ChangeNotifier {
 
   void setExecutionDelay(int delay) {
     _executionDelay = delay;
+    if (_currentTab != null) {
+      _currentTab!.executionDelay = _executionDelay;
+      _currentTab!.delayTimeUnit = _delayTimeUnit.label;
+    }
     _saveScripts();
     notifyListeners();
   }
 
   void setDelayTimeUnit(TimeUnit unit) {
     _delayTimeUnit = unit;
+    if (_currentTab != null) {
+      _currentTab!.delayTimeUnit = unit.label;
+    }
     _saveScripts();
     notifyListeners();
   }
@@ -156,6 +163,10 @@ class ScriptProvider extends ChangeNotifier {
   void setLoopCount(int count) {
     _originalLoopCount = count;
     _remainingLoopCount = count;
+    if (_currentTab != null) {
+      _currentTab!.originalLoopCount = count;
+      _currentTab!.remainingLoopCount = count;
+    }
     _saveScripts();
     notifyListeners();
   }
@@ -452,6 +463,10 @@ class ScriptProvider extends ChangeNotifier {
     executingTab.successCount = 0;
     executingTab.failureCount = 0;
     executingTab.remainingLoopCount = _remainingLoopCount;
+    executingTab.originalLoopCount = _originalLoopCount;
+    executingTab.currentLoopIndex = 1;
+    executingTab.executionDelay = _executionDelay;
+    executingTab.delayTimeUnit = _delayTimeUnit.label;
 
     // Reset status and counts
     _successCount = 0;
@@ -565,6 +580,7 @@ class ScriptProvider extends ChangeNotifier {
                     scripts: List.from(executingTab.scripts),
                     currentScriptIndex: i,
                     remainingLoopCount: _remainingLoopCount,
+                    currentLoopIndex: executingTab.currentLoopIndex,
                     scriptFilePath: executingTab.scriptFilePath,
                   ));
 
@@ -625,6 +641,9 @@ class ScriptProvider extends ChangeNotifier {
         // Reset startScriptIndex for next loop iteration
         startScriptIndex = 0;
 
+        // 循环轮次递增
+        executingTab.currentLoopIndex++;
+
         // Only decrement if not in infinite loop mode (0 = infinite)
         if (executingTab.isExecutingScript && _originalLoopCount > 0) {
           _remainingLoopCount--;
@@ -640,6 +659,9 @@ class ScriptProvider extends ChangeNotifier {
         executingTab.scripts = state.scripts;
         _remainingLoopCount = state.remainingLoopCount;
         executingTab.remainingLoopCount = state.remainingLoopCount;
+        if (state.currentLoopIndex != null) {
+          executingTab.currentLoopIndex = state.currentLoopIndex!;
+        }
         executingTab.scriptFilePath = state.scriptFilePath;
 
         // Resume from next script

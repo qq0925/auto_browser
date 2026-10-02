@@ -225,7 +225,7 @@
     <header>
       <h1>Auok 脚本引擎基准测试套件</h1>
       <p>用于全面检验脚本录制与回放执行的完全匹配、多重筛选索引、表单输入、数值对比与事件仿真能力</p>
-      <span class="badge">引擎版本: v1.1.1+9 兼容基准</span>
+      <span class="badge">引擎版本: v1.1.2+10 兼容基准</span>
     </header>
 
     <div class="grid">
@@ -371,14 +371,14 @@
       <div class="card" style="border-color: rgba(16, 185, 129, 0.4);">
         <div class="card-title" style="color: #34d399;">⑦ 白鹭引擎 (Egret) Canvas 游戏虚拟点击测试专区</div>
         <div class="card-desc">
-          下方区域为单一 HTML5 &lt;canvas&gt; 画布，DOM 树上无任何文本节点。
-          测试 Auok 原生指令「点击文字: 商城」与「点击文字: 返回游戏」是否能自动穿透 Canvas 舞台并触发虚拟点击。
+          下方为独立 HTML5 &lt;canvas&gt; 画布，DOM 树上无目标文本。
+          测试 Auok 指令「点击文字: 商城」与「点击文字: 返回游戏」是否能穿透 Canvas 舞台触发虚拟点击。
         </div>
         <div style="display: flex; flex-direction: column; gap: 10px;">
           <canvas id="egret-game-canvas" width="360" height="80" style="background: #0f172a; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; width: 100%; max-width: 360px; height: 80px;"></canvas>
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <button class="btn btn-secondary" onclick="if (window.clickVirtual) window.clickVirtual('商城'); else logEvent('未就绪');">JS触发: clickVirtual('商城')</button>
-            <button class="btn btn-secondary" onclick="if (window.clickVirtual) window.clickVirtual('返回游戏'); else logEvent('未就绪');">JS触发: clickVirtual('返回游戏')</button>
+            <button class="btn btn-secondary" onclick="window.clickVirtual('商城')">JS触发 ①号虚拟按键</button>
+            <button class="btn btn-secondary" onclick="window.clickVirtual('返回游戏')">JS触发 ②号虚拟按键</button>
           </div>
         </div>
       </div>
@@ -422,13 +422,15 @@
       if (!canvas) return;
       const ctx = canvas.getContext('2d');
 
-      // 绘制游戏画布背景与虚拟按钮
+      let activeBtn = null;
+
+      // 绘制游戏画布背景与虚拟按钮（支持被按下时高亮闪烁）
       function drawScene() {
         ctx.fillStyle = '#0f172a';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         // 按钮 1: 商城
-        ctx.fillStyle = '#2563eb';
+        ctx.fillStyle = activeBtn === 'shop' ? '#38bdf8' : '#2563eb';
         ctx.beginPath();
         ctx.roundRect ? ctx.roundRect(20, 20, 130, 40, 6) : ctx.rect(20, 20, 130, 40);
         ctx.fill();
@@ -439,7 +441,7 @@
         ctx.fillText('🛒 商城', 85, 40);
 
         // 按钮 2: 返回游戏
-        ctx.fillStyle = '#059669';
+        ctx.fillStyle = activeBtn === 'back' ? '#34d399' : '#059669';
         ctx.beginPath();
         ctx.roundRect ? ctx.roundRect(190, 20, 140, 40, 6) : ctx.rect(190, 20, 140, 40);
         ctx.fill();
@@ -447,6 +449,15 @@
         ctx.fillText('🎮 返回游戏', 260, 40);
       }
       drawScene();
+
+      function flashButton(btnName) {
+        activeBtn = btnName;
+        drawScene();
+        setTimeout(function() {
+          activeBtn = null;
+          drawScene();
+        }, 220);
+      }
 
       // 构建模拟白鹭 Stage 与可交互节点树 (带父子继承容器与不同空格格式)
       const parentButton = {
@@ -469,6 +480,7 @@
         height: 40,
         localToGlobal: function(x, y) { return { x: 20 + x, y: 20 + y }; },
         dispatchEvent: function(e) {
+          flashButton('shop');
           logEvent('🎮 [白鹭Canvas] 触发游戏虚拟事件:【商城】(Type: ' + (e.type || 'touchTap') + ')');
           return true;
         }
@@ -485,15 +497,16 @@
         height: 40,
         localToGlobal: function(x, y) { return { x: 190 + x, y: 20 + y }; },
         dispatchEvent: function(e) {
+          flashButton('back');
           logEvent('🎮 [白鹭Canvas] 触发游戏虚拟事件:【返回游戏】(Type: ' + (e.type || 'touchTap') + ')');
           return true;
         }
       };
 
-      // 挂载到 canvas 上供探针查找 (仿真 stageWidth/stageHeight 逻辑分辨率)
-      canvas.stage = {
-        stageWidth: 800,
-        stageHeight: 200,
+      // 挂载白鹭 Stage 舞台对象 (360x80 真实像素等比)
+      const stage = {
+        stageWidth: 360,
+        stageHeight: 80,
         $hitTest: function(x, y) {
           if (x >= 20 && x <= 150 && y >= 20 && y <= 60) return nodeShop;
           if (x >= 190 && x <= 330 && y >= 20 && y <= 60) return nodeBack;
@@ -501,6 +514,39 @@
         },
         visible: true,
         $children: [nodeShop, nodeBack]
+      };
+
+      canvas.stage = stage;
+      canvas.setAttribute('data-entry-class', 'Main');
+
+      // 挂载全局环境供探针与外部脚本探测
+      window.stage = stage;
+      window.egret = window.egret || {
+        MainContext: {
+          instance: {
+            stage: stage
+          }
+        },
+        TouchEvent: {
+          TOUCH_TAP: 'touchTap'
+        }
+      };
+
+      // 挂载全局辅助测试函数
+      window.clickVirtual = function(keyword, exact) {
+        if (!keyword) return false;
+        logEvent('🚀 [JS测试] 触发虚拟节点:【' + keyword + '】');
+        const nodes = stage.$children || [];
+        for (let node of nodes) {
+          const text = (node.text || '').trim();
+          const match = exact ? (text === keyword.trim()) : (text.indexOf(keyword.trim()) !== -1);
+          if (match) {
+            node.dispatchEvent({ type: 'touchTap' });
+            return true;
+          }
+        }
+        logEvent('❌ 白鹭舞台上未找到包含【' + keyword + '】的虚拟节点');
+        return false;
       };
 
       // 真实白鹭移动端游戏典型行为：在 touchstart 处 preventDefault 压制后续 click
@@ -513,8 +559,8 @@
         const touch = e.changedTouches[0];
         if (!touch) return;
         const rect = canvas.getBoundingClientRect();
-        const scaleX = (canvas.stage.stageWidth) / rect.width;
-        const scaleY = (canvas.stage.stageHeight) / rect.height;
+        const scaleX = canvas.stage.stageWidth / rect.width;
+        const scaleY = canvas.stage.stageHeight / rect.height;
         const x = (touch.clientX - rect.left) * scaleX;
         const y = (touch.clientY - rect.top) * scaleY;
 
@@ -528,8 +574,8 @@
       // 同时也支持物理点击响应
       canvas.addEventListener('click', function(e) {
         const rect = canvas.getBoundingClientRect();
-        const scaleX = (canvas.stage.stageWidth) / rect.width;
-        const scaleY = (canvas.stage.stageHeight) / rect.height;
+        const scaleX = canvas.stage.stageWidth / rect.width;
+        const scaleY = canvas.stage.stageHeight / rect.height;
         const x = (e.clientX - rect.left) * scaleX;
         const y = (e.clientY - rect.top) * scaleY;
 
