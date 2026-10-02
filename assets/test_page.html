@@ -225,7 +225,7 @@
     <header>
       <h1>Auok 脚本引擎基准测试套件</h1>
       <p>用于全面检验脚本录制与回放执行的完全匹配、多重筛选索引、表单输入、数值对比与事件仿真能力</p>
-      <span class="badge">引擎版本: v1.1.0+8 兼容基准</span>
+      <span class="badge">引擎版本: v1.1.1+9 兼容基准</span>
     </header>
 
     <div class="grid">
@@ -448,7 +448,17 @@
       }
       drawScene();
 
-      // 构建模拟白鹭 Stage 与可交互节点树
+      // 构建模拟白鹭 Stage 与可交互节点树 (带父子继承容器与不同空格格式)
+      const parentButton = {
+        touchEnabled: true,
+        width: 140,
+        height: 40,
+        dispatchEvent: function(e) {
+          logEvent('🎮 [白鹭Canvas - Button父级] 接收到冒泡事件: (Type: ' + (e.type || 'touchTap') + ')');
+          return true;
+        }
+      };
+
       const nodeShop = {
         text: '商城',
         visible: true,
@@ -465,9 +475,10 @@
       };
 
       const nodeBack = {
-        text: '返回游戏',
+        text: ' 返回游戏 ', // 模拟带前后空格的游戏真实文本
         visible: true,
-        touchEnabled: true,
+        touchEnabled: false, // 模拟文本节点自身不可点击，依赖父级或冒泡
+        parent: parentButton,
         x: 190,
         y: 20,
         width: 140,
@@ -479,18 +490,46 @@
         }
       };
 
-      // 挂载到 canvas 上供探针查找
+      // 挂载到 canvas 上供探针查找 (仿真 stageWidth/stageHeight 逻辑分辨率)
       canvas.stage = {
-        $hitTest: true,
+        stageWidth: 800,
+        stageHeight: 200,
+        $hitTest: function(x, y) {
+          if (x >= 20 && x <= 150 && y >= 20 && y <= 60) return nodeShop;
+          if (x >= 190 && x <= 330 && y >= 20 && y <= 60) return nodeBack;
+          return null;
+        },
         visible: true,
         $children: [nodeShop, nodeBack]
       };
 
+      // 真实白鹭移动端游戏典型行为：在 touchstart 处 preventDefault 压制后续 click
+      canvas.addEventListener('touchstart', function(e) {
+        e.preventDefault();
+      }, { passive: false });
+
+      canvas.addEventListener('touchend', function(e) {
+        e.preventDefault();
+        const touch = e.changedTouches[0];
+        if (!touch) return;
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = (canvas.stage.stageWidth) / rect.width;
+        const scaleY = (canvas.stage.stageHeight) / rect.height;
+        const x = (touch.clientX - rect.left) * scaleX;
+        const y = (touch.clientY - rect.top) * scaleY;
+
+        if (x >= 20 && x <= 150 && y >= 20 && y <= 60) {
+          nodeShop.dispatchEvent({ type: 'touchTap' });
+        } else if (x >= 190 && x <= 330 && y >= 20 && y <= 60) {
+          nodeBack.dispatchEvent({ type: 'touchTap' });
+        }
+      }, { passive: false });
+
       // 同时也支持物理点击响应
       canvas.addEventListener('click', function(e) {
         const rect = canvas.getBoundingClientRect();
-        const scaleX = canvas.width / rect.width;
-        const scaleY = canvas.height / rect.height;
+        const scaleX = (canvas.stage.stageWidth) / rect.width;
+        const scaleY = (canvas.stage.stageHeight) / rect.height;
         const x = (e.clientX - rect.left) * scaleX;
         const y = (e.clientY - rect.top) * scaleY;
 

@@ -7,6 +7,7 @@ import 'dart:io';
 import '../models/browser_tab.dart';
 import '../providers/browser_provider.dart';
 import '../providers/script_provider.dart';
+import '../services/script_executor.dart';
 import 'download_confirm_dialog.dart';
 import '../utils/welcome_manager.dart';
 
@@ -47,6 +48,12 @@ class _BrowserViewState extends State<BrowserView> {
     if (scriptProvider.isRecording) {
       initialScripts.add(scriptProvider.recordingUserScript);
     }
+
+    // 白鹭引擎 (Egret) 与 Canvas 游戏自动化全局探针（常驻挂载 window.clickVirtual 与 window.scanEgretElements）
+    initialScripts.add(UserScript(
+      source: ScriptExecutor.egretCanvasProbeJs,
+      injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+    ));
 
     // 通用/桌面端浮窗广告安全拦截脚本（欢迎页与官方起始页严格加入白名单免拦截）
     if (browserProvider.isAdBlockEnabled) {
@@ -361,6 +368,10 @@ class _BrowserViewState extends State<BrowserView> {
                       }
                     }
                   }
+
+                  // 页面加载完成时补强注入白鹭引擎全局探针
+                  controller.evaluateJavascript(
+                      source: ScriptExecutor.egretCanvasProbeJs);
 
                   if (scriptProvider.isRecording &&
                       index == browserProvider.currentIndex) {

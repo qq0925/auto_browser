@@ -1319,7 +1319,11 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
             ),
             _buildSnippetChip(
               '🎮 游戏虚拟点击',
-              '// 触发白鹭 Canvas 游戏虚拟点击\nif (window.clickVirtual) {\n  window.clickVirtual("商城");\n}',
+              '// 触发白鹭 Canvas 游戏虚拟点击 (自动模糊匹配并返回执行结果)\nreturn window.clickVirtual("商城");',
+            ),
+            _buildSnippetChip(
+              '👇 游戏触屏下滑',
+              '// 模拟手指在白鹭 Canvas 游戏内向下划动 (400像素)\nawait window.swipeVirtual("向下", 400);',
             ),
             _buildSnippetChip(
               '⏱️ 异步延时',

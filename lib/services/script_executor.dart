@@ -191,7 +191,8 @@ class ScriptExecutor {
         return await _executeIntervalScript(
             controller!, script, onStatusChanged);
       case "自定义JS":
-        return await _executeCustomJs(controller!, script);
+        return await _executeCustomJs(controller!, script,
+            onStatusChanged: onStatusChanged);
       case "进入网址":
         return await _executeNavigate(controller!, script);
       case "点击图片":
@@ -502,8 +503,8 @@ class ScriptExecutor {
   ''';
 
   /// 白鹭引擎 (Egret) 与 Canvas 游戏舞台智能探测 JS 脚本
-  /// 支持穿透 HTML5 Canvas 画布，通过 Stage 舞台树遍历可交互节点，
-  /// 并支持引擎级 touchTap 事件直接派发与 Canvas 屏幕物理触控合成双通道触发
+  /// 支持穿透 HTML5 Canvas 画布及同源 iframe，通过 Stage 舞台树遍历可交互节点，
+  /// 并支持引擎级 touchTap 事件祖先链冒泡分发与 Canvas 屏幕物理触控合成双通道触发
   static const String _egretCanvasProbeJs = r'''
     function _auokFindEgretStage(rootObj, depth) {
       if (!rootObj || depth > 3) return null;
@@ -524,37 +525,54 @@ class ScriptExecutor {
 
     function _auokGetEgretContext() {
       try {
-        const canvases = Array.from(document.querySelectorAll('canvas'));
-        if (canvases.length === 0) return null;
-
-        let stage = null;
-        let targetCanvas = null;
-
-        for (const c of canvases) {
-          stage = _auokFindEgretStage(c, 0);
-          if (stage) {
-            targetCanvas = c;
-            break;
+        function checkDoc(doc, win) {
+          if (!doc) return null;
+          const canvases = Array.from(doc.querySelectorAll('canvas'));
+          for (const c of canvases) {
+            let stage = _auokFindEgretStage(c, 0);
+            if (stage) return { stage: stage, canvas: c, window: win };
           }
-        }
-
-        if (!stage) {
-          const player = document.querySelector('.egret-player');
-          if (player) {
-            stage = _auokFindEgretStage(player, 0);
-            if (stage) targetCanvas = canvases[0];
+          const players = Array.from(doc.querySelectorAll('.egret-player, [data-entry-class]'));
+          for (const p of players) {
+            let stage = _auokFindEgretStage(p, 0);
+            if (stage) {
+              const c = p.querySelector('canvas') || canvases[0];
+              if (c) return { stage: stage, canvas: c, window: win };
+            }
           }
+          if (win) {
+            let stage = null;
+            if (win.stage) stage = _auokFindEgretStage(win.stage, 0);
+            if (!stage && win.egret) {
+              if (win.egret.MainContext && win.egret.MainContext.instance && win.egret.MainContext.instance.stage) {
+                stage = win.egret.MainContext.instance.stage;
+              } else if (win.egret.lifecycle && win.egret.lifecycle.stage) {
+                stage = win.egret.lifecycle.stage;
+              } else {
+                stage = _auokFindEgretStage(win.egret, 0);
+              }
+            }
+            if (!stage && win.player) stage = _auokFindEgretStage(win.player, 0);
+            if (stage && canvases.length > 0) {
+              return { stage: stage, canvas: canvases[0], window: win };
+            }
+          }
+          return null;
         }
 
-        if (!stage && typeof window !== 'undefined') {
-          if (window.stage) stage = _auokFindEgretStage(window.stage, 0);
-          if (!stage && window.egret) stage = _auokFindEgretStage(window.egret, 0);
-          if (!stage && window.player) stage = _auokFindEgretStage(window.player, 0);
-          if (stage) targetCanvas = canvases[0];
-        }
+        let ctx = checkDoc(document, typeof window !== 'undefined' ? window : null);
+        if (ctx) return ctx;
 
-        if (stage && targetCanvas) {
-          return { stage: stage, canvas: targetCanvas };
+        const iframes = Array.from(document.querySelectorAll('iframe'));
+        for (const iframe of iframes) {
+          try {
+            const idoc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document);
+            const iwin = iframe.contentWindow;
+            if (idoc) {
+              ctx = checkDoc(idoc, iwin);
+              if (ctx) return ctx;
+            }
+          } catch(_) {}
         }
       } catch(e) {
         console.warn('[Auok] Get Egret context error:', e);
@@ -569,15 +587,29 @@ class ScriptExecutor {
       function traverse(node) {
         if (!node || node.visible === false) return;
 
-        let text = node.text || (node.labelDisplay && node.labelDisplay.text) || node.label || node.prompt;
-        if (typeof text === 'string' && text.trim() !== '') {
-          const isClickable = Boolean(
-            node.touchEnabled ||
-            (node.$EventDispatcher && node.$EventDispatcher.$events && node.$EventDispatcher.$events['touchTap']) ||
-            (typeof node.hasEventListener === 'function' && node.hasEventListener('touchTap'))
-          );
+        let rawText = node.text || (node.labelDisplay && node.labelDisplay.text) || node.label || node.title || node.prompt;
+        if (typeof rawText === 'string') {
+          const cleanText = rawText.trim();
+          if (cleanText !== '') {
+            let isClickable = Boolean(
+              node.touchEnabled ||
+              (node.$EventDispatcher && node.$EventDispatcher.$events && node.$EventDispatcher.$events['touchTap']) ||
+              (typeof node.hasEventListener === 'function' && node.hasEventListener('touchTap'))
+            );
 
-          if (isClickable) {
+            let p = node.parent;
+            let climb = 0;
+            while (p && climb < 4) {
+              if (p.touchEnabled ||
+                  (p.$EventDispatcher && p.$EventDispatcher.$events && p.$EventDispatcher.$events['touchTap']) ||
+                  (typeof p.hasEventListener === 'function' && p.hasEventListener('touchTap'))) {
+                isClickable = true;
+                break;
+              }
+              p = p.parent;
+              climb++;
+            }
+
             let gx = Math.round(node.x || 0);
             let gy = Math.round(node.y || 0);
             if (typeof node.localToGlobal === 'function') {
@@ -591,12 +623,14 @@ class ScriptExecutor {
             }
 
             items.push({
-              text: text.trim(),
+              text: cleanText,
+              rawText: rawText,
               target: node,
               globalX: gx,
               globalY: gy,
-              width: node.width || 0,
-              height: node.height || 0
+              width: node.width || (p && p.width) || 60,
+              height: node.height || (p && p.height) || 30,
+              isClickable: isClickable
             });
           }
         }
@@ -612,38 +646,176 @@ class ScriptExecutor {
       return items;
     }
 
-    function _auokTriggerEgretClick(canvas, foundItem) {
-      if (!canvas || !foundItem || !foundItem.target) return false;
+    function _auokScrollNodeIntoView(node, stage) {
+      if (!node) return false;
+      try {
+        let curr = node.parent;
+        let scrolled = false;
+        while (curr && curr !== stage) {
+          // 检查 eui.Scroller 容器
+          if (curr.viewport && typeof curr.viewport.scrollV !== 'undefined') {
+            const vp = curr.viewport;
+            const vpH = vp.height || 300;
+            const maxV = Math.max(0, (vp.contentHeight || 9999) - vpH);
+            const targetV = Math.max(0, Math.min(maxV, node.y - vpH / 2));
+            vp.scrollV = targetV;
+            if (typeof curr.stopAnimation === 'function') curr.stopAnimation();
+            scrolled = true;
+            break;
+          }
+          // 检查 egret.ScrollView 容器
+          if (typeof curr.scrollTop !== 'undefined' && typeof curr.setScrollTop === 'function') {
+            curr.setScrollTop(Math.max(0, node.y - 100));
+            scrolled = true;
+            break;
+          }
+          curr = curr.parent;
+        }
+        return scrolled;
+      } catch(_) {
+        return false;
+      }
+    }
+
+    function _auokSimulateCanvasSwipe(canvas, direction, distance, durationMs) {
+      return new Promise(function(resolve) {
+        if (!canvas) return resolve(false);
+        try {
+          const rect = canvas.getBoundingClientRect();
+          const startX = rect.left + rect.width / 2;
+          const dist = distance || Math.round(rect.height * 0.65);
+          let startY = 0;
+          let endY = 0;
+
+          // 真实触屏手势：向下看更多内容（即页面向下滚），手势是从下往上推（Swipe Up）
+          if (direction === '向下' || direction === 'down') {
+            startY = rect.top + Math.min(rect.height * 0.78, rect.height - 30);
+            endY = Math.max(rect.top + 30, startY - dist);
+          } else if (direction === '向上' || direction === 'up') {
+            startY = rect.top + Math.max(rect.height * 0.22, 30);
+            endY = Math.min(rect.bottom - 30, startY + dist);
+          } else if (direction === '到底') {
+            startY = rect.top + rect.height * 0.85;
+            endY = rect.top + 30;
+          } else if (direction === '到顶') {
+            startY = rect.top + 30;
+            endY = rect.top + rect.height * 0.85;
+          } else {
+            startY = rect.top + Math.min(rect.height * 0.78, rect.height - 30);
+            endY = Math.max(rect.top + 30, startY - dist);
+          }
+
+          const steps = 14;
+          const stepDuration = Math.max(8, Math.floor((durationMs || 300) / steps));
+          const touchId = Date.now();
+
+          function makeTouch(y) {
+            return new Touch({
+              identifier: touchId,
+              target: canvas,
+              clientX: startX,
+              clientY: y,
+              pageX: startX,
+              pageY: y
+            });
+          }
+
+          const startTouch = makeTouch(startY);
+          canvas.dispatchEvent(new TouchEvent('touchstart', {
+            touches: [startTouch],
+            targetTouches: [startTouch],
+            changedTouches: [startTouch],
+            bubbles: true,
+            cancelable: true
+          }));
+          canvas.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: startX, clientY: startY }));
+
+          let currentStep = 0;
+          const timer = setInterval(function() {
+            currentStep++;
+            const p = currentStep / steps;
+            const ease = 1 - Math.pow(1 - p, 2);
+            const currY = startY + (endY - startY) * ease;
+
+            const moveTouch = makeTouch(currY);
+            canvas.dispatchEvent(new TouchEvent('touchmove', {
+              touches: [moveTouch],
+              targetTouches: [moveTouch],
+              changedTouches: [moveTouch],
+              bubbles: true,
+              cancelable: true
+            }));
+            canvas.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: startX, clientY: currY }));
+
+            if (currentStep >= steps) {
+              clearInterval(timer);
+              const endTouch = makeTouch(endY);
+              canvas.dispatchEvent(new TouchEvent('touchend', {
+                touches: [],
+                targetTouches: [],
+                changedTouches: [endTouch],
+                bubbles: true,
+                cancelable: true
+              }));
+              canvas.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: startX, clientY: endY }));
+              resolve(true);
+            }
+          }, stepDuration);
+        } catch(err) {
+          console.warn('[Auok] Canvas swipe error:', err);
+          resolve(false);
+        }
+      });
+    }
+
+    function _auokTriggerEgretClick(ctx, foundItem) {
+      if (!ctx || !ctx.canvas || !foundItem || !foundItem.target) return false;
+      const canvas = ctx.canvas;
+      const stage = ctx.stage;
+      const win = ctx.window || window;
+      const doc = canvas.ownerDocument || document;
       const targetNode = foundItem.target;
 
-      // 视觉光圈高亮投射到 canvas 屏幕区域
-      try {
-        const rect = canvas.getBoundingClientRect();
-        const scaleX = rect.width / (canvas.width || rect.width);
-        const scaleY = rect.height / (canvas.height || rect.height);
-        const clientX = rect.left + foundItem.globalX * scaleX;
-        const clientY = rect.top + foundItem.globalY * scaleY;
-        const w = Math.max(30, (foundItem.width || 40) * scaleX);
-        const h = Math.max(20, (foundItem.height || 30) * scaleY);
+      // 智能检测：若目标位于舞台或可视视口之外，自动将其滚入视野中央
+      const isOutOfScreen = (foundItem.globalY < 0 || foundItem.globalY > (stage.stageHeight || 2000));
+      if (isOutOfScreen) {
+        _auokScrollNodeIntoView(targetNode, stage);
+      }
 
-        const ring = document.createElement('div');
+      const rect = canvas.getBoundingClientRect();
+      const stageW = (stage && stage.stageWidth) ? stage.stageWidth : (canvas.width || rect.width);
+      const stageH = (stage && stage.stageHeight) ? stage.stageHeight : (canvas.height || rect.height);
+      const scaleX = rect.width / stageW;
+      const scaleY = rect.height / stageH;
+
+      const itemW = foundItem.width || 40;
+      const itemH = foundItem.height || 25;
+      const clientX = rect.left + (foundItem.globalX + itemW / 2) * scaleX;
+      const clientY = rect.top + (foundItem.globalY + itemH / 2) * scaleY;
+
+      try {
+        const ring = doc.createElement('div');
         ring.className = '_auok_tap_indicator';
-        ring.style.cssText = 'position:fixed;left:' + clientX + 'px;top:' + clientY + 'px;width:' + w + 'px;height:' + h + 'px;border-radius:6px;box-shadow:0 0 0 3px #10b981, 0 0 16px rgba(16,185,129,0.7);background:rgba(16,185,129,0.25);pointer-events:none;z-index:2147483647;transition:all 0.28s ease-out;';
-        document.documentElement.appendChild(ring);
-        setTimeout(function() {
+        const ringW = Math.max(32, itemW * scaleX);
+        const ringH = Math.max(22, itemH * scaleY);
+        const ringLeft = rect.left + foundItem.globalX * scaleX;
+        const ringTop = rect.top + foundItem.globalY * scaleY;
+        ring.style.cssText = 'position:fixed;left:' + ringLeft + 'px;top:' + ringTop + 'px;width:' + ringW + 'px;height:' + ringH + 'px;border-radius:6px;box-shadow:0 0 0 3px #10b981, 0 0 16px rgba(16,185,129,0.7);background:rgba(16,185,129,0.25);pointer-events:none;z-index:2147483647;transition:all 0.28s ease-out;';
+        doc.documentElement.appendChild(ring);
+        win.setTimeout(function() {
           ring.style.transform = 'scale(1.15)';
           ring.style.opacity = '0';
-          setTimeout(function() { if (ring.parentNode) ring.parentNode.removeChild(ring); }, 300);
+          win.setTimeout(function() { if (ring.parentNode) ring.parentNode.removeChild(ring); }, 300);
         }, 220);
       } catch(_) {}
 
       let success = false;
 
-      // 通道 A：引擎级 touchTap 事件直接派发
+      // 通道 A：引擎级 touchTap 事件直接派发 + 沿着 parent 链向上逐级冒泡分发
       try {
         let event = null;
-        if (typeof window !== 'undefined' && window.egret && window.egret.TouchEvent) {
-          event = new window.egret.TouchEvent(window.egret.TouchEvent.TOUCH_TAP, true, true);
+        if (typeof win !== 'undefined' && win.egret && win.egret.TouchEvent) {
+          event = new win.egret.TouchEvent(win.egret.TouchEvent.TOUCH_TAP, true, true);
         } else {
           event = {
             type: 'touchTap',
@@ -654,51 +826,65 @@ class ScriptExecutor {
             $isDefaultPrevented: false
           };
         }
-        if (typeof targetNode.dispatchEvent === 'function') {
-          targetNode.dispatchEvent(event);
-          success = true;
+
+        let curr = targetNode;
+        while (curr) {
+          try {
+            if (typeof curr.dispatchEvent === 'function') {
+              curr.dispatchEvent(event);
+              success = true;
+            }
+          } catch(_) {}
+          if (curr === stage || curr.$stage) break;
+          curr = curr.parent;
         }
+
+        try {
+          if (stage && typeof stage.$hitTest === 'function') {
+            const hitTarget = stage.$hitTest(foundItem.globalX + itemW / 2, foundItem.globalY + itemH / 2);
+            if (hitTarget && hitTarget !== targetNode && typeof hitTarget.dispatchEvent === 'function') {
+              hitTarget.dispatchEvent(event);
+              success = true;
+            }
+          }
+        } catch(_) {}
       } catch (_) {}
 
-      // 通道 B & C：Canvas 屏幕物理触控与鼠标事件合成
+      // 通道 B & C：Canvas 屏幕物理触控与指针事件全合成
       try {
-        const rect = canvas.getBoundingClientRect();
-        const scaleX = rect.width / (canvas.width || rect.width);
-        const scaleY = rect.height / (canvas.height || rect.height);
-        const offsetX = foundItem.width ? (foundItem.width / 2) : 20;
-        const offsetY = foundItem.height ? (foundItem.height / 2) : 10;
-        const clientX = rect.left + (foundItem.globalX + offsetX) * scaleX;
-        const clientY = rect.top + (foundItem.globalY + offsetY) * scaleY;
-
         if (typeof Touch !== 'undefined' && typeof TouchEvent !== 'undefined') {
           const touchObj = new Touch({
             identifier: Date.now(),
             target: canvas,
             clientX: clientX,
             clientY: clientY,
-            pageX: clientX,
-            pageY: clientY
+            pageX: clientX + (win.pageXOffset || 0),
+            pageY: clientY + (win.pageYOffset || 0)
           });
           canvas.dispatchEvent(new TouchEvent('touchstart', {
             touches: [touchObj],
             targetTouches: [touchObj],
             changedTouches: [touchObj],
-            bubbles: true
+            bubbles: true,
+            cancelable: true
           }));
-          setTimeout(() => {
+          win.setTimeout(() => {
             canvas.dispatchEvent(new TouchEvent('touchend', {
               touches: [],
               targetTouches: [],
               changedTouches: [touchObj],
-              bubbles: true
+              bubbles: true,
+              cancelable: true
             }));
-          }, 50);
+          }, 40);
         }
 
-        const mouseOpts = { bubbles: true, cancelable: true, clientX: clientX, clientY: clientY, view: window };
-        canvas.dispatchEvent(new MouseEvent('mousedown', mouseOpts));
-        canvas.dispatchEvent(new MouseEvent('mouseup', mouseOpts));
-        canvas.dispatchEvent(new MouseEvent('click', mouseOpts));
+        const opts = { bubbles: true, cancelable: true, clientX: clientX, clientY: clientY, view: win };
+        try { canvas.dispatchEvent(new PointerEvent('pointerdown', opts)); } catch(_) {}
+        try { canvas.dispatchEvent(new MouseEvent('mousedown', opts)); } catch(_) {}
+        try { canvas.dispatchEvent(new PointerEvent('pointerup', opts)); } catch(_) {}
+        try { canvas.dispatchEvent(new MouseEvent('mouseup', opts)); } catch(_) {}
+        try { canvas.dispatchEvent(new MouseEvent('click', opts)); } catch(_) {}
         success = true;
       } catch(_) {}
 
@@ -711,16 +897,51 @@ class ScriptExecutor {
         const ctx = _auokGetEgretContext();
         return ctx ? _auokScanEgretNodes(ctx.stage) : [];
       };
+
+      window.swipeVirtual = function(direction, distance) {
+        const ctx = _auokGetEgretContext();
+        if (ctx && ctx.canvas) {
+          return _auokSimulateCanvasSwipe(ctx.canvas, direction || '向下', distance || 450, 320);
+        }
+        return Promise.resolve(false);
+      };
+      window.scrollEgret = window.swipeVirtual;
+
       window.clickVirtual = function(keyword, exact) {
         const ctx = _auokGetEgretContext();
-        if (!ctx) return false;
+        if (!ctx) {
+          console.warn('[Auok] 未探测到白鹭引擎 (Egret) 舞台');
+          return false;
+        }
         const nodes = _auokScanEgretNodes(ctx.stage);
-        const match = nodes.find(n => exact ? n.text === keyword : n.text.includes(keyword));
-        if (!match) return false;
-        return _auokTriggerEgretClick(ctx.canvas, match);
+        if (!nodes || nodes.length === 0) return false;
+
+        function normalize(s) { return (s || '').replace(/\s+/g, ''); }
+        const targetClean = normalize(keyword);
+
+        let match = nodes.find(n => {
+          const itemClean = normalize(n.text);
+          return itemClean === targetClean;
+        });
+
+        if (!match && !exact) {
+          match = nodes.find(n => {
+            const itemClean = normalize(n.text);
+            return itemClean.includes(targetClean) || n.text.includes(keyword);
+          });
+        }
+
+        if (!match) {
+          console.warn('[Auok] 白鹭舞台内未找到包含文字的目标:', keyword);
+          return false;
+        }
+        return _auokTriggerEgretClick(ctx, match);
       };
     }
   ''';
+
+  /// 公开白鹭引擎与 Canvas 游戏智能探测 JS 脚本，供 WebView 初始化常驻挂载
+  static const String egretCanvasProbeJs = _egretCanvasProbeJs;
 
   Future<bool> _executeClickScript(
       InAppWebViewController controller, Script script) async {
@@ -874,25 +1095,56 @@ class ScriptExecutor {
   }
 
   Future<bool> _executeCustomJs(
-      InAppWebViewController controller, Script script) async {
+      InAppWebViewController controller, Script script,
+      {Function(ScriptStatus status, String? message, double? progress)?
+          onStatusChanged}) async {
     final jsContent = script.params['js内容'] ?? script.params['代码'] ?? '';
-    if (jsContent.isEmpty) return true; // Empty script considered success
+    if (jsContent.isEmpty) return true; // 空脚本视为成功
 
     try {
-      // Wrap in try-catch block to prevent crashing
-      final result = await controller.evaluateJavascript(source: '''
-        (function() {
+      final jsWrapper = '''
+        (async function() {
           try {
-            $jsContent
-            return true;
-          } catch (e) {
-            console.error('Custom JS execution error:', e);
-            return false;
+            $_egretCanvasProbeJs
+
+            // 执行用户自定义 JS，支持同步与 await 异步 Promise
+            const __auok_exec_result = await (async function() {
+              $jsContent
+            })();
+
+            // 若用户显式返回 false，则认定为未达成目标 (如未找到游戏内目标元素)
+            if (__auok_exec_result === false) {
+              return JSON.stringify({ ok: false, message: '脚本执行结果为 false (如未找到目标虚拟元素)' });
+            }
+            return JSON.stringify({ ok: true, result: String(__auok_exec_result !== undefined ? __auok_exec_result : '执行成功') });
+          } catch (err) {
+            console.error('Custom JS execution error:', err);
+            return JSON.stringify({ ok: false, error: err ? (err.stack || err.message || String(err)) : '执行异常' });
           }
         })();
-      ''');
+      ''';
+
+      final result = await controller.evaluateJavascript(source: jsWrapper);
+      if (result != null) {
+        try {
+          final decoded = jsonDecode(result.toString());
+          if (decoded is Map) {
+            final isOk = decoded['ok'] == true;
+            if (isOk) {
+              final info = decoded['result']?.toString() ?? '执行成功';
+              onStatusChanged?.call(ScriptStatus.success, 'JS执行完成: $info', null);
+              return true;
+            } else {
+              final errMsg = decoded['error']?.toString() ?? decoded['message']?.toString() ?? '执行失败';
+              onStatusChanged?.call(ScriptStatus.failure, 'JS执行未成功: $errMsg', null);
+              return false;
+            }
+          }
+        } catch (_) {}
+      }
       return result.toString() == 'true';
     } catch (e) {
+      onStatusChanged?.call(ScriptStatus.failure, 'JS调用异常: $e', null);
       return false;
     }
   }
@@ -916,32 +1168,49 @@ class ScriptExecutor {
         const egretNodes = _auokScanEgretNodes(ctx.stage);
         if (!egretNodes || egretNodes.length === 0) return false;
 
-        const matchedEgret = egretNodes.filter(item => {
-          const exactMatch = $exactMatch;
+        function normalize(s) {
+          return (s || '').replace(/\\s+/g, '');
+        }
+
+        // 阶段一：去空格全等匹配
+        let matchedEgret = egretNodes.filter(item => {
+          const itemClean = normalize(item.text);
           return clickTexts.some(cText => {
-            if (exactMatch) {
-              return item.text === cText;
-            } else {
-              return item.text.includes(cText);
-            }
+            const targetClean = normalize(cText);
+            return itemClean === targetClean;
           });
         });
 
+        // 阶段二：若全等未中，自动回退到模糊包含匹配（无论是否勾选完全匹配，确保游戏按钮不因多空格/换行失败）
+        if (matchedEgret.length === 0) {
+          matchedEgret = egretNodes.filter(item => {
+            const itemClean = normalize(item.text);
+            return clickTexts.some(cText => {
+              const targetClean = normalize(cText);
+              return itemClean.includes(targetClean) || item.text.includes(cText);
+            });
+          });
+        }
+
         if (matchedEgret.length === 0) return false;
+
+        // 优先可交互/带监听器或按钮容器的节点
+        const clickables = matchedEgret.filter(item => item.isClickable);
+        const candidatePool = clickables.length > 0 ? clickables : matchedEgret;
 
         const selectionIndex = $selectionIndex;
         let targetIndex = 0;
         if (selectionIndex === 0) {
-          targetIndex = Math.floor(Math.random() * matchedEgret.length);
+          targetIndex = Math.floor(Math.random() * candidatePool.length);
         } else if (selectionIndex > 0) {
-          targetIndex = Math.min(selectionIndex - 1, matchedEgret.length - 1);
+          targetIndex = Math.min(selectionIndex - 1, candidatePool.length - 1);
         } else {
-          targetIndex = Math.max(0, matchedEgret.length + selectionIndex);
+          targetIndex = Math.max(0, candidatePool.length + selectionIndex);
         }
 
-        const found = matchedEgret[targetIndex];
+        const found = candidatePool[targetIndex];
         if (found) {
-          return _auokTriggerEgretClick(ctx.canvas, found);
+          return _auokTriggerEgretClick(ctx, found);
         }
         return false;
       }
@@ -1756,30 +2025,57 @@ class ScriptExecutor {
     final params = script.params;
     final direction = params['方向'] as String? ?? '向下';
     final distance = params['距离'] as int? ?? 500;
+    final directionJson = jsonEncode(direction);
 
-    String jsCode = '';
-    switch (direction) {
-      case '向上':
-        jsCode = 'window.scrollBy(0, -$distance);';
-        break;
-      case '向下':
-        jsCode = 'window.scrollBy(0, $distance);';
-        break;
-      case '到顶':
-        jsCode = 'window.scrollTo(0, 0);';
-        break;
-      case '到底':
-        jsCode = 'window.scrollTo(0, document.body.scrollHeight);';
-        break;
-      default:
-        jsCode = 'window.scrollBy(0, $distance);';
-    }
+    // 智能双模滚动：同时兼容常规 DOM 网页与白鹭引擎/Canvas 游戏
+    final jsCode = '''
+      (async function() {
+        $_egretCanvasProbeJs
+        let scrolled = false;
+
+        // 1. 若探测到白鹭 Canvas 游戏，执行真实 Canvas 多帧连续触摸手势滑动
+        const ctx = _auokGetEgretContext();
+        if (ctx && ctx.canvas) {
+          try {
+            await _auokSimulateCanvasSwipe(ctx.canvas, $directionJson, $distance, 350);
+            scrolled = true;
+          } catch(_) {}
+        }
+
+        // 2. 同时执行常规网页窗口 DOM 级滚动
+        try {
+          const dir = $directionJson;
+          const dist = $distance;
+          switch (dir) {
+            case '向上':
+              window.scrollBy({ top: -dist, behavior: 'smooth' });
+              break;
+            case '向下':
+              window.scrollBy({ top: dist, behavior: 'smooth' });
+              break;
+            case '到顶':
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+              break;
+            case '到底':
+              window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+              break;
+            default:
+              window.scrollBy({ top: dist, behavior: 'smooth' });
+          }
+          scrolled = true;
+        } catch(_) {}
+
+        return scrolled;
+      })();
+    ''';
 
     try {
-      await controller.evaluateJavascript(source: jsCode);
-      return true;
+      final result = await controller.evaluateJavascript(source: jsCode);
+      onStatusChanged?.call(ScriptStatus.success, '已执行滑动: $direction ($distance px)', null);
+      return result.toString() == 'true';
     } catch (e) {
       debugPrint('Scroll error: $e');
+      onStatusChanged?.call(ScriptStatus.failure, '滑动页面异常: $e', null);
       return false;
     }
   }

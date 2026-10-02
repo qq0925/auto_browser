@@ -947,12 +947,12 @@ class ScriptProvider extends ChangeNotifier {
         }
       }, true);
 
-      // 3. 白鹭引擎 (Egret) Canvas 游戏虚拟点击捕获机制 (捕获阶段拦截)
+      // 3. 白鹭引擎 (Egret) Canvas 游戏虚拟点击捕获机制 (捕获阶段深度拦截)
       var lastCanvasRecordTime = 0;
       function tryRecordEgretCanvas(target, clientX, clientY) {
-        if (!target || target.tagName !== 'CANVAS') return false;
+        if (!target) return false;
         var now = Date.now();
-        if (now - lastCanvasRecordTime < 450) return true; // 450ms防抖去重
+        if (now - lastCanvasRecordTime < 400) return true; // 400ms防抖去重
 
         try {
           function findEgretStage(obj, depth) {
@@ -970,34 +970,102 @@ class ScriptProvider extends ChangeNotifier {
             return null;
           }
 
-          var stage = findEgretStage(target, 0);
-          if (!stage) {
-            var player = document.querySelector('.egret-player');
-            if (player) stage = findEgretStage(player, 0);
-          }
-          if (!stage && typeof window !== 'undefined') {
-            if (window.stage) stage = findEgretStage(window.stage, 0);
-            if (!stage && window.egret) stage = findEgretStage(window.egret, 0);
-            if (!stage && window.player) stage = findEgretStage(window.player, 0);
+          function getEgretContext(initialTarget) {
+            var targetCanvas = initialTarget && initialTarget.tagName === 'CANVAS' ? initialTarget : null;
+            var stage = targetCanvas ? findEgretStage(targetCanvas, 0) : null;
+
+            if (!stage) {
+              var canvases = Array.from(document.querySelectorAll('canvas'));
+              for (var i = 0; i < canvases.length; i++) {
+                stage = findEgretStage(canvases[i], 0);
+                if (stage) { targetCanvas = canvases[i]; break; }
+              }
+            }
+
+            if (!stage) {
+              var player = document.querySelector('.egret-player, [data-entry-class]');
+              if (player) {
+                stage = findEgretStage(player, 0);
+                if (stage) targetCanvas = player.querySelector('canvas') || document.querySelector('canvas');
+              }
+            }
+
+            if (!stage && typeof window !== 'undefined') {
+              if (window.stage) stage = findEgretStage(window.stage, 0);
+              if (!stage && window.egret) {
+                if (window.egret.MainContext && window.egret.MainContext.instance && window.egret.MainContext.instance.stage) {
+                  stage = window.egret.MainContext.instance.stage;
+                } else if (window.egret.lifecycle && window.egret.lifecycle.stage) {
+                  stage = window.egret.lifecycle.stage;
+                } else {
+                  stage = findEgretStage(window.egret, 0);
+                }
+              }
+              if (!stage && window.player) stage = findEgretStage(window.player, 0);
+              if (stage && !targetCanvas) targetCanvas = document.querySelector('canvas');
+            }
+
+            if (!stage) {
+              var iframes = Array.from(document.querySelectorAll('iframe'));
+              for (var f = 0; f < iframes.length; f++) {
+                try {
+                  var idoc = iframes[f].contentDocument || (iframes[f].contentWindow && iframes[f].contentWindow.document);
+                  var iwin = iframes[f].contentWindow;
+                  if (idoc) {
+                    var icanvases = Array.from(idoc.querySelectorAll('canvas'));
+                    for (var c = 0; c < icanvases.length; c++) {
+                      stage = findEgretStage(icanvases[c], 0);
+                      if (stage) { targetCanvas = icanvases[c]; break; }
+                    }
+                    if (stage) break;
+                  }
+                } catch(_) {}
+              }
+            }
+
+            return (stage && targetCanvas) ? { stage: stage, canvas: targetCanvas } : null;
           }
 
-          if (stage) {
-            var rect = target.getBoundingClientRect();
-            var scaleX = (target.width || rect.width) / rect.width;
-            var scaleY = (target.height || rect.height) / rect.height;
-            var stageX = (clientX - rect.left) * scaleX;
-            var stageY = (clientY - rect.top) * scaleY;
+          var ctx = getEgretContext(target);
+          if (!ctx) return false;
 
-            var egretItems = [];
-            function traverse(node) {
-              if (!node || node.visible === false) return;
-              var text = node.text || (node.labelDisplay && node.labelDisplay.text) || node.label || node.prompt;
-              if (typeof text === 'string' && text.trim() !== '') {
+          var stage = ctx.stage;
+          var canvas = ctx.canvas;
+          var rect = canvas.getBoundingClientRect();
+
+          // 核心换算：基于白鹭舞台逻辑分辨率精确折算物理触控点
+          var stageW = (stage && stage.stageWidth) ? stage.stageWidth : (canvas.width || rect.width);
+          var stageH = (stage && stage.stageHeight) ? stage.stageHeight : (canvas.height || rect.height);
+          var scaleX = stageW / (rect.width || 1);
+          var scaleY = stageH / (rect.height || 1);
+          var stageX = (clientX - rect.left) * scaleX;
+          var stageY = (clientY - rect.top) * scaleY;
+
+          var egretItems = [];
+          function traverse(node) {
+            if (!node || node.visible === false) return;
+            var rawText = node.text || (node.labelDisplay && node.labelDisplay.text) || node.label || node.title || node.prompt;
+            if (typeof rawText === 'string') {
+              var cleanText = rawText.trim();
+              if (cleanText !== '') {
                 var isClickable = Boolean(
                   node.touchEnabled ||
                   (node.$EventDispatcher && node.$EventDispatcher.$events && node.$EventDispatcher.$events['touchTap']) ||
                   (typeof node.hasEventListener === 'function' && node.hasEventListener('touchTap'))
                 );
+
+                var p = node.parent;
+                var climb = 0;
+                while (p && climb < 4) {
+                  if (p.touchEnabled ||
+                      (p.$EventDispatcher && p.$EventDispatcher.$events && p.$EventDispatcher.$events['touchTap']) ||
+                      (typeof p.hasEventListener === 'function' && p.hasEventListener('touchTap'))) {
+                    isClickable = true;
+                    break;
+                  }
+                  p = p.parent;
+                  climb++;
+                }
 
                 var gx = Math.round(node.x || 0);
                 var gy = Math.round(node.y || 0);
@@ -1012,62 +1080,82 @@ class ScriptProvider extends ChangeNotifier {
                 }
 
                 egretItems.push({
-                  text: text.trim(),
+                  text: cleanText,
+                  rawText: rawText,
                   target: node,
                   x: gx,
                   y: gy,
-                  w: node.width || 60,
-                  h: node.height || 30,
+                  w: node.width || (p && p.width) || 60,
+                  h: node.height || (p && p.height) || 30,
                   isClickable: isClickable
                 });
               }
-
-              if (node.$children && node.$children.length > 0) {
-                for (var i = 0; i < node.$children.length; i++) traverse(node.$children[i]);
-              } else if (node.numChildren && node.getChildAt) {
-                for (var i = 0; i < node.numChildren; i++) traverse(node.getChildAt(i));
-              }
             }
 
-            traverse(stage);
+            if (node.$children && node.$children.length > 0) {
+              for (var i = 0; i < node.$children.length; i++) traverse(node.$children[i]);
+            } else if (node.numChildren && node.getChildAt) {
+              for (var i = 0; i < node.numChildren; i++) traverse(node.getChildAt(i));
+            }
+          }
 
-            var hitCandidate = null;
-            var minDistance = 999999;
+          traverse(stage);
 
-            for (var i = 0; i < egretItems.length; i++) {
-              var item = egretItems[i];
-              var inside = (stageX >= item.x - 10 && stageX <= item.x + item.w + 10 &&
-                            stageY >= item.y - 10 && stageY <= item.y + item.h + 10);
-              var centerX = item.x + item.w / 2;
-              var centerY = item.y + item.h / 2;
-              var dist = Math.hypot(stageX - centerX, stageY - centerY);
+          var hitCandidate = null;
+          var minDistance = 999999;
 
-              if (inside) {
-                if (!hitCandidate || (item.isClickable && !hitCandidate.isClickable) || (dist < minDistance)) {
-                  hitCandidate = item;
-                  minDistance = dist;
-                }
-              } else if (!hitCandidate && dist < 50 && dist < minDistance) {
+          for (var i = 0; i < egretItems.length; i++) {
+            var item = egretItems[i];
+            var padding = 20; // 宽裕容错区，确保点在按钮附近也能准确识别
+            var inside = (stageX >= item.x - padding && stageX <= item.x + item.w + padding &&
+                          stageY >= item.y - padding && stageY <= item.y + item.h + padding);
+            var centerX = item.x + item.w / 2;
+            var centerY = item.y + item.h / 2;
+            var dist = Math.hypot(stageX - centerX, stageY - centerY);
+
+            if (inside) {
+              if (!hitCandidate || (item.isClickable && !hitCandidate.isClickable) || (dist < minDistance)) {
                 hitCandidate = item;
                 minDistance = dist;
               }
+            } else if (!hitCandidate && dist < 65 && dist < minDistance) {
+              hitCandidate = item;
+              minDistance = dist;
             }
+          }
 
-            if (hitCandidate) {
-              lastCanvasRecordTime = now;
-              var candidateText = hitCandidate.text;
-              var sameTextItems = egretItems.filter(function(it) { return it.text === candidateText; });
-              var itemIdx = sameTextItems.indexOf(hitCandidate);
-              var idx = itemIdx !== -1 ? itemIdx + 1 : 1;
-              var total = sameTextItems.length;
+          if (hitCandidate) {
+            lastCanvasRecordTime = now;
+            var candidateText = hitCandidate.text;
 
-              postMessage('点击文字|' + JSON.stringify({
-                text: candidateText,
-                index: idx,
-                total: total
-              }));
-              return true;
-            }
+            // 录制成功视觉动效反馈
+            try {
+              var ring = document.createElement('div');
+              ring.className = '_auok_tap_indicator';
+              var ringW = Math.max(32, hitCandidate.w * (rect.width / stageW));
+              var ringH = Math.max(22, hitCandidate.h * (rect.height / stageH));
+              var ringLeft = rect.left + hitCandidate.x * (rect.width / stageW);
+              var ringTop = rect.top + hitCandidate.y * (rect.height / stageH);
+              ring.style.cssText = 'position:fixed;left:' + ringLeft + 'px;top:' + ringTop + 'px;width:' + ringW + 'px;height:' + ringH + 'px;border-radius:6px;box-shadow:0 0 0 3px #10b981, 0 0 16px rgba(16,185,129,0.7);background:rgba(16,185,129,0.25);pointer-events:none;z-index:2147483647;transition:all 0.28s ease-out;';
+              document.documentElement.appendChild(ring);
+              setTimeout(function() {
+                ring.style.transform = 'scale(1.15)';
+                ring.style.opacity = '0';
+                setTimeout(function() { if (ring.parentNode) ring.parentNode.removeChild(ring); }, 300);
+              }, 220);
+            } catch(_) {}
+
+            var sameTextItems = egretItems.filter(function(it) { return it.text === candidateText; });
+            var itemIdx = sameTextItems.indexOf(hitCandidate);
+            var idx = itemIdx !== -1 ? itemIdx + 1 : 1;
+            var total = sameTextItems.length;
+
+            postMessage('点击文字|' + JSON.stringify({
+              text: candidateText,
+              index: idx,
+              total: total
+            }));
+            return true;
           }
         } catch(err) {
           console.warn('[Auok] Egret canvas recording error:', err);
@@ -1075,14 +1163,46 @@ class ScriptProvider extends ChangeNotifier {
         return false;
       }
 
-      // 捕获 PointerUp 优先应对移动端游戏阻止 click 事件
-      document.addEventListener('pointerup', function(e) {
-        if (e.target && e.target.tagName === 'CANVAS') {
-          tryRecordEgretCanvas(e.target, e.clientX, e.clientY);
+      // 4. 多重事件深度捕获 (针对白鹭移动端 touchstart 被 preventDefault 场景进行兜底拦截)
+      function extractCanvasFromEvent(e) {
+        if (e.target && e.target.tagName === 'CANVAS') return e.target;
+        if (e.composedPath) {
+          var path = e.composedPath();
+          for (var i = 0; i < path.length; i++) {
+            if (path[i] && path[i].tagName === 'CANVAS') return path[i];
+          }
+        }
+        return null;
+      }
+
+      // 捕获阶段监听 touchstart / touchend (关键修复：移动端白鹭引擎调用了 preventDefault，click事件不会发生)
+      document.addEventListener('touchend', function(e) {
+        var touch = (e.changedTouches && e.changedTouches[0]) || (e.touches && e.touches[0]);
+        if (!touch) return;
+        var canvas = extractCanvasFromEvent(e);
+        if (canvas) {
+          tryRecordEgretCanvas(canvas, touch.clientX, touch.clientY);
         }
       }, true);
 
-      // 4. Capture Clicks
+      document.addEventListener('touchstart', function(e) {
+        var touch = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]);
+        if (!touch) return;
+        var canvas = extractCanvasFromEvent(e);
+        if (canvas) {
+          tryRecordEgretCanvas(canvas, touch.clientX, touch.clientY);
+        }
+      }, true);
+
+      // 捕获 PointerUp
+      document.addEventListener('pointerup', function(e) {
+        var canvas = extractCanvasFromEvent(e);
+        if (canvas) {
+          tryRecordEgretCanvas(canvas, e.clientX, e.clientY);
+        }
+      }, true);
+
+      // 5. Capture Clicks
       document.addEventListener('click', function(e) {
         let target = e.target;
         
@@ -1094,8 +1214,9 @@ class ScriptProvider extends ChangeNotifier {
         if (!target) return;
 
         // 优先拦截 Canvas 游戏虚拟点击
-        if (target.tagName === 'CANVAS') {
-          if (tryRecordEgretCanvas(target, e.clientX, e.clientY)) {
+        var canvas = extractCanvasFromEvent(e);
+        if (canvas) {
+          if (tryRecordEgretCanvas(canvas, e.clientX, e.clientY)) {
             return;
           }
         }

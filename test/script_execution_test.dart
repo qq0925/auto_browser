@@ -134,6 +134,17 @@ void main() {
       expect(js.contains('_tryEgretFallback'), true);
       expect(js.contains('window.clickVirtual'), true);
       expect(js.contains('window.scanEgretElements'), true);
+      expect(js.contains('stage.stageWidth'), true);
+      expect(js.contains('curr.parent'), true);
+    });
+
+    test('全局暴露白鹭探针供 WebView 初始化注入', () {
+      expect(ScriptExecutor.egretCanvasProbeJs.contains('window.clickVirtual'), true);
+      expect(ScriptExecutor.egretCanvasProbeJs.contains('window.scanEgretElements'), true);
+      expect(ScriptExecutor.egretCanvasProbeJs.contains('window.swipeVirtual'), true);
+      expect(ScriptExecutor.egretCanvasProbeJs.contains('_auokSimulateCanvasSwipe'), true);
+      expect(ScriptExecutor.egretCanvasProbeJs.contains('_auokScrollNodeIntoView'), true);
+      expect(ScriptExecutor.egretCanvasProbeJs.contains('_auokTriggerEgretClick'), true);
     });
   });
 }

@@ -122,6 +122,10 @@ void main() {
       expect(ScriptProvider.recordingJs.contains('tryRecordEgretCanvas'), true);
       expect(ScriptProvider.recordingJs.contains('findEgretStage'), true);
       expect(ScriptProvider.recordingJs.contains('pointerup'), true);
+      expect(ScriptProvider.recordingJs.contains('touchend'), true);
+      expect(ScriptProvider.recordingJs.contains('touchstart'), true);
+      expect(ScriptProvider.recordingJs.contains('extractCanvasFromEvent'), true);
+      expect(ScriptProvider.recordingJs.contains('stageW'), true);
       expect(ScriptProvider.recordingJs.contains('localToGlobal'), true);
 
       // 模拟接收从 Canvas 游戏录制派发的点击文字消息
