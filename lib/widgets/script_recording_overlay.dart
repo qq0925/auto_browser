@@ -40,7 +40,9 @@ class ScriptRecordingOverlay extends StatelessWidget {
                     ),
                     const SizedBox(width: 8),
                     GestureDetector(
+                      behavior: HitTestBehavior.opaque,
                       onTap: () {
+                        provider.cancelLastRecordingIfRecent();
                         provider.stopRecording();
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('录制已结束')),
@@ -175,23 +177,29 @@ class _RecordedActionNotificationState
   Widget build(BuildContext context) {
     return SlideTransition(
       position: _offsetAnimation,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.blue.withValues(alpha: 0.8),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.check_circle, color: Colors.white, size: 16),
-            const SizedBox(width: 8),
-            Text(
-              '已录制: $_currentAction',
-              style: const TextStyle(color: Colors.white, fontSize: 12),
-            ),
-          ],
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          // 吸收点击事件，防止误触底层 WebView
+        },
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.blue.withValues(alpha: 0.8),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.check_circle, color: Colors.white, size: 16),
+              const SizedBox(width: 8),
+              Text(
+                '已录制: $_currentAction',
+                style: const TextStyle(color: Colors.white, fontSize: 12),
+              ),
+            ],
+          ),
         ),
       ),
     );

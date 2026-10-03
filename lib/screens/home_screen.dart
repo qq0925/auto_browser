@@ -30,6 +30,7 @@ import '../widgets/browser_settings_dialog.dart';
 import '../widgets/script_recording_overlay.dart';
 import '../widgets/cookie_manager_dialog.dart';
 import '../widgets/floating_capsule.dart';
+import '../widgets/splash_screen_view.dart';
 import '../utils/welcome_manager.dart';
 
 class BrowserHomePage extends StatefulWidget {
@@ -90,6 +91,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
 
   Future<void> _startAppInitFlow() async {
     final browserProvider = context.read<BrowserProvider>();
+    final stopwatch = Stopwatch()..start();
 
     // 并发启动：1. 网络获取最新欢迎页（留出网络连接和权限弹窗时间）；2. Provider 初始化
     final waitWelcome = WelcomeManager.getWelcomeContent(
@@ -103,8 +105,11 @@ class _BrowserHomePageState extends State<BrowserHomePage>
     }
 
     await waitWelcome;
-    // 稍微等待 300ms 保证 WebView 首次渲染就绪
-    await Future.delayed(const Duration(milliseconds: 300));
+    // 保证动效至少呈现 1100ms（入场动效周期），避免一闪而过的生硬感
+    final elapsed = stopwatch.elapsedMilliseconds;
+    if (elapsed < 1100) {
+      await Future.delayed(Duration(milliseconds: 1100 - elapsed));
+    }
 
     if (mounted) {
       setState(() {
@@ -769,7 +774,10 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                   children: [
                     // 脚本面板切换按钮
                     GestureDetector(
+                      behavior: HitTestBehavior.opaque,
                       onTap: () {
+                        // 切换侧边栏时暂时屏蔽并撤销可能被穿透捕获的录制动作
+                        scriptProvider.cancelLastRecordingIfRecent();
                         browserProvider.toggleScriptPanel();
                       },
                       child: Container(
@@ -806,6 +814,8 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                       width: panelWidth,
                       decoration: const BoxDecoration(
                         color: Colors.transparent,
+                        borderRadius:
+                            BorderRadius.horizontal(left: Radius.circular(12)),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black26,
@@ -874,14 +884,14 @@ class _BrowserHomePageState extends State<BrowserHomePage>
       ),
     ),
 
-    // 开屏启动 Loading 层（等待网络就绪并平滑淡出）
+    // 开屏启动 Loading 层（等待网络与初始化就绪并平滑淡出）
     AnimatedOpacity(
       opacity: _isAppStarting ? 1.0 : 0.0,
-      duration: const Duration(milliseconds: 350),
-      curve: Curves.easeOut,
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.easeInOutCubic,
       child: IgnorePointer(
         ignoring: !_isAppStarting,
-        child: _buildSplashScreen(),
+        child: SplashScreenView(isStarting: _isAppStarting),
       ),
     ),
   ],
@@ -889,142 +899,6 @@ class _BrowserHomePageState extends State<BrowserHomePage>
   },
 );
 }
-
-  Widget _buildSplashScreen() {
-    return Container(
-      width: double.infinity,
-      height: double.infinity,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Color(0xFF0F172A), // 深邃星夜蓝
-            Color(0xFF090D16),
-            Color(0xFF05070B),
-          ],
-        ),
-      ),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          // 顶部轻量极光光晕背景
-          Positioned(
-            top: -100,
-            child: Container(
-              width: 320,
-              height: 320,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.blueAccent.withValues(alpha: 0.12),
-              ),
-            ),
-          ),
-
-          // 中心品牌与微动效
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // 应用 Logo（带双层外发光环与高质感圆角）
-              Container(
-                width: 92,
-                height: 92,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(24),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF2563EB).withValues(alpha: 0.35),
-                      blurRadius: 32,
-                      spreadRadius: 2,
-                      offset: const Offset(0, 8),
-                    ),
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.6),
-                      blurRadius: 16,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.15),
-                    width: 1.2,
-                  ),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(23),
-                  child: Image.asset(
-                    'assets/app_icon.png',
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => Container(
-                      color: const Color(0xFF1E293B),
-                      child: const Icon(
-                        Icons.rocket_launch_rounded,
-                        size: 42,
-                        color: Colors.blueAccent,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 28),
-
-              // 品牌主标题
-              const Text(
-                'Auok',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 28,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 2.5,
-                ),
-              ),
-              const SizedBox(height: 6),
-
-              // 品牌副标（现代科技感排版）
-              Text(
-                '智能自动化极速浏览器',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.55),
-                  fontSize: 12,
-                  letterSpacing: 1.8,
-                  fontWeight: FontWeight.w400,
-                ),
-              ),
-              const SizedBox(height: 36),
-
-              // 极简微光流线加载条（替代生硬转圈圈）
-              SizedBox(
-                width: 60,
-                height: 3,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(2),
-                  child: LinearProgressIndicator(
-                    backgroundColor: Colors.white.withValues(alpha: 0.08),
-                    valueColor: const AlwaysStoppedAnimation<Color>(
-                      Color(0xFF38BDF8), // 现代霓虹天蓝
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-
-          // 底部极简版本署名
-          Positioned(
-            bottom: 36,
-            child: Text(
-              'FAST · AUTOMATED · PRIVACY',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.25),
-                fontSize: 10,
-                letterSpacing: 2.0,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildBottomBar(
       BuildContext context,

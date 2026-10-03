@@ -35,76 +35,78 @@ class RightScriptPanel extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.62), // 半透明暗黑背景，清晰透视底层网页内容，方便查看与复制
-        border: const Border(
-          left: BorderSide(color: Colors.white24, width: 0.8),
-        ),
+        borderRadius: const BorderRadius.horizontal(left: Radius.circular(12)),
+        border: Border.all(color: Colors.white24, width: 0.8),
       ),
-      child: Column(
-        children: [
+      child: ClipRRect(
+        borderRadius: const BorderRadius.horizontal(left: Radius.circular(11.5)),
+        child: Column(
+          children: [
           // --- Top Section: Global Settings ---
           InkWell(
             onTap: onGlobalSettings,
             child: Container(
-              padding: const EdgeInsets.all(12),
-              child: Row(
+              height: 44,
+              padding: const EdgeInsets.fromLTRB(4, 4, 6, 4),
+              child: Stack(
                 children: [
-                  // Left: Global Settings Title
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.white24),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: const Text(
-                      '全局',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
+                  // 嵌在最左上角: 全局（纯文本无框，紧贴左上角）
+                  Align(
+                    alignment: Alignment.topLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 6, top: 4),
+                      child: const Text(
+                        '全局',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  // Right: Settings Details
-                  Expanded(
+                  // 中间居中: 执行延迟 / 循环次数 (内部左对齐，上下成列完美对齐)
+                  Center(
                     child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             const Text(
-                              '执行速度: ',
+                              '执行延迟: ',
                               style: TextStyle(
                                 color: Colors.white70,
-                                fontSize: 11,
+                                fontSize: 10.5,
                               ),
                             ),
                             Text(
                               '${scriptProvider.executionDelay ~/ scriptProvider.delayTimeUnit.multiplier}${scriptProvider.delayTimeUnit.label}',
                               style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 11,
+                                fontSize: 10.5,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 2),
                         Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             const Text(
                               '循环次数: ',
                               style: TextStyle(
                                 color: Colors.white70,
-                                fontSize: 11,
+                                fontSize: 10.5,
                               ),
                             ),
                             Text(
                               '${scriptProvider.originalLoopCount}',
                               style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 11,
+                                fontSize: 10.5,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
@@ -118,8 +120,50 @@ class RightScriptPanel extends StatelessWidget {
             ),
           ),
 
-          // Divider 1 (White) - Separates Top and Middle
-          Container(height: 1, color: Colors.white),
+          // 分割线：全局与中间内容分隔
+          const Divider(height: 1, color: Colors.white24),
+
+          // --- 脚本文件名展示条 (当脚本已载入或已保存为文件时展示) ---
+          if (scriptProvider.currentScriptFilePath != null &&
+              scriptProvider.currentScriptFilePath!.isNotEmpty) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 10),
+              color: Colors.white.withValues(alpha: 0.08),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.description_outlined,
+                    size: 14,
+                    color: Colors.amberAccent,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      path.basename(scriptProvider.currentScriptFilePath!),
+                      style: const TextStyle(
+                        color: Colors.amberAccent,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '${scriptProvider.scripts.length}',
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1, color: Colors.white12),
+          ],
 
           // --- Middle Section: Script List & Management ---
           Expanded(
@@ -129,15 +173,20 @@ class RightScriptPanel extends StatelessWidget {
                 Container(
                   width: double.infinity,
                   padding:
-                      const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                  color: Colors.white.withValues(alpha: 0.05),
-                  child: Text(
-                    '脚本列表 (${scriptProvider.scripts.length})',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
+                      const EdgeInsets.symmetric(vertical: 7, horizontal: 12),
+                  color: Colors.white.withValues(alpha: 0.04),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        '脚本列表 (${scriptProvider.scripts.length})',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
 
@@ -195,7 +244,8 @@ class RightScriptPanel extends StatelessWidget {
           ),
         ],
       ),
-    );
+    ),
+  );
   }
 
   Widget _buildEmptyState(ScriptProvider scriptProvider) {
@@ -238,11 +288,302 @@ class RightScriptPanel extends StatelessWidget {
     );
   }
 
+  /// 提取脚本的结构化属性键值对（参考原版设计，丰富展现复杂脚本详细信息）
+  List<MapEntry<String, String>> _extractScriptDetails(Script script) {
+    final List<MapEntry<String, String>> list = [];
+    final params = script.params;
+    final handledKeys = <String>{'脚本类型'};
+
+    // 1. 脚本类型永远排在第一行
+    list.add(MapEntry('脚本类型', script.type));
+
+    // 2. 根据脚本类型或具体参数填充详细字段
+    switch (script.type) {
+      case '新建窗口并执行脚本':
+        final boundScript = params['绑定脚本'] ?? params['脚本集'] ?? script.targetScriptPath;
+        if (boundScript != null && boundScript.toString().isNotEmpty) {
+          list.add(MapEntry('绑定脚本', path.basename(boundScript.toString())));
+          handledKeys.addAll(['绑定脚本', '脚本集']);
+        }
+        if (params['窗口名称'] != null && params['窗口名称'].toString().isNotEmpty) {
+          list.add(MapEntry('窗口名称', params['窗口名称'].toString()));
+          handledKeys.add('窗口名称');
+        }
+        if (params['窗口UA'] != null && params['窗口UA'].toString().isNotEmpty) {
+          list.add(MapEntry('窗口UA', params['窗口UA'].toString()));
+          handledKeys.add('窗口UA');
+        }
+        final url = params['进入网址'] ?? params['网址'];
+        if (url != null && url.toString().isNotEmpty) {
+          list.add(MapEntry('进入网址', url.toString()));
+          handledKeys.addAll(['进入网址', '网址']);
+        }
+        if (params.containsKey('立即执行')) {
+          final execNow = params['立即执行'];
+          list.add(MapEntry('立即执行', (execNow == true || execNow == '是') ? '是' : '否'));
+          handledKeys.add('立即执行');
+        }
+        break;
+
+      case '新建标签页并执行脚本':
+        final url = params['进入网址'] ?? params['网址'];
+        if (url != null && url.toString().isNotEmpty) {
+          list.add(MapEntry('进入网址', url.toString()));
+          handledKeys.addAll(['进入网址', '网址']);
+        }
+        break;
+
+      case '点击文字':
+        final clickText = params['点击文本'] ?? params['文本'];
+        if (clickText != null && clickText.toString().isNotEmpty) {
+          list.add(MapEntry('点击文本', clickText.toString()));
+          handledKeys.addAll(['点击文本', '文本']);
+        }
+        if (params['多个筛选'] != null) {
+          final filter = params['多个筛选'];
+          String filterStr = '第1个';
+          if (filter == 0) {
+            filterStr = '随机';
+          } else if (filter is num && filter < 0) {
+            filterStr = '倒数第${-filter}个';
+          } else if (filter != null) {
+            filterStr = '第$filter个';
+          }
+          list.add(MapEntry('多个筛选', filterStr));
+          handledKeys.add('多个筛选');
+        }
+        final after = params['在...之后搜索'] ?? params['在此之后'];
+        if (after != null && after.toString().isNotEmpty) {
+          list.add(MapEntry('在后搜索', after.toString()));
+          handledKeys.addAll(['在...之后搜索', '在此之后']);
+        }
+        final before = params['在...之前搜索'] ?? params['在此之前'];
+        if (before != null && before.toString().isNotEmpty) {
+          list.add(MapEntry('在前搜索', before.toString()));
+          handledKeys.addAll(['在...之前搜索', '在此之前']);
+        }
+        if (params['完全匹配'] == true) {
+          list.add(const MapEntry('完全匹配', '是'));
+          handledKeys.add('完全匹配');
+        }
+        break;
+
+      case '点击图片':
+        final img = params['图片特征'] ?? params['图片关键词/地址'] ?? params['点击文本'];
+        if (img != null && img.toString().isNotEmpty) {
+          list.add(MapEntry('图片特征', img.toString()));
+          handledKeys.addAll(['图片特征', '图片关键词/地址', '点击文本']);
+        }
+        if (params['多个筛选'] != null) {
+          final filter = params['多个筛选'];
+          String filterStr = '第1个';
+          if (filter == 0) {
+            filterStr = '随机';
+          } else if (filter is num && filter < 0) {
+            filterStr = '倒数第${-filter}个';
+          } else if (filter != null) {
+            filterStr = '第$filter个';
+          }
+          list.add(MapEntry('多个筛选', filterStr));
+          handledKeys.add('多个筛选');
+        }
+        break;
+
+      case '输入框提交':
+        final btnText = params['提交按钮文字'] ?? params['提交按钮'];
+        if (btnText != null && btnText.toString().isNotEmpty) {
+          list.add(MapEntry('提交按钮', btnText.toString()));
+          handledKeys.addAll(['提交按钮文字', '提交按钮']);
+        }
+        final formData = params['表单数据'];
+        if (formData is Map && formData.isNotEmpty) {
+          final summary = formData.entries.map((e) => '${e.key}: ${e.value}').join(', ');
+          list.add(MapEntry('表单数据', summary));
+          handledKeys.add('表单数据');
+        }
+        if (params['启用正则'] == true) {
+          list.add(const MapEntry('正则匹配', '是'));
+          handledKeys.add('启用正则');
+        }
+        break;
+
+      case '进入网址':
+        final url = params['进入网址'] ?? params['网址'];
+        if (url != null && url.toString().isNotEmpty) {
+          list.add(MapEntry('进入网址', url.toString()));
+          handledKeys.addAll(['进入网址', '网址']);
+        }
+        break;
+
+      case '自定义JS':
+        final jsPath = params['jsFilePath']?.toString();
+        if (jsPath != null && jsPath.isNotEmpty) {
+          list.add(MapEntry('关联文件', path.basename(jsPath)));
+          handledKeys.add('jsFilePath');
+        } else {
+          final code = (params['代码'] ?? params['js内容'] ?? '').toString().trim();
+          if (code.isNotEmpty) {
+            final firstLine = code.split('\n').first.trim();
+            list.add(MapEntry('代码内容', firstLine.length > 30 ? '${firstLine.substring(0, 30)}...' : firstLine));
+          }
+        }
+        handledKeys.addAll(['代码', 'js内容']);
+        break;
+
+      case '间隔时间':
+        final h = params['时间间隔-小时'] ?? 0;
+        final m = params['时间间隔-分钟'] ?? 0;
+        final s = params['时间间隔-秒'] ?? 0;
+        list.add(MapEntry('等待时间', '$h时$m分$s秒'));
+        handledKeys.addAll(['时间间隔-小时', '时间间隔-分钟', '时间间隔-秒']);
+        final target = params['间隔时间后执行脚本'] ?? script.targetScriptPath;
+        if (target != null && target.toString().isNotEmpty) {
+          list.add(MapEntry('后续执行', path.basename(target.toString())));
+          handledKeys.add('间隔时间后执行脚本');
+        }
+        break;
+
+      case '跳转脚本':
+        final targetIdx = params['跳转的脚本序号'] ?? params['跳转至序号'] ?? params['跳转标签'];
+        if (targetIdx != null && targetIdx.toString().isNotEmpty) {
+          list.add(MapEntry('跳转序号', targetIdx.toString()));
+          handledKeys.addAll(['跳转的脚本序号', '跳转至序号', '跳转标签']);
+        }
+        break;
+
+      case '延时脚本':
+        final delay = params['延时时间'] ?? params['执行延迟'];
+        if (delay != null) {
+          list.add(MapEntry('延时时长', '${delay}ms'));
+          handledKeys.addAll(['延时时间', '执行延迟']);
+        }
+        break;
+
+      case '逻辑脚本-出现文字':
+        final txt = params['出现文字'] ?? params['检测文字'];
+        if (txt != null && txt.toString().isNotEmpty) {
+          list.add(MapEntry('出现文字', txt.toString()));
+          handledKeys.addAll(['出现文字', '检测文字']);
+        }
+        final truePath = params['出现时执行'] ?? params['满足执行'];
+        if (truePath != null && truePath.toString().isNotEmpty) {
+          list.add(MapEntry('满足执行', path.basename(truePath.toString())));
+          handledKeys.addAll(['出现时执行', '满足执行']);
+        }
+        final falsePath = params['未出现时执行'] ?? params['不满足执行'];
+        if (falsePath != null && falsePath.toString().isNotEmpty) {
+          list.add(MapEntry('未出现执行', path.basename(falsePath.toString())));
+          handledKeys.addAll(['未出现时执行', '不满足执行']);
+        }
+        break;
+
+      case '逻辑脚本-时间对比':
+        final targetVal = params['目标值'] ?? params['目标时间'];
+        if (targetVal != null && targetVal.toString().isNotEmpty) {
+          list.add(MapEntry('目标时间', targetVal.toString()));
+          handledKeys.addAll(['目标值', '目标时间']);
+        }
+        final afterTime = params['出现时执行'] ?? params['时间后执行'];
+        if (afterTime != null && afterTime.toString().isNotEmpty) {
+          list.add(MapEntry('时间后执行', path.basename(afterTime.toString())));
+          handledKeys.addAll(['出现时执行', '时间后执行']);
+        }
+        break;
+
+      case '逻辑脚本-数值对比':
+      case '数值对比-点击文字':
+        if (params['点击文本'] != null && params['点击文本'].toString().isNotEmpty) {
+          list.add(MapEntry('点击文本', params['点击文本'].toString()));
+          handledKeys.add('点击文本');
+        }
+        final cmp = '${params['对比方式'] ?? ''} ${params['目标值'] ?? ''}'.trim();
+        if (cmp.isNotEmpty) {
+          list.add(MapEntry('对比规则', cmp));
+          handledKeys.addAll(['对比方式', '目标值']);
+        }
+        final satisfied = params['出现时执行'] ?? params['满足执行'];
+        if (satisfied != null && satisfied.toString().isNotEmpty) {
+          list.add(MapEntry('满足执行', path.basename(satisfied.toString())));
+          handledKeys.addAll(['出现时执行', '满足执行']);
+        }
+        break;
+
+      case '脚本替换':
+      case '执行本地脚本集':
+        final setPath = params['脚本集'] ?? script.targetScriptPath;
+        if (setPath != null && setPath.toString().isNotEmpty) {
+          list.add(MapEntry('绑定脚本', path.basename(setPath.toString())));
+          handledKeys.add('脚本集');
+        }
+        break;
+
+      case '控制脚本开关':
+        if (params['脚本序号'] != null && params['脚本序号'].toString().isNotEmpty) {
+          list.add(MapEntry('目标序号', params['脚本序号'].toString()));
+          handledKeys.add('脚本序号');
+        }
+        if (params['开关动作'] != null && params['开关动作'].toString().isNotEmpty) {
+          list.add(MapEntry('更改为', params['开关动作'].toString()));
+          handledKeys.add('开关动作');
+        }
+        break;
+
+      case '设置Cookie':
+        if (params['账号存档名称'] != null && params['账号存档名称'].toString().isNotEmpty) {
+          list.add(MapEntry('账号存档', params['账号存档名称'].toString()));
+          handledKeys.add('账号存档名称');
+        } else if (params['Cookie名称'] != null && params['Cookie名称'].toString().isNotEmpty) {
+          list.add(MapEntry('Cookie', '${params['Cookie名称']}=${params['Cookie值'] ?? ''}'));
+          handledKeys.addAll(['Cookie名称', 'Cookie值']);
+        }
+        break;
+
+      case '提取文字':
+        if (params['CSS选择器'] != null && params['CSS选择器'].toString().isNotEmpty) {
+          list.add(MapEntry('CSS选择器', params['CSS选择器'].toString()));
+          handledKeys.add('CSS选择器');
+        }
+        if (params['保存至变量'] != null && params['保存至变量'].toString().isNotEmpty) {
+          list.add(MapEntry('保存变量', params['保存至变量'].toString()));
+          handledKeys.add('保存至变量');
+        }
+        break;
+
+      default:
+        // 通用降级文本
+        final content = _getScriptContent(script);
+        if (content.isNotEmpty) {
+          list.add(MapEntry('内容', content));
+        }
+        break;
+    }
+
+    // 通用支持：若用户 params 中还包含其他未展示的非空键，优雅补充展示
+    params.forEach((key, val) {
+      if (!handledKeys.contains(key) &&
+          key != '执行延迟' &&
+          key != 'isEnabled' &&
+          val != null &&
+          val.toString().trim().isNotEmpty &&
+          !key.startsWith('_')) {
+        list.add(MapEntry(key, val.toString()));
+      }
+    });
+
+    // 通用字段：执行延迟 (若设置且大于0)
+    if (params['执行延迟'] != null && params['执行延迟'] is num && params['执行延迟'] > 0) {
+      list.add(MapEntry('执行延迟', '${params['执行延迟']}ms'));
+    }
+
+    return list;
+  }
+
   Widget _buildScriptItem(
       BuildContext context, ScriptProvider scriptProvider, int index) {
     final script = scriptProvider.scripts[index];
     final isCurrent = scriptProvider.isExecuting &&
         scriptProvider.currentScriptIndex == index;
+    final details = _extractScriptDetails(script);
 
     return GestureDetector(
       onTap: () {
@@ -261,94 +602,113 @@ class RightScriptPanel extends StatelessWidget {
       child: Container(
         width: double.infinity,
         color: isCurrent ? Colors.blue.withValues(alpha: 0.3) : null,
-        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-        child: Stack(
+        padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  script.type,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 11,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  _getScriptContent(script),
-                  style: const TextStyle(
-                    color: Colors.grey,
-                    fontSize: 10,
-                  ),
-                ),
-                if (index < scriptProvider.scripts.length - 1)
-                  const Divider(color: Colors.grey, height: 8),
+            // 结构化多行键值对列表（与原版图片排版风格完全一致）
+            ...details.asMap().entries.map((entry) {
+              final detailIdx = entry.key;
+              final item = entry.value;
+              final isFirstRow = detailIdx == 0;
 
-                // Status Line
-                if (scriptProvider.isExecuting &&
-                    script.status != ScriptStatus.idle) ...[
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      _getStatusIcon(script.status),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _getStatusText(script),
-                              style: TextStyle(
-                                color: _getStatusColor(script.status),
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            if (script.progress != null &&
-                                script.progress! >= 0 &&
-                                script.progress! <= 1.0) ...[
-                              const SizedBox(height: 2),
-                              LinearProgressIndicator(
-                                value: script.progress,
-                                backgroundColor: Colors.white24,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                    _getStatusColor(script.status)),
-                                minHeight: 2,
-                              ),
-                            ],
-                          ],
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 2.5),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 左侧标签列 (固定宽度 52px，左对齐，柔和灰白色)
+                    SizedBox(
+                      width: 52,
+                      child: Text(
+                        item.key,
+                        style: TextStyle(
+                          color: script.isEnabled ? Colors.white70 : Colors.white38,
+                          fontSize: 10.5,
+                          height: 1.25,
                         ),
                       ),
-                    ],
-                  ),
-                ],
-              ],
-            ),
-            // Numbering Badge (ignore pointer so it doesn't block touches)
-            Positioned(
-              right: 0,
-              top: 0,
-              child: IgnorePointer(
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[800],
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    '${index + 1}',
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 9,
+                    ),
+                    const SizedBox(width: 4),
+                    // 右侧内容列 (第一行适当提亮，支持折行与溢出保护)
+                    Expanded(
+                      child: Text(
+                        item.value,
+                        style: TextStyle(
+                          color: script.isEnabled
+                              ? (isFirstRow ? Colors.white : Colors.white.withValues(alpha: 0.9))
+                              : Colors.white38,
+                          fontSize: 10.5,
+                          fontWeight: isFirstRow ? FontWeight.w600 : FontWeight.normal,
+                          decoration: script.isEnabled ? null : TextDecoration.lineThrough,
+                          height: 1.25,
+                        ),
+                        maxLines: item.key.contains('网址') ? 2 : 3,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    // 第一行右上角展示清晰纯文本数字序号 (完全契合用户参考图)
+                    if (isFirstRow)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 4),
+                        child: Text(
+                          '${index + 1}',
+                          style: TextStyle(
+                            color: script.isEnabled ? Colors.white : Colors.white38,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            }),
+
+            // Status Line (正在执行状态，进度条)
+            if (scriptProvider.isExecuting &&
+                script.status != ScriptStatus.idle) ...[
+              const SizedBox(height: 3),
+              Row(
+                children: [
+                  _getStatusIcon(script.status),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _getStatusText(script),
+                          style: TextStyle(
+                            color: _getStatusColor(script.status),
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (script.progress != null &&
+                            script.progress! >= 0 &&
+                            script.progress! <= 1.0) ...[
+                          const SizedBox(height: 2),
+                          LinearProgressIndicator(
+                            value: script.progress,
+                            backgroundColor: Colors.white24,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                                _getStatusColor(script.status)),
+                            minHeight: 2,
+                          ),
+                        ],
+                      ],
                     ),
                   ),
-                ),
+                ],
               ),
-            ),
+            ],
+
+            // 分割线：脚本与脚本之间
+            if (index < scriptProvider.scripts.length - 1)
+              const Divider(color: Colors.white12, height: 8, thickness: 0.7),
           ],
         ),
       ),

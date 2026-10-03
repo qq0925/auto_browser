@@ -466,7 +466,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                               _buildLabel('脚本类型', color: labelColor),
                               const SizedBox(height: 6),
                               InkWell(
-                                onTap: widget.script == null ? _openScriptTypeSelector : null,
+                                onTap: _openScriptTypeSelector,
                                 borderRadius: BorderRadius.circular(8),
                                 child: Container(
                                   height: 48,
@@ -496,8 +496,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
-                                      if (widget.script == null)
-                                        Icon(Icons.arrow_drop_down, color: iconColor),
+                                      Icon(Icons.arrow_drop_down, color: iconColor),
                                     ],
                                   ),
                                 ),
@@ -913,6 +912,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           Expanded(
             child: DropdownButtonFormField<String>(
               value: value,
+              isExpanded: true,
               decoration: InputDecoration(
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -937,7 +937,10 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
               items: items.map((String item) {
                 return DropdownMenuItem<String>(
                   value: item,
-                  child: Text(item),
+                  child: Text(
+                    item,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 );
               }).toList(),
               onChanged: onChanged,
@@ -973,17 +976,17 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
             child: Row(
               children: [
                 Expanded(
-                  flex: 2,
                   child: _buildTextField(_delayController, '0'),
                 ),
                 const SizedBox(width: 8),
-                Expanded(
-                  flex: 1,
+                SizedBox(
+                  width: 84,
                   child: DropdownButtonFormField<String>(
                     value: _delayTimeUnit,
+                    isExpanded: true,
                     decoration: InputDecoration(
                       contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 12),
+                          horizontal: 6, vertical: 12),
                       filled: true,
                       fillColor: _theme.inputFillColor,
                       border: OutlineInputBorder(
@@ -1000,12 +1003,15 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                       ),
                     ),
                     dropdownColor: _theme.dropdownColor,
-                    style: TextStyle(fontSize: 14, color: _theme.textColor),
-                    icon: Icon(Icons.arrow_drop_down, color: _theme.iconColor),
+                    style: TextStyle(fontSize: 13, color: _theme.textColor),
+                    icon: Icon(Icons.arrow_drop_down, color: _theme.iconColor, size: 20),
                     items: ['毫秒', '秒', '分钟'].map((String unit) {
                       return DropdownMenuItem<String>(
                         value: unit,
-                        child: Text(unit),
+                        child: Text(
+                          unit,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       );
                     }).toList(),
                     onChanged: (String? newValue) {
@@ -1204,26 +1210,33 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(
-              children: [
-                Text(
-                  'JavaScript 脚本代码',
-                  style: TextStyle(
-                    color: _theme.textColor,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+            Expanded(
+              child: Row(
+                children: [
+                  Text(
+                    'JavaScript 脚本代码',
+                    style: TextStyle(
+                      color: _theme.textColor,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  '(支持直接编写与粘贴)',
-                  style: TextStyle(
-                    color: _theme.hintColor,
-                    fontSize: 11,
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '(支持直接编写与粘贴)',
+                      style: TextStyle(
+                        color: _theme.hintColor,
+                        fontSize: 11,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
+            const SizedBox(width: 8),
             InkWell(
               onTap: () async {
                 final data = await Clipboard.getData(Clipboard.kTextPlain);
@@ -1245,6 +1258,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.paste_rounded, size: 14, color: Colors.blueAccent),
                     const SizedBox(width: 4),

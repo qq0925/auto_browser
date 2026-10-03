@@ -207,6 +207,7 @@ class ScriptProvider extends ChangeNotifier {
   void clearScripts() {
     if (_currentTab != null) {
       _currentTab!.scripts.clear();
+      _currentTab!.scriptFilePath = null;
       notifyListeners();
     }
   }
@@ -214,6 +215,7 @@ class ScriptProvider extends ChangeNotifier {
   void addScript(Script script) {
     if (_currentTab != null) {
       _currentTab!.scripts.add(script);
+      _lastRecordTime = DateTime.now();
       notifyListeners();
     }
   }
@@ -242,6 +244,7 @@ class ScriptProvider extends ChangeNotifier {
         index >= 0 &&
         index <= _currentTab!.scripts.length) {
       _currentTab!.scripts.insert(index, script);
+      _lastRecordTime = DateTime.now();
       notifyListeners();
     }
   }
@@ -266,6 +269,25 @@ class ScriptProvider extends ChangeNotifier {
     if (_currentTab != null) {
       _currentTab!.scriptFilePath = filePath;
       notifyListeners();
+    }
+  }
+
+  DateTime? _lastRecordTime;
+  DateTime? _ignoreRecordingUntil;
+
+  /// 暂时忽略指定时间内的录制消息，防止侧边栏切换、弹窗或悬浮条被误录制
+  void temporarilyIgnoreRecording([Duration duration = const Duration(milliseconds: 600)]) {
+    _ignoreRecordingUntil = DateTime.now().add(duration);
+  }
+
+  /// 如果最近几百毫秒内误录制了一条动作（例如点击悬浮条/侧边栏手柄被穿透捕获），立即撤销并忽略后续点击
+  void cancelLastRecordingIfRecent([Duration duration = const Duration(milliseconds: 500)]) {
+    temporarilyIgnoreRecording(const Duration(milliseconds: 600));
+    if (_currentTab != null && _currentTab!.scripts.isNotEmpty && _lastRecordTime != null) {
+      if (DateTime.now().difference(_lastRecordTime!) < duration) {
+        _currentTab!.scripts.removeLast();
+        notifyListeners();
+      }
     }
   }
 
@@ -312,6 +334,11 @@ class ScriptProvider extends ChangeNotifier {
 
   void handleScriptMessage(String message) {
     if (!_isRecording) return;
+    if (_ignoreRecordingUntil != null &&
+        DateTime.now().isBefore(_ignoreRecordingUntil!)) {
+      debugPrint('[ScriptRecorder] Discarded recording event during ignore window: $message');
+      return;
+    }
 
     final separatorIndex = message.indexOf('|');
     if (separatorIndex == -1) return;
@@ -1265,6 +1292,13 @@ class ScriptProvider extends ChangeNotifier {
 
       // 5. Capture Clicks
       document.addEventListener('click', function(e) {
+        // 过滤右侧侧边栏切换手柄区域 (防止手柄点击被网页穿透录制)
+        var winW = window.innerWidth || (document.documentElement && document.documentElement.clientWidth) || 360;
+        var winH = window.innerHeight || (document.documentElement && document.documentElement.clientHeight) || 640;
+        if (e.clientX >= (winW - 45) && e.clientY >= (winH / 2 - 140) && e.clientY <= (winH / 2 + 100)) {
+          return;
+        }
+
         let target = e.target;
         
         // Handle text nodes
@@ -1457,13 +1491,26 @@ class ScriptProvider extends ChangeNotifier {
           return path.join(' > ');
         }
 
-        // Check for clickable icon/button elements without text
-        const clickableParent = target.closest('button, [role="button"], a, svg, i, span');
-        const elementToRecord = clickableParent || target;
-        if (elementToRecord.tagName !== 'INPUT' && elementToRecord.tagName !== 'TEXTAREA') {
-          const selector = getCssSelector(elementToRecord);
+        // Priority 3: 仅针对真正无文本的可交互元素（如 SVG矢量图标、字体图标、纯图标按钮、或声明了 cursor: pointer 的交互组件）
+        var clickableParent = target.closest('button, [role="button"], a, svg, i, [onclick]');
+        if (!clickableParent) {
+          try {
+            var compStyle = window.getComputedStyle(target);
+            if (compStyle.cursor === 'pointer' && target.tagName !== 'BODY' && target.tagName !== 'HTML') {
+              clickableParent = target;
+            }
+          } catch (_) {}
+        }
+
+        // 核心过滤：若仅是普通网页空白区域（如无文字背景容器、body、html等），直接忽略不录制
+        if (!clickableParent) {
+          return;
+        }
+
+        if (clickableParent.tagName !== 'INPUT' && clickableParent.tagName !== 'TEXTAREA') {
+          var selector = getCssSelector(clickableParent);
           if (selector) {
-            const tagDesc = elementToRecord.tagName.toLowerCase();
+            var tagDesc = clickableParent.tagName.toLowerCase();
             postMessage('点击选择器|' + selector + '|' + tagDesc);
           }
         }
