@@ -34,9 +34,9 @@ class RightScriptPanel extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.7),
+        color: Colors.black.withValues(alpha: 0.62), // 半透明暗黑背景，清晰透视底层网页内容，方便查看与复制
         border: const Border(
-          left: BorderSide(color: Colors.grey, width: 0.5),
+          left: BorderSide(color: Colors.white24, width: 0.8),
         ),
       ),
       child: Column(

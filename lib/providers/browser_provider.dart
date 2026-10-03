@@ -442,6 +442,15 @@ class BrowserProvider extends ChangeNotifier {
     _saveTabsState();
   }
 
+  /// 明确收起/收纳脚本管理器抽屉
+  void closeScriptPanel() {
+    if (_isScriptPanelExpanded) {
+      _isScriptPanelExpanded = false;
+      notifyListeners();
+      _saveTabsState();
+    }
+  }
+
   void clearHistory() {
     _history.clear();
     notifyListeners();

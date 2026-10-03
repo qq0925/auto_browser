@@ -134,10 +134,9 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     final selected = await showDialog<String>(
       context: context,
       barrierDismissible: true,
-      builder: (ctx) => _ScriptTypeSearchDialog(
+      builder: (ctx) => _ScriptTypePopupMenuDialog(
         currentType: _selectedScriptType,
         scriptTypes: scriptTypes,
-        metas: _scriptTypeMetas,
         isDarkMode: _theme.isDarkMode,
       ),
     );
@@ -497,12 +496,8 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
-                                      if (widget.script == null) ...[
-                                        Icon(Icons.search_rounded,
-                                            size: 16, color: iconColor.withValues(alpha: 0.6)),
-                                        const SizedBox(width: 2),
+                                      if (widget.script == null)
                                         Icon(Icons.arrow_drop_down, color: iconColor),
-                                      ],
                                     ],
                                   ),
                                 ),
@@ -2364,6 +2359,134 @@ class _ScriptTypeSearchDialogState extends State<_ScriptTypeSearchDialog> {
                     ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 参考用户截图形式的脚本类型快捷选择弹窗
+class _ScriptTypePopupMenuDialog extends StatelessWidget {
+  final String currentType;
+  final List<String> scriptTypes;
+  final bool isDarkMode;
+
+  const _ScriptTypePopupMenuDialog({
+    required this.currentType,
+    required this.scriptTypes,
+    required this.isDarkMode,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // 按照用户截图顺序优化排列，常用与自动化操作置顶
+    final displayOrder = [
+      '点击文字',
+      '输入框提交',
+      '刷新网页',
+      '进入网址',
+      '执行本地脚本集',
+      '脚本替换',
+      '执行插件',
+      '逻辑脚本-出现文字',
+      '逻辑脚本-时间对比',
+      '逻辑脚本-数值对比',
+      '验证码图片识别',
+      '数值对比',
+      '数值对比-点击文字',
+      '网页文字替换',
+      '提取文字',
+      '设置Cookie',
+      '清除Cookie',
+      '自定义JS',
+      '间隔时间',
+      '延时脚本',
+      '网页后退',
+      '网页前进',
+      '脚本暂停',
+      '脚本停止',
+      '控制脚本开关',
+      '通知栏提醒',
+      '新建窗口并执行脚本',
+      '跳转脚本',
+    ];
+
+    final allTypes = <String>[];
+    for (var t in displayOrder) {
+      if (scriptTypes.contains(t) && !allTypes.contains(t)) {
+        allTypes.add(t);
+      }
+    }
+    for (var t in scriptTypes) {
+      if (!allTypes.contains(t)) {
+        allTypes.add(t);
+      }
+    }
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 36),
+      child: Center(
+        child: Container(
+          width: 250,
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.70,
+          ),
+          decoration: BoxDecoration(
+            color: const Color(0xFF2E2E2E),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: Colors.white24, width: 0.8),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.6),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: ListView.separated(
+              shrinkWrap: true,
+              padding: EdgeInsets.zero,
+              itemCount: allTypes.length,
+              separatorBuilder: (context, index) => Container(
+                height: 1,
+                color: Colors.white.withValues(alpha: 0.08),
+              ),
+              itemBuilder: (context, index) {
+                final type = allTypes[index];
+                final isSelected = type == currentType;
+
+                return Material(
+                  color: isSelected
+                      ? const Color(0xFF424242)
+                      : Colors.transparent,
+                  child: InkWell(
+                    onTap: () => Navigator.pop(context, type),
+                    child: Container(
+                      height: 44,
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      child: Text(
+                        type,
+                        style: TextStyle(
+                          color: isSelected ? Colors.lightBlueAccent : Colors.white,
+                          fontSize: 15,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w400,
+                          letterSpacing: 0.5,
+                        ),
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
         ),
       ),
     );

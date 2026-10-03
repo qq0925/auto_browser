@@ -7,6 +7,7 @@ import '../providers/browser_provider.dart';
 import '../providers/download_provider.dart';
 import '../providers/script_provider.dart';
 import '../models/script.dart';
+import '../models/browser_tab.dart';
 import '../widgets/right_script_panel.dart';
 import '../widgets/add_script_dialog.dart';
 import '../widgets/global_settings_dialog.dart';
@@ -15,6 +16,9 @@ import '../widgets/download_manager_dialog.dart';
 
 import 'dart:async';
 import 'dart:io';
+import 'package:path/path.dart' as path;
+import 'package:file_picker/file_picker.dart';
+import '../utils/file_manager.dart';
 
 import 'package:permission_handler/permission_handler.dart';
 import '../widgets/url_search_overlay.dart';
@@ -199,7 +203,8 @@ class _BrowserHomePageState extends State<BrowserHomePage>
 
         DateTime? lastBackPressTime;
         final screenWidth = MediaQuery.of(context).size.width;
-        final panelWidth = (screenWidth * 0.5).clamp(180.0, 420.0);
+        // 脚本面板宽度优化：占屏幕约 40%，避免遮挡过多网页内容，方便查看与复制文本
+        final panelWidth = (screenWidth * 0.40).clamp(155.0, 320.0);
 
         return Stack(
           children: [
@@ -757,8 +762,8 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                 right: browserProvider.isScriptPanelExpanded
                     ? 0
                     : -panelWidth,
-                top: 50,
-                bottom: 50,
+                top: 0,
+                bottom: 0,
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -799,14 +804,8 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                     // 脚本面板
                     Container(
                       width: panelWidth,
-                      decoration: BoxDecoration(
-                        color: browserProvider.isDarkMode
-                            ? Colors.grey[900]
-                            : Colors.white,
-                        borderRadius: BorderRadius.only(
-                          topLeft: Radius.circular(20),
-                          bottomLeft: Radius.circular(20),
-                        ),
+                      decoration: const BoxDecoration(
+                        color: Colors.transparent,
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black26,
@@ -815,51 +814,47 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                           ),
                         ],
                       ),
-                      child: ClipRRect(
-                        borderRadius: const BorderRadius.only(
-                          topLeft: Radius.circular(20),
-                          bottomLeft: Radius.circular(20),
-                        ),
-                        child: RightScriptPanel(
-                          onAddScript: () async {
-                            final result = await showDialog<Script>(
-                              context: context,
-                              builder: (context) => const AddScriptDialog(),
-                            );
-                            if (result != null && mounted) {
-                              scriptProvider.addScript(result);
+                      child: RightScriptPanel(
+                        onAddScript: () async {
+                          final result = await showDialog<Script>(
+                            context: context,
+                            builder: (context) => const AddScriptDialog(),
+                          );
+                          if (result != null && mounted) {
+                            scriptProvider.addScript(result);
+                          }
+                        },
+                        onGlobalSettings: () {
+                          showDialog(
+                            context: context,
+                            builder: (context) =>
+                                const GlobalSettingsDialog(),
+                          );
+                        },
+                        onExecute: () {
+                          if (scriptProvider.isExecuting) {
+                            scriptProvider.stopExecution();
+                          } else {
+                            if (browserProvider.currentTab != null &&
+                                browserProvider.currentTab!.controller !=
+                                    null) {
+                              scriptProvider.startExecution(
+                                browserProvider.currentTab!.controller!,
+                                browserProvider.currentIndex,
+                              );
                             }
-                          },
-                          onGlobalSettings: () {
-                            showDialog(
-                              context: context,
-                              builder: (context) =>
-                                  const GlobalSettingsDialog(),
-                            );
-                          },
-                          onExecute: () {
-                            if (scriptProvider.isExecuting) {
-                              scriptProvider.stopExecution();
-                            } else {
-                              if (browserProvider.currentTab != null &&
-                                  browserProvider.currentTab!.controller !=
-                                      null) {
-                                scriptProvider.startExecution(
-                                  browserProvider.currentTab!.controller!,
-                                  browserProvider.currentIndex,
-                                );
-                              }
-                            }
-                          },
-                          onLoad: () {
-                            _showLoadScriptDialog(context, scriptProvider);
-                          },
-                          onRecordScript: () {
-                            if (browserProvider.currentTab != null) {
-                              scriptProvider.startRecording();
-                            }
-                          },
-                        ),
+                          }
+                        },
+                        onLoad: () {
+                          _showLoadScriptDialog(context, scriptProvider);
+                        },
+                        onRecordScript: () {
+                          if (browserProvider.currentTab != null) {
+                            // 点击录制脚本时自动触发一次收纳脚本管理器的动作，避免遮挡网页
+                            browserProvider.closeScriptPanel();
+                            scriptProvider.startRecording();
+                          }
+                        },
                       ),
                     ),
                   ],
@@ -1127,6 +1122,8 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                       onRecordScript: () async {
                         Navigator.pop(context);
                         if (browser.currentTab != null) {
+                          // 点击录制脚本时自动收纳脚本管理器，展示完整网页供录制操作
+                          browser.closeScriptPanel();
                           scriptProvider.startRecording();
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
@@ -1283,7 +1280,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
       builder: (bottomSheetContext) =>
           Consumer2<BrowserProvider, ScriptProvider>(
         builder: (context, currentBrowser, scriptProvider, child) => Container(
-          height: 420,
+          height: 440,
           decoration: const BoxDecoration(
             color: Color(0xFF222222),
             borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
@@ -1307,6 +1304,11 @@ class _BrowserHomePageState extends State<BrowserHomePage>
 
                       final isExecuting = tab.isExecutingScript;
                       final statusSummary = tab.executionStatusSummary;
+
+                      // 脚本文件名（如 【书怪】.zds）
+                      final scriptFileName = tab.scriptFilePath != null
+                          ? path.basename(tab.scriptFilePath!)
+                          : '';
 
                       return Container(
                         margin: const EdgeInsets.only(bottom: 8),
@@ -1343,7 +1345,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                                           CrossAxisAlignment.start,
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        // 正在执行脚本的标签右上角显示：全局延迟，全局循环次数，列表执行情况
+                                        // 正在执行脚本的标签右上角显示：【脚本名】.zds 全局:1/1,列表:241/302
                                         if (isExecuting &&
                                             statusSummary.isNotEmpty) ...[
                                           Align(
@@ -1352,7 +1354,9 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                                               padding: const EdgeInsets.only(
                                                   bottom: 2),
                                               child: Text(
-                                                statusSummary,
+                                                scriptFileName.isNotEmpty
+                                                    ? '$scriptFileName $statusSummary'
+                                                    : statusSummary,
                                                 style: TextStyle(
                                                   color: tab.isPaused
                                                       ? Colors.amberAccent
@@ -1377,21 +1381,19 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                         ),
-                                        // 正在执行脚本时展示该标签页的当前网址
-                                        if (isExecuting) ...[
-                                          const SizedBox(height: 3),
-                                          Text(
-                                            tab.url.isEmpty
-                                                ? 'about:blank'
-                                                : tab.url,
-                                            style: const TextStyle(
-                                              color: Colors.white54,
-                                              fontSize: 12,
-                                            ),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
+                                        // 无论是否执行脚本，均展示该标签页的当前网址
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          tab.url.isEmpty
+                                              ? 'about:blank'
+                                              : tab.url,
+                                          style: const TextStyle(
+                                            color: Colors.white54,
+                                            fontSize: 12,
                                           ),
-                                        ],
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
                                       ],
                                     ),
                                   ),
@@ -1444,6 +1446,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                   height: 1,
                   color: Colors.white10,
                 ),
+                // 底部操作栏：取消 | 新建窗口 | 三点更多菜单
                 Container(
                   height: 60,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1475,6 +1478,44 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                           ),
                         ),
                       ),
+                      Container(
+                        width: 1,
+                        height: 24,
+                        color: Colors.white24,
+                      ),
+                      // 三点更多操作菜单（包含 7 个多窗口批量功能）
+                      Theme(
+                        data: Theme.of(context).copyWith(
+                          cardColor: const Color(0xFF2C2C2C),
+                        ),
+                        child: PopupMenuButton<String>(
+                          icon: const Icon(Icons.more_vert, color: Colors.white),
+                          color: const Color(0xFF2C2C2C),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            side: const BorderSide(color: Colors.white12),
+                          ),
+                          offset: const Offset(0, -360),
+                          onSelected: (action) {
+                            _handleTabsMenuAction(
+                              context,
+                              bottomSheetContext,
+                              currentBrowser,
+                              scriptProvider,
+                              action,
+                            );
+                          },
+                          itemBuilder: (context) => [
+                            _buildTabsMenuItem('stop_multi', '停止执行多个窗口'),
+                            _buildTabsMenuItem('pause_multi', '暂停执行多个窗口'),
+                            _buildTabsMenuItem('start_multi', '开始执行多个窗口'),
+                            _buildTabsMenuItem('refresh_multi', '刷新多个窗口'),
+                            _buildTabsMenuItem('close_multi', '关闭多个窗口'),
+                            _buildTabsMenuItem('load_script_multi', '读取脚本到多个窗口'),
+                            _buildTabsMenuItem('open_bookmarks_multi', '从书签打开多个窗口'),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -1482,6 +1523,609 @@ class _BrowserHomePageState extends State<BrowserHomePage>
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  PopupMenuItem<String> _buildTabsMenuItem(String value, String text) {
+    return PopupMenuItem<String>(
+      value: value,
+      height: 44,
+      child: Center(
+        child: Text(
+          text,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 15,
+            fontWeight: FontWeight.w400,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ),
+    );
+  }
+
+  /// 处理标签页底栏三点菜单中的 7 个多窗口功能
+  Future<void> _handleTabsMenuAction(
+    BuildContext rootContext,
+    BuildContext bottomSheetContext,
+    BrowserProvider currentBrowser,
+    ScriptProvider scriptProvider,
+    String action,
+  ) async {
+    switch (action) {
+      case 'stop_multi':
+        final executingTabs =
+            currentBrowser.tabs.where((t) => t.isExecutingScript).toList();
+        if (executingTabs.isEmpty) {
+          ScaffoldMessenger.of(rootContext).showSnackBar(
+            const SnackBar(content: Text('当前没有正在执行脚本的窗口')),
+          );
+          return;
+        }
+        final selectedTabs = await _showTabSelectionDialog(
+          context: rootContext,
+          browser: currentBrowser,
+          title: '停止执行多个窗口',
+          confirmText: '停止执行',
+          confirmColor: Colors.redAccent,
+          initialSelectedTabs: executingTabs,
+          filterTab: (tab) => tab.isExecutingScript,
+        );
+        if (selectedTabs != null && selectedTabs.isNotEmpty) {
+          for (var tab in selectedTabs) {
+            scriptProvider.stopExecution(tab);
+          }
+          if (rootContext.mounted) {
+            ScaffoldMessenger.of(rootContext).showSnackBar(
+              SnackBar(content: Text('已停止 ${selectedTabs.length} 个窗口的脚本执行')),
+            );
+          }
+        }
+        break;
+
+      case 'pause_multi':
+        final executingTabs =
+            currentBrowser.tabs.where((t) => t.isExecutingScript).toList();
+        if (executingTabs.isEmpty) {
+          ScaffoldMessenger.of(rootContext).showSnackBar(
+            const SnackBar(content: Text('当前没有正在执行脚本的窗口')),
+          );
+          return;
+        }
+        final selectedTabs = await _showTabSelectionDialog(
+          context: rootContext,
+          browser: currentBrowser,
+          title: '暂停执行多个窗口',
+          confirmText: '暂停执行',
+          confirmColor: Colors.amberAccent,
+          initialSelectedTabs:
+              executingTabs.where((t) => !t.isPaused).toList(),
+          filterTab: (tab) => tab.isExecutingScript,
+        );
+        if (selectedTabs != null && selectedTabs.isNotEmpty) {
+          for (var tab in selectedTabs) {
+            scriptProvider.pauseExecution(tab);
+          }
+          if (rootContext.mounted) {
+            ScaffoldMessenger.of(rootContext).showSnackBar(
+              SnackBar(content: Text('已暂停 ${selectedTabs.length} 个窗口的脚本执行')),
+            );
+          }
+        }
+        break;
+
+      case 'start_multi':
+        final readyTabs = currentBrowser.tabs
+            .where((t) => t.scripts.isNotEmpty && !t.isExecutingScript)
+            .toList();
+        if (readyTabs.isEmpty) {
+          ScaffoldMessenger.of(rootContext).showSnackBar(
+            const SnackBar(content: Text('暂无可开始执行脚本的窗口（需先添加或读取脚本）')),
+          );
+          return;
+        }
+        final selectedTabs = await _showTabSelectionDialog(
+          context: rootContext,
+          browser: currentBrowser,
+          title: '开始执行多个窗口',
+          confirmText: '开始执行',
+          confirmColor: Colors.greenAccent,
+          initialSelectedTabs: readyTabs,
+          filterTab: (tab) =>
+              tab.scripts.isNotEmpty && !tab.isExecutingScript,
+        );
+        if (selectedTabs != null && selectedTabs.isNotEmpty) {
+          for (var tab in selectedTabs) {
+            if (tab.controller != null) {
+              final tabIndex = currentBrowser.tabs.indexOf(tab);
+              scriptProvider.startExecution(tab.controller!, tabIndex, tab);
+            }
+          }
+          if (rootContext.mounted) {
+            ScaffoldMessenger.of(rootContext).showSnackBar(
+              SnackBar(content: Text('已开始执行 ${selectedTabs.length} 个窗口的脚本')),
+            );
+          }
+        }
+        break;
+
+      case 'refresh_multi':
+        final selectedTabs = await _showTabSelectionDialog(
+          context: rootContext,
+          browser: currentBrowser,
+          title: '刷新多个窗口',
+          confirmText: '确认刷新',
+          confirmColor: Colors.blueAccent,
+          initialSelectedTabs: currentBrowser.tabs,
+        );
+        if (selectedTabs != null && selectedTabs.isNotEmpty) {
+          for (var tab in selectedTabs) {
+            tab.controller?.reload();
+          }
+          if (rootContext.mounted) {
+            ScaffoldMessenger.of(rootContext).showSnackBar(
+              SnackBar(content: Text('已刷新 ${selectedTabs.length} 个窗口')),
+            );
+          }
+        }
+        break;
+
+      case 'close_multi':
+        final nonCurrentTabs = currentBrowser.tabs
+            .where((t) => t != currentBrowser.currentTab && !t.isExecutingScript)
+            .toList();
+        final selectedTabs = await _showTabSelectionDialog(
+          context: rootContext,
+          browser: currentBrowser,
+          title: '关闭多个窗口',
+          confirmText: '关闭窗口',
+          confirmColor: Colors.redAccent,
+          initialSelectedTabs: nonCurrentTabs.isNotEmpty
+              ? nonCurrentTabs
+              : currentBrowser.tabs.where((t) => !t.isExecutingScript).toList(),
+          filterTab: (tab) => !tab.isExecutingScript,
+        );
+        if (selectedTabs != null && selectedTabs.isNotEmpty) {
+          final toClose = List<BrowserTab>.from(selectedTabs);
+          for (var tab in toClose) {
+            final idx = currentBrowser.tabs.indexOf(tab);
+            if (idx != -1) {
+              currentBrowser.removeTab(idx);
+            }
+          }
+          if (currentBrowser.tabs.isEmpty) {
+            await _addNewTab();
+          }
+          if (rootContext.mounted) {
+            ScaffoldMessenger.of(rootContext).showSnackBar(
+              SnackBar(content: Text('已关闭 ${toClose.length} 个窗口')),
+            );
+          }
+        }
+        break;
+
+      case 'load_script_multi':
+        // 1. 先选择脚本文件
+        final filePath = await _showPickScriptDialog(rootContext);
+        if (filePath == null) return;
+        final file = File(filePath);
+        if (!await file.exists()) {
+          if (rootContext.mounted) {
+            ScaffoldMessenger.of(rootContext).showSnackBar(
+              const SnackBar(content: Text('脚本文件不存在')),
+            );
+          }
+          return;
+        }
+        final scriptContent = await file.readAsString();
+        if (!rootContext.mounted) return;
+
+        // 2. 选择要批量应用的窗口
+        final selectedTabs = await _showTabSelectionDialog(
+          context: rootContext,
+          browser: currentBrowser,
+          title: '读取脚本到多个窗口',
+          subtitle: '脚本: ${path.basename(filePath)}',
+          confirmText: '批量应用',
+          confirmColor: Colors.blueAccent,
+          initialSelectedTabs: currentBrowser.tabs,
+        );
+        if (selectedTabs != null && selectedTabs.isNotEmpty) {
+          for (var tab in selectedTabs) {
+            scriptProvider.importScriptToTab(scriptContent, tab, filePath);
+          }
+          if (rootContext.mounted) {
+            ScaffoldMessenger.of(rootContext).showSnackBar(
+              SnackBar(
+                content: Text(
+                    '已将 ${path.basename(filePath)} 读取到 ${selectedTabs.length} 个窗口'),
+              ),
+            );
+          }
+        }
+        break;
+
+      case 'open_bookmarks_multi':
+        if (currentBrowser.bookmarks.isEmpty) {
+          ScaffoldMessenger.of(rootContext).showSnackBar(
+            const SnackBar(content: Text('暂无书签，请先收藏网址')),
+          );
+          return;
+        }
+        final selectedBookmarks = await _showBookmarksMultiSelectDialog(
+          context: rootContext,
+          bookmarks: currentBrowser.bookmarks,
+        );
+        if (selectedBookmarks != null && selectedBookmarks.isNotEmpty) {
+          for (var b in selectedBookmarks) {
+            await currentBrowser.addTab(initialUrl: b.url, initialTitle: b.title);
+          }
+          if (rootContext.mounted) {
+            ScaffoldMessenger.of(rootContext).showSnackBar(
+              SnackBar(content: Text('已从书签打开 ${selectedBookmarks.length} 个新窗口')),
+            );
+          }
+        }
+        break;
+    }
+  }
+
+  /// 通用多窗口选择弹窗（支持全选/全不选、状态展示与批量操作）
+  Future<List<BrowserTab>?> _showTabSelectionDialog({
+    required BuildContext context,
+    required BrowserProvider browser,
+    required String title,
+    String? subtitle,
+    required String confirmText,
+    required Color confirmColor,
+    required List<BrowserTab> initialSelectedTabs,
+    bool Function(BrowserTab)? filterTab,
+  }) {
+    final candidateTabs = filterTab != null
+        ? browser.tabs.where(filterTab).toList()
+        : browser.tabs;
+
+    if (candidateTabs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('没有符合操作条件的窗口')),
+      );
+      return Future.value(null);
+    }
+
+    final selected = Set<BrowserTab>.from(initialSelectedTabs);
+
+    return showDialog<List<BrowserTab>>(
+      context: context,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (context, setState) {
+          final isAllSelected = selected.length == candidateTabs.length;
+
+          return AlertDialog(
+            backgroundColor: const Color(0xFF2B2B2B),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: const BorderSide(color: Colors.white12),
+            ),
+            titlePadding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+            actionsPadding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            title: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      if (subtitle != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      if (isAllSelected) {
+                        selected.clear();
+                      } else {
+                        selected.addAll(candidateTabs);
+                      }
+                    });
+                  },
+                  child: Text(
+                    isAllSelected ? '全不选' : '全选',
+                    style: const TextStyle(color: Colors.blueAccent),
+                  ),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 320,
+              child: ListView.builder(
+                itemCount: candidateTabs.length,
+                itemBuilder: (context, idx) {
+                  final tab = candidateTabs[idx];
+                  final originalIndex = browser.tabs.indexOf(tab);
+                  final isChecked = selected.contains(tab);
+                  final displayTitle =
+                      tab.customName != null && tab.customName!.isNotEmpty
+                          ? tab.customName!
+                          : (tab.title.isEmpty ? '无标题' : tab.title);
+
+                  return CheckboxListTile(
+                    value: isChecked,
+                    activeColor: confirmColor,
+                    checkColor: Colors.black,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                    title: Text(
+                      '${originalIndex + 1}. $displayTitle',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text(
+                      tab.isExecutingScript
+                          ? '正在执行脚本 (${tab.scripts.length}步)'
+                          : (tab.url.isEmpty ? 'about:blank' : tab.url),
+                      style: TextStyle(
+                        color: tab.isExecutingScript
+                            ? Colors.amberAccent
+                            : Colors.white54,
+                        fontSize: 11,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onChanged: (val) {
+                      setState(() {
+                        if (val == true) {
+                          selected.add(tab);
+                        } else {
+                          selected.remove(tab);
+                        }
+                      });
+                    },
+                  );
+                },
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogCtx, null),
+                child: const Text('取消', style: TextStyle(color: Colors.white54)),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: confirmColor,
+                  foregroundColor: Colors.black,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+                onPressed: selected.isEmpty
+                    ? null
+                    : () => Navigator.pop(dialogCtx, selected.toList()),
+                child: Text('$confirmText (${selected.length})'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// 批量从书签选择对话框
+  Future<List<dynamic>?> _showBookmarksMultiSelectDialog({
+    required BuildContext context,
+    required List<dynamic> bookmarks,
+  }) {
+    final selected = Set<dynamic>.from(bookmarks);
+
+    return showDialog<List<dynamic>>(
+      context: context,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (context, setState) {
+          final isAllSelected = selected.length == bookmarks.length;
+
+          return AlertDialog(
+            backgroundColor: const Color(0xFF2B2B2B),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: const BorderSide(color: Colors.white12),
+            ),
+            title: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    '从书签打开多个窗口',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      if (isAllSelected) {
+                        selected.clear();
+                      } else {
+                        selected.addAll(bookmarks);
+                      }
+                    });
+                  },
+                  child: Text(
+                    isAllSelected ? '全不选' : '全选',
+                    style: const TextStyle(color: Colors.blueAccent),
+                  ),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 320,
+              child: ListView.builder(
+                itemCount: bookmarks.length,
+                itemBuilder: (context, idx) {
+                  final b = bookmarks[idx];
+                  final isChecked = selected.contains(b);
+
+                  return CheckboxListTile(
+                    value: isChecked,
+                    activeColor: Colors.blueAccent,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                    title: Text(
+                      b.title ?? '未命名书签',
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text(
+                      b.url ?? '',
+                      style: const TextStyle(color: Colors.white54, fontSize: 11),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onChanged: (val) {
+                      setState(() {
+                        if (val == true) {
+                          selected.add(b);
+                        } else {
+                          selected.remove(b);
+                        }
+                      });
+                    },
+                  );
+                },
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogCtx, null),
+                child: const Text('取消', style: TextStyle(color: Colors.white54)),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blueAccent,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+                onPressed: selected.isEmpty
+                    ? null
+                    : () => Navigator.pop(dialogCtx, selected.toList()),
+                child: Text('打开所选 (${selected.length})'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// 选择脚本文件对话框（供批量读取到多个窗口使用）
+  Future<String?> _showPickScriptDialog(BuildContext context) async {
+    final savedScripts = await FileManager.getSavedScripts();
+
+    if (!context.mounted) return null;
+
+    return showDialog<String>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: const Color(0xFF2C2C2C),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: Colors.white12),
+        ),
+        title: const Text(
+          '选择要读取的脚本',
+          style: TextStyle(color: Colors.white, fontSize: 18),
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 300,
+          child: savedScripts.isEmpty
+              ? const Center(
+                  child: Text(
+                    '暂无本地保存的脚本\n可点击下方从外部文件选择',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white54),
+                  ),
+                )
+              : ListView.builder(
+                  itemCount: savedScripts.length,
+                  itemBuilder: (context, index) {
+                    final file = savedScripts[index];
+                    final fileName = path.basename(file.path);
+                    return ListTile(
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 8),
+                      leading: const Icon(Icons.description,
+                          color: Colors.blueAccent),
+                      title: Text(
+                        fileName,
+                        style: const TextStyle(color: Colors.white),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onTap: () => Navigator.pop(dialogCtx, file.path),
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx, null),
+            child: const Text('取消', style: TextStyle(color: Colors.white54)),
+          ),
+          TextButton(
+            onPressed: () async {
+              FilePickerResult? pickResult = await FilePicker.platform.pickFiles(
+                dialogTitle: '选择脚本文件',
+                type: FileType.any,
+              );
+              if (pickResult != null && pickResult.files.single.path != null) {
+                final p = pickResult.files.single.path!;
+                if (p.toLowerCase().endsWith('.json') ||
+                    p.toLowerCase().endsWith('.zds')) {
+                  if (dialogCtx.mounted) {
+                    Navigator.pop(dialogCtx, p);
+                  }
+                  return;
+                }
+              }
+              if (dialogCtx.mounted) {
+                Navigator.pop(dialogCtx, null);
+              }
+            },
+            child: const Text('从外部文件选择...',
+                style: TextStyle(color: Colors.blueAccent)),
+          ),
+        ],
       ),
     );
   }

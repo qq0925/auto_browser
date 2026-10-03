@@ -445,17 +445,18 @@ class ScriptProvider extends ChangeNotifier {
   }
 
   Future<void> startExecution(
-      InAppWebViewController controller, int tabIndex) async {
-    if (_currentTab == null || _currentTab!.scripts.isEmpty || _isRecording) {
+      InAppWebViewController controller, int tabIndex, [BrowserTab? targetTab]) async {
+    final executingTab = targetTab ?? _currentTab;
+    if (executingTab == null || executingTab.scripts.isEmpty || _isRecording) {
       return;
     }
 
     // Lock execution to this specific tab (not _currentTab which can change)
-    final executingTab = _currentTab!;
-    final executingController = controller;
+    final executingController = executingTab.controller ?? controller;
 
     // Mark tab as executing (use tab-specific state)
     executingTab.isExecutingScript = true;
+    executingTab.isPaused = false;
     _isPaused = false;
     _currentScriptIndex = 0;
     _remainingLoopCount = _originalLoopCount;
@@ -776,6 +777,44 @@ class ScriptProvider extends ChangeNotifier {
       );
     } catch (e) {
       debugPrint('Notification failed: $e');
+    }
+  }
+
+  /// 将脚本内容批量导入到指定的标签页
+  void importScriptToTab(String content, BrowserTab tab, [String? filePath]) {
+    try {
+      final List<dynamic> jsonList = json.decode(content);
+      tab.scripts.clear();
+      if (filePath != null) {
+        tab.scriptFilePath = filePath;
+      }
+
+      for (var item in jsonList) {
+        if (item is! Map<String, dynamic>) continue;
+
+        final type = item['脚本类型'];
+        if (type == '全局设置') {
+          final delay = item['执行延迟'] as int? ?? 1000;
+          final unitLabel = item['时间单位'] as String?;
+          tab.executionDelay = delay;
+          if (unitLabel != null) {
+            tab.delayTimeUnit = unitLabel;
+          }
+          if (item.containsKey('循环次数')) {
+            tab.originalLoopCount = item['循环次数'] as int? ?? 1;
+            tab.remainingLoopCount = tab.originalLoopCount;
+          }
+        } else {
+          try {
+            tab.scripts.add(Script.fromUserMap(item));
+          } catch (e) {
+            debugPrint('Parse script item error: $e');
+          }
+        }
+      }
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Import script to tab error: $e');
     }
   }
 

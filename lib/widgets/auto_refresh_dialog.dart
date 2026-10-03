@@ -105,19 +105,6 @@ class _AutoRefreshDialogState extends State<AutoRefreshDialog> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 4),
-                // Help Button (?)
-                Container(
-                  height: 36,
-                  width: 36,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF555555),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: const Center(
-                    child: Text('?', style: TextStyle(color: Colors.white)),
-                  ),
-                ),
               ],
             ),
             const SizedBox(height: 16),
