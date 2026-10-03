@@ -753,9 +753,13 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                   : IndexedStack(
                       index: browserProvider.currentIndex,
                       children: browserProvider.tabs
-                          .map((tab) => BrowserView(
-                                key: ValueKey(tab.id),
-                                tab: tab,
+                          .asMap()
+                          .entries
+                          .map((entry) => BrowserView(
+                                key: ValueKey(entry.value.id),
+                                tab: entry.value,
+                                isActive:
+                                    entry.key == browserProvider.currentIndex,
                               ))
                           .toList(),
                     ),
@@ -1632,8 +1636,33 @@ class _BrowserHomePageState extends State<BrowserHomePage>
           bookmarks: currentBrowser.bookmarks,
         );
         if (selectedBookmarks != null && selectedBookmarks.isNotEmpty) {
-          for (var b in selectedBookmarks) {
-            await currentBrowser.addTab(initialUrl: b.url, initialTitle: b.title);
+          if (bottomSheetContext.mounted) {
+            Navigator.pop(bottomSheetContext);
+          }
+
+          final canReuseBlankTab = currentBrowser.tabs.length == 1 &&
+              (currentBrowser.tabs.first.url == 'about:blank' ||
+                  currentBrowser.tabs.first.url.endsWith('welcome.html')) &&
+              !currentBrowser.tabs.first.isExecutingScript &&
+              currentBrowser.tabs.first.controller != null;
+
+          for (int i = 0; i < selectedBookmarks.length; i++) {
+            final b = selectedBookmarks[i];
+            if (i == 0 && canReuseBlankTab) {
+              final targetUrl = BrowserProvider.normalizeUrl(b.url);
+              final firstTab = currentBrowser.tabs.first;
+              firstTab.url = targetUrl;
+              firstTab.title = b.title;
+              currentBrowser.updateTabInfo(0, targetUrl, b.title);
+              firstTab.controller?.loadUrl(
+                  urlRequest: URLRequest(url: WebUri(targetUrl)));
+            } else {
+              await currentBrowser.addTab(
+                initialUrl: b.url,
+                initialTitle: b.title,
+                switchToNewTab: i == selectedBookmarks.length - 1,
+              );
+            }
           }
           if (rootContext.mounted) {
             ScaffoldMessenger.of(rootContext).showSnackBar(

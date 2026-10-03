@@ -107,9 +107,84 @@ class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis),
               onTap: () {
-                provider.currentTab?.controller?.loadUrl(
-                    urlRequest: URLRequest(url: WebUri(bookmark.url)));
+                final targetUrl = BrowserProvider.normalizeUrl(bookmark.url);
+                final currentTab = provider.currentTab;
+                if (currentTab != null && currentTab.controller != null) {
+                  currentTab.url = targetUrl;
+                  currentTab.title = bookmark.title;
+                  provider.updateTabInfo(
+                      provider.currentIndex, targetUrl, bookmark.title);
+                  currentTab.controller?.loadUrl(
+                      urlRequest: URLRequest(url: WebUri(targetUrl)));
+                } else {
+                  provider.addTab(
+                      initialUrl: targetUrl,
+                      initialTitle: bookmark.title,
+                      switchToNewTab: true);
+                }
                 Navigator.of(context).pop();
+              },
+              onLongPress: () {
+                final targetUrl = BrowserProvider.normalizeUrl(bookmark.url);
+                showModalBottomSheet(
+                  context: context,
+                  backgroundColor: const Color(0xFF2C2C2C),
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                  ),
+                  builder: (ctx) => SafeArea(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ListTile(
+                          leading: const Icon(Icons.open_in_browser, color: Colors.white),
+                          title: const Text('在当前窗口打开', style: TextStyle(color: Colors.white)),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            final currentTab = provider.currentTab;
+                            if (currentTab != null && currentTab.controller != null) {
+                              currentTab.url = targetUrl;
+                              currentTab.title = bookmark.title;
+                              provider.updateTabInfo(
+                                  provider.currentIndex, targetUrl, bookmark.title);
+                              currentTab.controller?.loadUrl(
+                                  urlRequest: URLRequest(url: WebUri(targetUrl)));
+                            } else {
+                              provider.addTab(
+                                  initialUrl: targetUrl,
+                                  initialTitle: bookmark.title,
+                                  switchToNewTab: true);
+                            }
+                            Navigator.of(context).pop();
+                          },
+                        ),
+                        const Divider(color: Colors.white12, height: 1),
+                        ListTile(
+                          leading: const Icon(Icons.tab, color: Colors.blueAccent),
+                          title: const Text('在新标签页中打开', style: TextStyle(color: Colors.white)),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            provider.addTab(
+                              initialUrl: targetUrl,
+                              initialTitle: bookmark.title,
+                              switchToNewTab: true,
+                            );
+                            Navigator.of(context).pop();
+                          },
+                        ),
+                        const Divider(color: Colors.white12, height: 1),
+                        ListTile(
+                          leading: const Icon(Icons.delete, color: Colors.redAccent),
+                          title: const Text('删除书签', style: TextStyle(color: Colors.redAccent)),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            provider.removeBookmark(bookmark);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                );
               },
               trailing: IconButton(
                 icon: const Icon(Icons.close, size: 16),
@@ -183,9 +258,75 @@ class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
               ),
               isThreeLine: true,
               onTap: () {
-                provider.currentTab?.controller
-                    ?.loadUrl(urlRequest: URLRequest(url: WebUri(item.url)));
+                final targetUrl = BrowserProvider.normalizeUrl(item.url);
+                final currentTab = provider.currentTab;
+                if (currentTab != null && currentTab.controller != null) {
+                  currentTab.url = targetUrl;
+                  currentTab.title = item.title;
+                  provider.updateTabInfo(
+                      provider.currentIndex, targetUrl, item.title);
+                  currentTab.controller?.loadUrl(
+                      urlRequest: URLRequest(url: WebUri(targetUrl)));
+                } else {
+                  provider.addTab(
+                      initialUrl: targetUrl,
+                      initialTitle: item.title,
+                      switchToNewTab: true);
+                }
                 Navigator.of(context).pop();
+              },
+              onLongPress: () {
+                final targetUrl = BrowserProvider.normalizeUrl(item.url);
+                showModalBottomSheet(
+                  context: context,
+                  backgroundColor: const Color(0xFF2C2C2C),
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                  ),
+                  builder: (ctx) => SafeArea(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ListTile(
+                          leading: const Icon(Icons.open_in_browser, color: Colors.white),
+                          title: const Text('在当前窗口打开', style: TextStyle(color: Colors.white)),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            final currentTab = provider.currentTab;
+                            if (currentTab != null && currentTab.controller != null) {
+                              currentTab.url = targetUrl;
+                              currentTab.title = item.title;
+                              provider.updateTabInfo(
+                                  provider.currentIndex, targetUrl, item.title);
+                              currentTab.controller?.loadUrl(
+                                  urlRequest: URLRequest(url: WebUri(targetUrl)));
+                            } else {
+                              provider.addTab(
+                                  initialUrl: targetUrl,
+                                  initialTitle: item.title,
+                                  switchToNewTab: true);
+                            }
+                            Navigator.of(context).pop();
+                          },
+                        ),
+                        const Divider(color: Colors.white12, height: 1),
+                        ListTile(
+                          leading: const Icon(Icons.tab, color: Colors.blueAccent),
+                          title: const Text('在新标签页中打开', style: TextStyle(color: Colors.white)),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            provider.addTab(
+                              initialUrl: targetUrl,
+                              initialTitle: item.title,
+                              switchToNewTab: true,
+                            );
+                            Navigator.of(context).pop();
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                );
               },
             );
           },

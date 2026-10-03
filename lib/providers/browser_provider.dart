@@ -200,28 +200,30 @@ class BrowserProvider extends ChangeNotifier {
         : _fallbackNightCss;
 
     if (css != null) {
-      if (Platform.isWindows) {
-        // Windows-specific aggressive injection
-        // 1. Try official CSS injection (Best for Windows/WebView2)
-        controller.injectCSSCode(source: css);
+      try {
+        if (Platform.isWindows) {
+          // Windows-specific aggressive injection
+          // 1. Try official CSS injection (Best for Windows/WebView2)
+          controller.injectCSSCode(source: css);
 
-        // 2. Fallback: JS Injection of Style Tag (Original method)
-        controller.evaluateJavascript(source: _getNightModeJs());
+          // 2. Fallback: JS Injection of Style Tag (Original method)
+          controller.evaluateJavascript(source: _getNightModeJs());
 
-        // 3. Nuclear Option: Direct Style Manipulation (For stubborn pages)
-        // Force background to dark immediately
-        controller.evaluateJavascript(source: """
-          (function() {
-            try {
-              document.body.style.backgroundColor = '#121212';
-              document.documentElement.style.backgroundColor = '#121212';
-            } catch(e) {}
-          })();
-        """);
-      } else {
-        // Mobile (Android/iOS): Use original, standard method
-        controller.evaluateJavascript(source: _getNightModeJs());
-      }
+          // 3. Nuclear Option: Direct Style Manipulation (For stubborn pages)
+          // Force background to dark immediately
+          controller.evaluateJavascript(source: """
+            (function() {
+              try {
+                document.body.style.backgroundColor = '#121212';
+                document.documentElement.style.backgroundColor = '#121212';
+              } catch(e) {}
+            })();
+          """);
+        } else {
+          // Mobile (Android/iOS): Use original, standard method
+          controller.evaluateJavascript(source: _getNightModeJs());
+        }
+      } catch (_) {}
     }
   }
 
@@ -255,6 +257,24 @@ class BrowserProvider extends ChangeNotifier {
     _saveTabsState();
   }
 
+  static int _tabIdCounter = 0;
+
+  static String normalizeUrl(String input) {
+    var url = input.trim();
+    if (url.isEmpty) return 'about:blank';
+    final lower = url.toLowerCase();
+    if (lower.startsWith('http://') ||
+        lower.startsWith('https://') ||
+        lower.startsWith('file://') ||
+        lower.startsWith('about:') ||
+        lower.startsWith('javascript:') ||
+        lower.startsWith('data:') ||
+        lower.startsWith('blob:')) {
+      return url;
+    }
+    return 'https://$url';
+  }
+
   Future<void> addTab({
     String initialUrl = 'about:blank',
     String? initialTitle,
@@ -262,10 +282,15 @@ class BrowserProvider extends ChangeNotifier {
     String? customUserAgent,
     bool switchToNewTab = true,
   }) async {
+    _tabIdCounter++;
+    final uniqueId = '${DateTime.now().millisecondsSinceEpoch}_$_tabIdCounter';
+    final normalizedUrl = normalizeUrl(initialUrl);
+
     final tab = BrowserTab(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      url: initialUrl,
-      title: initialTitle ?? '新标签页',
+      id: uniqueId,
+      url: normalizedUrl,
+      title: initialTitle ??
+          (normalizedUrl == 'about:blank' ? '新标签页' : '正在加载...'),
       customName: customName,
       customUserAgent: customUserAgent,
     );

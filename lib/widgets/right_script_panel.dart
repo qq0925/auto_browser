@@ -47,19 +47,19 @@ class RightScriptPanel extends StatelessWidget {
             onTap: onGlobalSettings,
             child: Container(
               height: 44,
-              padding: const EdgeInsets.fromLTRB(4, 4, 6, 4),
+              padding: const EdgeInsets.fromLTRB(2, 2, 6, 2),
               child: Stack(
                 children: [
                   // 嵌在最左上角: 全局（纯文本无框，紧贴左上角）
                   Align(
                     alignment: Alignment.topLeft,
                     child: Padding(
-                      padding: const EdgeInsets.only(left: 6, top: 4),
+                      padding: const EdgeInsets.only(left: 3, top: 1),
                       child: const Text(
                         '全局',
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: 10.5,
+                          fontSize: 10,
                           fontWeight: FontWeight.w600,
                         ),
                       ),

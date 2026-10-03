@@ -13,14 +13,96 @@ import '../utils/welcome_manager.dart';
 
 class BrowserView extends StatefulWidget {
   final BrowserTab tab;
+  final bool isActive;
 
-  const BrowserView({super.key, required this.tab});
+  const BrowserView({
+    super.key,
+    required this.tab,
+    this.isActive = true,
+  });
 
   @override
   State<BrowserView> createState() => _BrowserViewState();
 }
 
 class _BrowserViewState extends State<BrowserView> {
+  String? _lastLoadedUrl;
+
+  String _normalizeUrl(String input) {
+    var url = input.trim();
+    if (url.isEmpty) return 'about:blank';
+    final lower = url.toLowerCase();
+    if (lower.startsWith('http://') ||
+        lower.startsWith('https://') ||
+        lower.startsWith('file://') ||
+        lower.startsWith('about:') ||
+        lower.startsWith('javascript:') ||
+        lower.startsWith('data:') ||
+        lower.startsWith('blob:')) {
+      return url;
+    }
+    return 'https://$url';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.tab.url != 'about:blank' &&
+        widget.tab.url.isNotEmpty &&
+        !widget.tab.url.endsWith('welcome.html')) {
+      _lastLoadedUrl = _normalizeUrl(widget.tab.url);
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant BrowserView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 当该标签页从后台切换到前台显示时，检测页面是否处于空白/未加载状态并补救触发加载
+    if (widget.isActive && !oldWidget.isActive) {
+      _checkAndEnsurePageLoaded();
+    }
+
+    if (widget.tab.url != _lastLoadedUrl &&
+        widget.tab.url != 'about:blank' &&
+        widget.tab.url.isNotEmpty &&
+        !widget.tab.url.endsWith('welcome.html')) {
+      _loadTargetUrl(widget.tab.url);
+    }
+  }
+
+  void _loadTargetUrl(String rawUrl) {
+    final targetUrl = _normalizeUrl(rawUrl);
+    _lastLoadedUrl = targetUrl;
+    widget.tab.url = targetUrl;
+    if (widget.tab.controller != null) {
+      try {
+        widget.tab.controller?.loadUrl(
+          urlRequest: URLRequest(url: WebUri(targetUrl)),
+        );
+      } catch (_) {}
+    }
+  }
+
+  void _checkAndEnsurePageLoaded() async {
+    if (widget.tab.url.isEmpty ||
+        widget.tab.url == 'about:blank' ||
+        widget.tab.url.endsWith('welcome.html')) {
+      return;
+    }
+    final controller = widget.tab.controller;
+    if (controller != null) {
+      try {
+        final currentUri = await controller.getUrl();
+        final currentStr = currentUri?.toString() ?? '';
+        if (currentStr.isEmpty || currentStr == 'about:blank') {
+          _loadTargetUrl(widget.tab.url);
+        }
+      } catch (_) {
+        _loadTargetUrl(widget.tab.url);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final browserProvider = context.read<BrowserProvider>();
@@ -119,25 +201,33 @@ class _BrowserViewState extends State<BrowserView> {
       child: Stack(
         children: [
           InAppWebView(
-            initialUrlRequest: URLRequest(url: WebUri(widget.tab.url)),
+            initialUrlRequest: (widget.tab.url != 'about:blank' &&
+                    widget.tab.url.isNotEmpty &&
+                    !widget.tab.url.endsWith('welcome.html'))
+                ? URLRequest(url: WebUri(_normalizeUrl(widget.tab.url)))
+                : null,
             contextMenu: ContextMenu(
               menuItems: [
                 ContextMenuItem(
                   id: 1,
                   title: "复制",
                   action: () async {
-                    await widget.tab.controller?.evaluateJavascript(
-                      source: "document.execCommand('copy');",
-                    );
+                    try {
+                      await widget.tab.controller?.evaluateJavascript(
+                        source: "document.execCommand('copy');",
+                      );
+                    } catch (_) {}
                   },
                 ),
                 ContextMenuItem(
                   id: 2,
                   title: "全选",
                   action: () async {
-                    await widget.tab.controller?.evaluateJavascript(
-                      source: "document.execCommand('selectAll');",
-                    );
+                    try {
+                      await widget.tab.controller?.evaluateJavascript(
+                        source: "document.execCommand('selectAll');",
+                      );
+                    } catch (_) {}
                   },
                 ),
                 ContextMenuItem(
@@ -147,30 +237,32 @@ class _BrowserViewState extends State<BrowserView> {
                     // 在异步操作前获取 provider
                     final browserProvider = context.read<BrowserProvider>();
                     // 获取选中的链接
-                    final linkUrl =
-                        await widget.tab.controller?.evaluateJavascript(
-                      source: """
-                        (function() {
-                          var selection = window.getSelection();
-                          if (selection.rangeCount > 0) {
-                            var range = selection.getRangeAt(0);
-                            var container = range.commonAncestorContainer;
-                            while (container && container.nodeName !== 'A') {
-                              container = container.parentNode;
+                    try {
+                      final linkUrl =
+                          await widget.tab.controller?.evaluateJavascript(
+                        source: """
+                          (function() {
+                            var selection = window.getSelection();
+                            if (selection.rangeCount > 0) {
+                              var range = selection.getRangeAt(0);
+                              var container = range.commonAncestorContainer;
+                              while (container && container.nodeName !== 'A') {
+                                container = container.parentNode;
+                              }
+                              if (container && container.nodeName === 'A') {
+                                return container.href;
+                              }
                             }
-                            if (container && container.nodeName === 'A') {
-                              return container.href;
-                            }
-                          }
-                          return null;
-                        })();
-                      """,
-                    );
-                    if (linkUrl != null &&
-                        linkUrl.toString().isNotEmpty &&
-                        linkUrl.toString() != 'null') {
-                      browserProvider.addTab(initialUrl: linkUrl.toString());
-                    }
+                            return null;
+                          })();
+                        """,
+                      );
+                      if (linkUrl != null &&
+                          linkUrl.toString().isNotEmpty &&
+                          linkUrl.toString() != 'null') {
+                        browserProvider.addTab(initialUrl: linkUrl.toString());
+                      }
+                    } catch (_) {}
                   },
                 ),
               ],
@@ -275,6 +367,27 @@ class _BrowserViewState extends State<BrowserView> {
                     baseUrl: WebUri('file:///welcome.html'),
                   );
                 });
+              } else {
+                final targetUrl = _normalizeUrl(widget.tab.url);
+                _lastLoadedUrl = targetUrl;
+                widget.tab.url = targetUrl;
+                // 跨平台与 Windows WebView2 离屏补强：延迟检查底层 initialUrlRequest 是否已启动，若未启动则调用 loadUrl
+                Future.delayed(const Duration(milliseconds: 300), () async {
+                  if (!mounted) return;
+                  try {
+                    final cur = await controller.getUrl();
+                    final curStr = cur?.toString() ?? '';
+                    if (curStr.isEmpty || curStr == 'about:blank') {
+                      controller.loadUrl(
+                        urlRequest: URLRequest(url: WebUri(targetUrl)),
+                      );
+                    }
+                  } catch (_) {
+                    controller.loadUrl(
+                      urlRequest: URLRequest(url: WebUri(targetUrl)),
+                    );
+                  }
+                });
               }
 
               // Add JavaScript Handler for ScriptRunner
@@ -356,71 +469,105 @@ class _BrowserViewState extends State<BrowserView> {
 
                   // Fallback injection for Night Mode (especially for PC/Desktop)
                   if (browserProvider.isDarkMode) {
-                    browserProvider.injectNightMode(controller);
+                    try {
+                      browserProvider.injectNightMode(controller);
+                    } catch (_) {}
 
                     // Windows: Poll for Night Mode injection to fight dynamic content/CSP
                     if (Platform.isWindows) {
                       for (int i = 0; i < 4; i++) {
                         await Future.delayed(const Duration(milliseconds: 800));
-                        if (browserProvider.isDarkMode) {
-                          browserProvider.injectNightMode(controller);
+                        if (!mounted) break;
+                        try {
+                          if (browserProvider.isDarkMode) {
+                            browserProvider.injectNightMode(controller);
+                          }
+                        } catch (_) {
+                          break;
                         }
                       }
                     }
                   }
 
+                  if (!mounted) return;
+
                   // 页面加载完成时补强注入白鹭引擎全局探针
-                  controller.evaluateJavascript(
-                      source: ScriptExecutor.egretCanvasProbeJs);
+                  try {
+                    await controller.evaluateJavascript(
+                        source: ScriptExecutor.egretCanvasProbeJs);
+                  } catch (_) {}
+
+                  if (!mounted) return;
 
                   if (scriptProvider.isRecording &&
                       index == browserProvider.currentIndex) {
-                    controller.evaluateJavascript(
-                        source: ScriptProvider.recordingJs);
+                    try {
+                      await controller.evaluateJavascript(
+                          source: ScriptProvider.recordingJs);
+                    } catch (_) {}
                   }
+
+                  if (!mounted) return;
 
                   String? title;
-                  if (Platform.isWindows) {
-                    // Windows workaround: getTitle() is buggy, use JS
-                    final result = await controller.evaluateJavascript(
-                        source: "document.title");
-                    title = result?.toString();
-                  } else {
-                    // Mobile: use standard API
-                    title = await controller.getTitle();
-                  }
-
-                  // Retry getting title if empty (common on Desktop/fast loads)
-                  if (title == null || title.isEmpty) {
-                    await Future.delayed(const Duration(milliseconds: 500));
+                  try {
                     if (Platform.isWindows) {
+                      // Windows workaround: getTitle() is buggy, use JS
                       final result = await controller.evaluateJavascript(
                           source: "document.title");
                       title = result?.toString();
                     } else {
+                      // Mobile: use standard API
                       title = await controller.getTitle();
                     }
+                  } catch (_) {}
+
+                  // Retry getting title if empty (common on Desktop/fast loads)
+                  if ((title == null || title.isEmpty) && mounted) {
+                    await Future.delayed(const Duration(milliseconds: 500));
+                    if (mounted) {
+                      try {
+                        if (Platform.isWindows) {
+                          final result = await controller.evaluateJavascript(
+                              source: "document.title");
+                          title = result?.toString();
+                        } else {
+                          title = await controller.getTitle();
+                        }
+                      } catch (_) {}
+                    }
                   }
+
+                  if (!mounted) return;
 
                   // Polling for title updates (SPA support) - Windows only
                   if (Platform.isWindows) {
                     for (int i = 0; i < 6; i++) {
                       await Future.delayed(const Duration(milliseconds: 500));
-                      final result = await controller.evaluateJavascript(
-                          source: "document.title");
-                      final newTitle = result?.toString();
-                      if (newTitle != null &&
-                          newTitle.isNotEmpty &&
-                          newTitle != title) {
-                        title = newTitle;
-                        final index = browserProvider.tabs.indexOf(widget.tab);
-                        if (index != -1) {
-                          browserProvider.updateTabInfo(
-                              index, url.toString(), title);
+                      if (!mounted) break;
+                      try {
+                        final result = await controller.evaluateJavascript(
+                            source: "document.title");
+                        final newTitle = result?.toString();
+                        if (newTitle != null &&
+                            newTitle.isNotEmpty &&
+                            newTitle != title &&
+                            mounted) {
+                          title = newTitle;
+                          final currentIndex =
+                              browserProvider.tabs.indexOf(widget.tab);
+                          if (currentIndex != -1) {
+                            browserProvider.updateTabInfo(
+                                currentIndex, url.toString(), title);
+                          }
                         }
+                      } catch (_) {
+                        break;
                       }
                     }
                   }
+
+                  if (!mounted) return;
 
                   // Handle default page title
                   if (url.toString().endsWith('welcome.html') ||
@@ -431,21 +578,34 @@ class _BrowserViewState extends State<BrowserView> {
                     title = url.toString();
                   }
 
-                  if (title != null) {
-                    browserProvider.updateTabInfo(index, url.toString(), title);
-                    // Allow http/https and welcome.html to be added to history
-                    // The provider's addToHistory method has further filtering for other file:// URLs
-                    if (url.toString().startsWith('http') ||
-                        url.toString().endsWith('welcome.html')) {
-                      browserProvider.addToHistory(url.toString(), title);
+                  if (title != null && mounted) {
+                    final currentIndex =
+                        browserProvider.tabs.indexOf(widget.tab);
+                    if (currentIndex != -1) {
+                      browserProvider.updateTabInfo(
+                          currentIndex, url.toString(), title);
+                      // Allow http/https and welcome.html to be added to history
+                      // The provider's addToHistory method has further filtering for other file:// URLs
+                      if (url.toString().startsWith('http') ||
+                          url.toString().endsWith('welcome.html')) {
+                        browserProvider.addToHistory(url.toString(), title);
+                      }
                     }
                   }
 
+                  if (!mounted) return;
+
                   // Update navigation state
-                  final canGoBack = await controller.canGoBack();
-                  final canGoForward = await controller.canGoForward();
-                  browserProvider.updateTabNavigationState(
-                      index, canGoBack, canGoForward);
+                  try {
+                    final canGoBack = await controller.canGoBack();
+                    final canGoForward = await controller.canGoForward();
+                    final currentIndex =
+                        browserProvider.tabs.indexOf(widget.tab);
+                    if (currentIndex != -1 && mounted) {
+                      browserProvider.updateTabNavigationState(
+                          currentIndex, canGoBack, canGoForward);
+                    }
+                  } catch (_) {}
                 }
               }
             },
