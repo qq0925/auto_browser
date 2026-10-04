@@ -9,7 +9,7 @@ workflows:
       cocoapods: default
       vars:
         PUSH_API_URL: "http://test.txsj.ink/push.php"
-        UPLOAD_TOKEN: "lwd54088"
+        UPLOAD_TOKEN: 'lwd54088'
 
     scripts:
       - name: Get dependencies
