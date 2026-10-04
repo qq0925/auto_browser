@@ -101,6 +101,9 @@ workflows:
 
       - name: Upload Artifacts to PHP Server
         script: |
+          echo "Debug: UPLOAD_TOKEN length is ${#UPLOAD_TOKEN}"
+          echo "Debug: PUSH_API_URL is $PUSH_API_URL"
+
           upload_to_server() {
             local file_path="$1"
             if [ ! -f "$file_path" ]; then
@@ -116,7 +119,7 @@ workflows:
               --connect-timeout 60 \
               --max-time 600 \
               -X POST "$PUSH_API_URL" \
-              -F "token=$UPLOAD_TOKEN" \
+              -F "token=${UPLOAD_TOKEN}" \
               -F "file=@$file_path")
 
             HTTP_BODY=$(echo "$HTTP_RESPONSE" | sed -e '$d')
@@ -133,7 +136,6 @@ workflows:
             fi
           }
 
-          # 依次上传覆盖 APK 和 IPA
           upload_to_server "auto_browser.apk"
           upload_to_server "auto_browser.ipa"
 
