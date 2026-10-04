@@ -115,22 +115,26 @@ workflows:
             echo "Uploading $file_path ($FILE_SIZE bytes) to $PUSH_API_URL..."
             echo "=========================================="
 
-            # 关键修改：
-            # 1. 增加 -H "Expect:" 彻底禁用 100 Continue
-            # 2. 将服务器返回的 body 存到临时文件，用 %{response_code} 拿最终状态码
-            HTTP_STATUS=$(curl --silent --show-error \
+            # 移除 --silent，保留进度条以观测实际传输速度
+            # 如果连续 30 秒速度低于 1000 字节，则主动重试
+            HTTP_STATUS=$(curl --show-error --progress-bar \
               -o /tmp/response_body.txt \
               -w "%{response_code}" \
               --connect-timeout 60 \
-              --max-time 600 \
+              --speed-time 30 \
+              --speed-limit 1024 \
+              --max-time 900 \
+              --retry 2 \
+              --retry-delay 5 \
               -X POST "$PUSH_API_URL" \
               -H "Expect:" \
               -H "X-Upload-Token: ${UPLOAD_TOKEN}" \
               -F "token=${UPLOAD_TOKEN}" \
               -F "file=@${file_path};type=application/octet-stream")
 
-            HTTP_BODY=$(cat /tmp/response_body.txt)
+            HTTP_BODY=$(cat /tmp/response_body.txt 2>/dev/null || echo "")
 
+            echo ""
             echo "Server Response: $HTTP_BODY"
             echo "HTTP Status Code: $HTTP_STATUS"
 
