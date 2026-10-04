@@ -104,26 +104,32 @@ workflows:
         script: |
           upload_to_server() {
             local file_path="$1"
-            if [ ! -f "$file_path" ]; then
-              echo "Warning: File $file_path does not exist, skipping upload."
-              return 0
+            
+            if [ ! -s "$file_path" ]; then
+              echo "Error: File $file_path is missing or 0 bytes!"
+              exit 1
             fi
 
+            FILE_SIZE=$(stat -f%z "$file_path" 2>/dev/null || stat -c%s "$file_path" 2>/dev/null)
             echo "=========================================="
-            echo "Uploading $file_path to $PUSH_API_URL..."
+            echo "Uploading $file_path ($FILE_SIZE bytes) to $PUSH_API_URL..."
             echo "=========================================="
 
-            # 同时在 Header (X-Upload-Token) 和 POST 表单 (-F token) 传递密钥
-            HTTP_RESPONSE=$(curl --silent --write-out "\nHTTP_STATUS:%{http_code}" \
+            # 关键修改：
+            # 1. 增加 -H "Expect:" 彻底禁用 100 Continue
+            # 2. 将服务器返回的 body 存到临时文件，用 %{response_code} 拿最终状态码
+            HTTP_STATUS=$(curl --silent --show-error \
+              -o /tmp/response_body.txt \
+              -w "%{response_code}" \
               --connect-timeout 60 \
               --max-time 600 \
               -X POST "$PUSH_API_URL" \
+              -H "Expect:" \
               -H "X-Upload-Token: ${UPLOAD_TOKEN}" \
               -F "token=${UPLOAD_TOKEN}" \
-              -F "file=@$file_path")
+              -F "file=@${file_path};type=application/octet-stream")
 
-            HTTP_BODY=$(echo "$HTTP_RESPONSE" | sed -e '$d')
-            HTTP_STATUS=$(echo "$HTTP_RESPONSE" | tail -n 1 | sed -e 's/HTTP_STATUS://')
+            HTTP_BODY=$(cat /tmp/response_body.txt)
 
             echo "Server Response: $HTTP_BODY"
             echo "HTTP Status Code: $HTTP_STATUS"
@@ -136,7 +142,6 @@ workflows:
             fi
           }
 
-          # 依次上传覆盖 APK 与 IPA
           upload_to_server "auto_browser.apk"
           upload_to_server "auto_browser.ipa"
 
