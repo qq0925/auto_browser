@@ -9,7 +9,7 @@ workflows:
       cocoapods: default
       vars:
         PUSH_API_URL: "http://test.txsj.ink/push.php"
-        UPLOAD_TOKEN: 'lwd54088'
+        UPLOAD_TOKEN: "lwd54088"
 
     scripts:
       - name: Get dependencies
@@ -22,6 +22,7 @@ workflows:
 
       - name: Build iOS App
         script: |
+          # 仅构建 .app，不签名 (若配置了证书，去掉 --no-codesign)
           flutter build ios --release --no-codesign
 
       - name: Prepare Python Script
@@ -101,13 +102,10 @@ workflows:
 
       - name: Upload Artifacts to PHP Server
         script: |
-          echo "Debug: UPLOAD_TOKEN length is ${#UPLOAD_TOKEN}"
-          echo "Debug: PUSH_API_URL is $PUSH_API_URL"
-
           upload_to_server() {
             local file_path="$1"
             if [ ! -f "$file_path" ]; then
-              echo "Warning: File $file_path does not exist, skipping."
+              echo "Warning: File $file_path does not exist, skipping upload."
               return 0
             fi
 
@@ -115,10 +113,12 @@ workflows:
             echo "Uploading $file_path to $PUSH_API_URL..."
             echo "=========================================="
 
+            # 同时在 Header (X-Upload-Token) 和 POST 表单 (-F token) 传递密钥
             HTTP_RESPONSE=$(curl --silent --write-out "\nHTTP_STATUS:%{http_code}" \
               --connect-timeout 60 \
               --max-time 600 \
               -X POST "$PUSH_API_URL" \
+              -H "X-Upload-Token: ${UPLOAD_TOKEN}" \
               -F "token=${UPLOAD_TOKEN}" \
               -F "file=@$file_path")
 
@@ -136,6 +136,7 @@ workflows:
             fi
           }
 
+          # 依次上传覆盖 APK 与 IPA
           upload_to_server "auto_browser.apk"
           upload_to_server "auto_browser.ipa"
 
