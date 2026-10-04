@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/gestures.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -185,6 +186,202 @@ class _BrowserHomePageState extends State<BrowserHomePage>
         initialUrl: initialUrl ?? '', initialTitle: initialTitle);
   }
 
+  /// 统一网页后退处理
+  Future<void> _handleGoBack(
+      BrowserProvider browserProvider, ScriptProvider scriptProvider) async {
+    final currentTab = browserProvider.currentTab;
+    if (currentTab == null || !currentTab.canGoBack) return;
+
+    if (scriptProvider.isRecording) {
+      scriptProvider.recordAction('网页后退');
+    }
+
+    try {
+      await currentTab.controller?.goBack();
+    } catch (_) {}
+
+    _syncTabNavigationState(currentTab, browserProvider);
+  }
+
+  /// 统一网页前进处理
+  Future<void> _handleGoForward(
+      BrowserProvider browserProvider, ScriptProvider scriptProvider) async {
+    final currentTab = browserProvider.currentTab;
+    if (currentTab == null || !currentTab.canGoForward) return;
+
+    if (scriptProvider.isRecording) {
+      scriptProvider.recordAction('网页前进');
+    }
+
+    try {
+      await currentTab.controller?.goForward();
+    } catch (_) {}
+
+    _syncTabNavigationState(currentTab, browserProvider);
+  }
+
+  /// 后退/前进后主动同步 Tab 导航状态、URL 与标题
+  void _syncTabNavigationState(
+      BrowserTab tab, BrowserProvider browserProvider) {
+    final controller = tab.controller;
+    if (controller == null) return;
+
+    // 分别在 80ms 和 320ms 主动轮询两次，确保即使没有触发 onLoadStop 也能秒级同步状态
+    for (final delay in [80, 320]) {
+      Future.delayed(Duration(milliseconds: delay), () async {
+        if (!mounted) return;
+        final index = browserProvider.tabs.indexOf(tab);
+        if (index == -1) return;
+
+        try {
+          final canBack = await controller.canGoBack();
+          final canForward = await controller.canGoForward();
+          browserProvider.updateTabNavigationState(index, canBack, canForward);
+
+          final curUri = await controller.getUrl();
+          if (curUri != null) {
+            final curUrl = curUri.toString();
+            tab.url = curUrl;
+
+            if (curUrl.endsWith('welcome.html') ||
+                curUrl == 'file:///welcome.html') {
+              browserProvider.updateTabInfo(index, curUrl, '欢迎使用');
+            } else {
+              String? title;
+              if (Platform.isWindows) {
+                final res = await controller.evaluateJavascript(
+                    source: "document.title");
+                title = res?.toString();
+              } else {
+                title = await controller.getTitle();
+              }
+              if (title != null && title.isNotEmpty) {
+                browserProvider.updateTabInfo(index, curUrl, title);
+              } else {
+                browserProvider.updateTabInfo(index, curUrl, tab.title);
+              }
+            }
+          }
+        } catch (_) {}
+      });
+    }
+  }
+
+  /// 长按后退/前进按钮弹出历史记录菜单
+  Future<void> _showBackForwardHistoryMenu(
+      BuildContext context, BrowserTab tab, bool isBack) async {
+    final controller = tab.controller;
+    if (controller == null) return;
+    final bp = Provider.of<BrowserProvider>(context, listen: false);
+
+    try {
+      final history = await controller.getCopyBackForwardList();
+      if (history == null ||
+          history.list == null ||
+          history.currentIndex == null) {
+        return;
+      }
+
+      final currentIndex = history.currentIndex!;
+      final list = history.list!;
+
+      List<WebHistoryItem> items = [];
+      if (isBack) {
+        // 后退历史：0 到 currentIndex - 1，倒序（最近的在前）
+        if (currentIndex > 0) {
+          items = list.sublist(0, currentIndex).reversed.toList();
+        }
+      } else {
+        // 前进历史：currentIndex + 1 到 list.length
+        if (currentIndex < list.length - 1) {
+          items = list.sublist(currentIndex + 1);
+        }
+      }
+
+      if (items.isEmpty || !context.mounted) return;
+
+      showModalBottomSheet(
+        context: context,
+        backgroundColor: const Color(0xFF2A2A2A),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        builder: (ctx) {
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 8),
+                    child: Text(
+                      isBack ? '后退历史记录' : '前进历史记录',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const Divider(color: Colors.white24, height: 1),
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: MediaQuery.of(context).size.height * 0.4,
+                    ),
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: items.length,
+                      itemBuilder: (ctx, i) {
+                        final item = items[i];
+                        final title = (item.title != null && item.title!.isNotEmpty)
+                            ? item.title!
+                            : (item.url?.toString() ?? '无标题');
+                        final url = item.url?.toString() ?? '';
+
+                        return ListTile(
+                          dense: true,
+                          leading: Icon(
+                            isBack ? Icons.history : Icons.redo,
+                            color: Colors.blueAccent,
+                            size: 18,
+                          ),
+                          title: Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 13),
+                          ),
+                          subtitle: Text(
+                            url,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                color: Colors.white54, fontSize: 11),
+                          ),
+                          onTap: () async {
+                            Navigator.pop(ctx);
+                            try {
+                              await controller.goTo(historyItem: item);
+                              _syncTabNavigationState(tab, bp);
+                            } catch (_) {}
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    } catch (_) {}
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer3<BrowserProvider, ScriptProvider, DownloadProvider>(
@@ -234,15 +431,11 @@ class _BrowserHomePageState extends State<BrowserHomePage>
             },
             // Alt+Left: 网页后退
             const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true): () {
-              if (browserProvider.currentTab?.canGoBack ?? false) {
-                browserProvider.currentTab?.controller?.goBack();
-              }
+              _handleGoBack(browserProvider, scriptProvider);
             },
             // Alt+Right: 网页前进
             const SingleActivator(LogicalKeyboardKey.arrowRight, alt: true): () {
-              if (browserProvider.currentTab?.canGoForward ?? false) {
-                browserProvider.currentTab?.controller?.goForward();
-              }
+              _handleGoForward(browserProvider, scriptProvider);
             },
           },
           child: PopScope(
@@ -259,10 +452,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
               // 2. 如果当前网页可以后退，执行后退
               final currentTab = browserProvider.currentTab;
               if (currentTab != null && currentTab.canGoBack) {
-                if (scriptProvider.isRecording) {
-                  scriptProvider.recordAction('网页后退');
-                }
-                await currentTab.controller?.goBack();
+                await _handleGoBack(browserProvider, scriptProvider);
                 return;
               }
 
@@ -286,8 +476,17 @@ class _BrowserHomePageState extends State<BrowserHomePage>
               // 退出应用
               SystemNavigator.pop();
             },
-            child: Scaffold(
-              backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+            child: Listener(
+              onPointerDown: (event) {
+                // 监听鼠标侧键：键 4 为后退，键 5 为前进
+                if (event.buttons == kBackMouseButton) {
+                  _handleGoBack(browserProvider, scriptProvider);
+                } else if (event.buttons == kForwardMouseButton) {
+                  _handleGoForward(browserProvider, scriptProvider);
+                }
+              },
+              child: Scaffold(
+                backgroundColor: Theme.of(context).scaffoldBackgroundColor,
           appBar: AppBar(
             backgroundColor: Theme.of(context).appBarTheme.backgroundColor,
             elevation: 0,
@@ -887,6 +1086,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
         ),
       ),
     ),
+  ),
 
     // 开屏启动 Loading 层（等待网络与初始化就绪并平滑淡出）
     AnimatedOpacity(
@@ -918,37 +1118,41 @@ class _BrowserHomePageState extends State<BrowserHomePage>
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              IconButton(
-                icon: Icon(
-                  Icons.arrow_back,
-                  color: (browser.currentTab?.canGoBack ?? false)
-                      ? Colors.white
-                      : Colors.white38,
-                ),
-                onPressed: (browser.currentTab?.canGoBack ?? false)
-                    ? () async {
-                        if (scriptProvider.isRecording) {
-                          scriptProvider.recordAction('网页后退');
-                        }
-                        await browser.currentTab!.controller?.goBack();
-                      }
+              GestureDetector(
+                onLongPress: (browser.currentTab?.canGoBack ?? false)
+                    ? () => _showBackForwardHistoryMenu(
+                        context, browser.currentTab!, true)
                     : null,
+                child: IconButton(
+                  icon: Icon(
+                    Icons.arrow_back,
+                    color: (browser.currentTab?.canGoBack ?? false)
+                        ? Colors.white
+                        : Colors.white38,
+                  ),
+                  tooltip: '后退 (长按查看历史)',
+                  onPressed: (browser.currentTab?.canGoBack ?? false)
+                      ? () => _handleGoBack(browser, scriptProvider)
+                      : null,
+                ),
               ),
-              IconButton(
-                icon: Icon(
-                  Icons.arrow_forward,
-                  color: (browser.currentTab?.canGoForward ?? false)
-                      ? Colors.white
-                      : Colors.white38,
-                ),
-                onPressed: (browser.currentTab?.canGoForward ?? false)
-                    ? () async {
-                        if (scriptProvider.isRecording) {
-                          scriptProvider.recordAction('网页前进');
-                        }
-                        await browser.currentTab!.controller?.goForward();
-                      }
+              GestureDetector(
+                onLongPress: (browser.currentTab?.canGoForward ?? false)
+                    ? () => _showBackForwardHistoryMenu(
+                        context, browser.currentTab!, false)
                     : null,
+                child: IconButton(
+                  icon: Icon(
+                    Icons.arrow_forward,
+                    color: (browser.currentTab?.canGoForward ?? false)
+                        ? Colors.white
+                        : Colors.white38,
+                  ),
+                  tooltip: '前进 (长按查看历史)',
+                  onPressed: (browser.currentTab?.canGoForward ?? false)
+                      ? () => _handleGoForward(browser, scriptProvider)
+                      : null,
+                ),
               ),
               IconButton(
                 icon: const Icon(Icons.menu, color: Colors.white),

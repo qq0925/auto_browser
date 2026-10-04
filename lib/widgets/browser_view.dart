@@ -26,8 +26,6 @@ class BrowserView extends StatefulWidget {
 }
 
 class _BrowserViewState extends State<BrowserView> {
-  String? _lastLoadedUrl;
-
   String _normalizeUrl(String input) {
     var url = input.trim();
     if (url.isEmpty) return 'about:blank';
@@ -45,34 +43,16 @@ class _BrowserViewState extends State<BrowserView> {
   }
 
   @override
-  void initState() {
-    super.initState();
-    if (widget.tab.url != 'about:blank' &&
-        widget.tab.url.isNotEmpty &&
-        !widget.tab.url.endsWith('welcome.html')) {
-      _lastLoadedUrl = _normalizeUrl(widget.tab.url);
-    }
-  }
-
-  @override
   void didUpdateWidget(covariant BrowserView oldWidget) {
     super.didUpdateWidget(oldWidget);
     // 当该标签页从后台切换到前台显示时，检测页面是否处于空白/未加载状态并补救触发加载
     if (widget.isActive && !oldWidget.isActive) {
       _checkAndEnsurePageLoaded();
     }
-
-    if (widget.tab.url != _lastLoadedUrl &&
-        widget.tab.url != 'about:blank' &&
-        widget.tab.url.isNotEmpty &&
-        !widget.tab.url.endsWith('welcome.html')) {
-      _loadTargetUrl(widget.tab.url);
-    }
   }
 
   void _loadTargetUrl(String rawUrl) {
     final targetUrl = _normalizeUrl(rawUrl);
-    _lastLoadedUrl = targetUrl;
     widget.tab.url = targetUrl;
     if (widget.tab.controller != null) {
       try {
@@ -296,6 +276,7 @@ class _BrowserViewState extends State<BrowserView> {
               useHybridComposition: true,
               useOnDownloadStart: true,
               allowsLinkPreview: false, // 禁用 iOS 链接预览
+              allowsBackForwardNavigationGestures: true, // 开启平滑滑动前进后退手势
               supportZoom: true,
               builtInZoomControls: true,
               forceDark: browserProvider.isDarkMode
@@ -369,7 +350,6 @@ class _BrowserViewState extends State<BrowserView> {
                 });
               } else {
                 final targetUrl = _normalizeUrl(widget.tab.url);
-                _lastLoadedUrl = targetUrl;
                 widget.tab.url = targetUrl;
                 // 跨平台与 Windows WebView2 离屏补强：延迟检查底层 initialUrlRequest 是否已启动，若未启动则调用 loadUrl
                 Future.delayed(const Duration(milliseconds: 300), () async {
@@ -640,11 +620,48 @@ class _BrowserViewState extends State<BrowserView> {
             },
             onUpdateVisitedHistory: (controller, url, androidIsReload) async {
               final index = browserProvider.tabs.indexOf(widget.tab);
-              if (index != -1) {
-                final canGoBack = await controller.canGoBack();
-                final canGoForward = await controller.canGoForward();
-                browserProvider.updateTabNavigationState(
-                    index, canGoBack, canGoForward);
+              if (index != -1 && mounted) {
+                try {
+                  final canGoBack = await controller.canGoBack();
+                  final canGoForward = await controller.canGoForward();
+                  browserProvider.updateTabNavigationState(
+                      index, canGoBack, canGoForward);
+                } catch (_) {}
+
+                if (url != null) {
+                  final urlStr = url.toString();
+                  widget.tab.url = urlStr;
+
+                  if (urlStr.endsWith('welcome.html') ||
+                      urlStr == 'file:///welcome.html') {
+                    WelcomeManager.getWelcomeContent().then((content) {
+                      controller.loadData(
+                        data: content,
+                        mimeType: 'text/html',
+                        encoding: 'utf-8',
+                        baseUrl: WebUri('file:///welcome.html'),
+                      );
+                    });
+                    browserProvider.updateTabInfo(index, urlStr, '欢迎使用');
+                  } else {
+                    String? title;
+                    try {
+                      if (Platform.isWindows) {
+                        final res = await controller.evaluateJavascript(
+                            source: "document.title");
+                        title = res?.toString();
+                      } else {
+                        title = await controller.getTitle();
+                      }
+                    } catch (_) {}
+                    if (title != null && title.isNotEmpty) {
+                      browserProvider.updateTabInfo(index, urlStr, title);
+                    } else {
+                      browserProvider.updateTabInfo(
+                          index, urlStr, widget.tab.title);
+                    }
+                  }
+                }
               }
             },
             shouldOverrideUrlLoading: (controller, navigationAction) async {
