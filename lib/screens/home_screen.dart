@@ -137,25 +137,47 @@ class _BrowserHomePageState extends State<BrowserHomePage>
     final browserProvider = context.read<BrowserProvider>();
     final scriptProvider = context.read<ScriptProvider>();
 
-    // Set wait for page load callback globally once
+    // 全局设置智能网页加载等待回调
     scriptProvider.setWaitForPageLoadCallback(() async {
       if (browserProvider.currentTab == null) return;
 
-      final controller = browserProvider.currentTab!.controller;
-      int timeout = 30000;
+      final tab = browserProvider.currentTab!;
+      final controller = tab.controller;
+      const int timeout = 30000;
       int elapsed = 0;
 
-      // 1. 等待 isLoading 变为 false
-      while (browserProvider.currentTab!.isLoading) {
-        await Future.delayed(const Duration(milliseconds: 100));
-        elapsed += 100;
-        if (elapsed >= timeout) break;
+      // 1. 导航启动探测阶段：
+      // 当刚刚调用 loadUrl / reload / goBack 时，WebView 内核需要 20-100ms 触发 onLoadStart。
+      // 我们在 300ms 窗口内以 30ms 极速微轮询，一旦探测到底层进入 loading 状态立即锁定。
+      for (int i = 0; i < 10; i++) {
+        bool isStarting = tab.isLoading;
+        if (!isStarting && controller != null) {
+          try {
+            isStarting = await controller.isLoading();
+          } catch (_) {}
+        }
+        if (isStarting) break;
+        await Future.delayed(const Duration(milliseconds: 30));
+        elapsed += 30;
       }
 
-      // 2. 等待 DOM readyState 为 complete
+      // 2. 加载中等待阶段：双重检测（Flutter Tab 状态 + WebView Native 状态）
+      while (elapsed < timeout) {
+        bool currentlyLoading = tab.isLoading;
+        if (!currentlyLoading && controller != null) {
+          try {
+            currentlyLoading = await controller.isLoading();
+          } catch (_) {}
+        }
+        if (!currentlyLoading) break;
+        await Future.delayed(const Duration(milliseconds: 60));
+        elapsed += 60;
+      }
+
+      // 3. DOM 就绪阶段：快速微轮询等待 document.readyState == 'complete'
       if (controller != null && elapsed < timeout) {
         int domCheckCount = 0;
-        const maxDomChecks = 50; // 最多检查 5 秒
+        const maxDomChecks = 100; // 最多检查 5 秒 (100 * 50ms)
 
         while (domCheckCount < maxDomChecks) {
           try {
@@ -165,13 +187,14 @@ class _BrowserHomePageState extends State<BrowserHomePage>
             if (readyState == 'complete') {
               break;
             }
-          } catch (e) {
-            // 忽略错误，继续等待
-          }
-          await Future.delayed(const Duration(milliseconds: 100));
+          } catch (_) {}
+          await Future.delayed(const Duration(milliseconds: 50));
           domCheckCount++;
         }
       }
+
+      // 4. 渲染微缓冲：给 Vue / React 异步组件挂载预留 60ms 极速缓冲
+      await Future.delayed(const Duration(milliseconds: 60));
     });
 
     if (browserProvider.tabs.isEmpty) {

@@ -37,30 +37,27 @@ class ScriptExecutor {
     bool success = true;
 
     for (var i = 0; i < repeatCount; i++) {
-      // 1. 智能按需等待网页加载：
-      // - 导航类指令（进入网址、刷新网页、前进、后退）强制等待；
-      // - 或者当前 WebView 确处于加载中状态时才等待；
-      // - 纯页面内交互（点击、输入、提取）在就绪时直接秒级通过，单步提速 20-30 倍！
+      // 1. 识别导航类动作（进入网址、刷新网页、网页后退、网页前进）
       final isNavAction = resolvedScript.type == '进入网址' ||
           resolvedScript.type == '刷新网页' ||
           resolvedScript.type == '网页后退' ||
-          resolvedScript.type == '网页前进' ||
-          resolvedScript.params['等待网页加载'] == true;
+          resolvedScript.type == '网页前进';
 
+      // 2. 步骤前智能等待：若用户显式勾选了【等待网页加载】或当前 WebView 确实处于加载中状态（如上一步交互引发了页面跳转）
       if (waitForPageLoad != null) {
-        bool needsWait = isNavAction;
-        if (!needsWait && controller != null) {
+        bool needsWaitBefore = resolvedScript.params['等待网页加载'] == true;
+        if (!needsWaitBefore && controller != null) {
           try {
-            needsWait = await controller.isLoading();
+            needsWaitBefore = await controller.isLoading();
           } catch (_) {}
         }
-        if (needsWait) {
-          onStatusChanged?.call(ScriptStatus.waiting, '等待网页加载...', null);
+        if (needsWaitBefore) {
+          onStatusChanged?.call(ScriptStatus.waiting, '等待网页加载完成...', null);
           await waitForPageLoad();
         }
       }
 
-      // 2. Wait for delay (Script specific or Global)
+      // 3. 执行单步配置的延迟或全局延迟
       int delay = executionDelay;
       if (script.params.containsKey('执行延迟')) {
         delay = script.params['执行延迟'] as int;
@@ -81,7 +78,7 @@ class ScriptExecutor {
             ScriptStatus.running, '正在执行第 ${i + 1}/$repeatCount 次', null);
       }
 
-      // Execute "Before" Script
+      // 执行前置脚本
       if (script.params['执行每个脚本前执行'] != null) {
         final beforeScriptMap = script.params['执行每个脚本前执行'];
         if (beforeScriptMap is Map<String, dynamic>) {
@@ -118,7 +115,15 @@ class ScriptExecutor {
         result = false;
       }
 
-      // Execute "After" Script
+      // 4. 关键：导航动作执行后置等待！
+      // 进入网址、刷新、后退、前进在触发后，必须等待目标新页面真正加载并解析完毕
+      // 彻底解决 0ms 延迟下 loadUrl 刚发出下一步就抢跑在旧/空页面的问题！
+      if (result && isNavAction && waitForPageLoad != null) {
+        onStatusChanged?.call(ScriptStatus.waiting, '等待新网页加载完成...', null);
+        await waitForPageLoad();
+      }
+
+      // 执行后置脚本
       if (resolvedScript.params['执行每个脚本后执行'] != null) {
         final afterScriptMap = resolvedScript.params['执行每个脚本后执行'];
         if (afterScriptMap is Map<String, dynamic>) {
@@ -445,12 +450,25 @@ class ScriptExecutor {
     return true;
   }
 
-  /// 智能自适应微轮询：
-  /// - 前 3 次使用极速 40ms 间隔探测（已就绪元素秒级命中，无感响应）
-  /// - 随后按 120ms 平稳轮询，在 3000ms 超时窗口内兼顾极速与异步容错
+  /// 解析动作级超时时间（优先读取脚本参数中的【超时时间】，未配置时默认 5000 毫秒）
+  Duration _getStepTimeout(Script script, {int defaultMs = 5000}) {
+    if (script.params.containsKey('超时时间')) {
+      final t = script.params['超时时间'];
+      if (t is int && t > 0) {
+        // 用户配置若 <= 120 视为秒；若 > 120 视为毫秒
+        return Duration(milliseconds: t <= 120 ? t * 1000 : t);
+      }
+    }
+    return Duration(milliseconds: defaultMs);
+  }
+
+  /// 智能自适应微轮询（Action Auto-Wait）：
+  /// - 前 3 次使用极速 25ms 间隔探测（已就绪元素 0ms 瞬间命中，极速无感响应）；
+  /// - 4~10 次使用 50ms 平滑探测；
+  /// - 随后按 100ms 平稳微轮询，兼顾极速响应与现代框架（Vue/React）异步渲染容错。
   Future<bool> _pollUntilSuccess(
     Future<bool> Function() action, {
-    Duration timeout = const Duration(milliseconds: 3000),
+    Duration timeout = const Duration(milliseconds: 5000),
   }) async {
     final stopwatch = Stopwatch()..start();
     int attempts = 0;
@@ -459,7 +477,7 @@ class ScriptExecutor {
         final success = await action();
         if (success) return true;
       } catch (_) {}
-      final stepDelay = attempts < 3 ? 40 : 120;
+      final stepDelay = attempts < 3 ? 25 : (attempts < 10 ? 50 : 100);
       await Future.delayed(Duration(milliseconds: stepDelay));
       attempts++;
     }
@@ -970,7 +988,7 @@ class ScriptExecutor {
         })();
       ''');
       return result.toString() == 'true';
-    });
+    }, timeout: _getStepTimeout(script));
   }
 
   Future<bool> _executeFormSubmit(
@@ -1091,7 +1109,7 @@ class ScriptExecutor {
       ''');
 
       return result.toString() == 'true';
-    });
+    }, timeout: _getStepTimeout(script));
   }
 
   Future<bool> _executeCustomJs(
@@ -1101,50 +1119,62 @@ class ScriptExecutor {
     final jsContent = script.params['js内容'] ?? script.params['代码'] ?? '';
     if (jsContent.isEmpty) return true; // 空脚本视为成功
 
-    try {
-      final jsWrapper = '''
-        (async function() {
-          try {
-            $_egretCanvasProbeJs
+    final timeout = _getStepTimeout(script);
+    String lastErrorMsg = '执行失败';
+    String lastSuccessInfo = '执行成功';
 
-            // 执行用户自定义 JS，支持同步与 await 异步 Promise
-            const __auok_exec_result = await (async function() {
-              $jsContent
-            })();
-
-            // 若用户显式返回 false，则认定为未达成目标 (如未找到游戏内目标元素)
-            if (__auok_exec_result === false) {
-              return JSON.stringify({ ok: false, message: '脚本执行结果为 false (如未找到目标虚拟元素)' });
-            }
-            return JSON.stringify({ ok: true, result: String(__auok_exec_result !== undefined ? __auok_exec_result : '执行成功') });
-          } catch (err) {
-            console.error('Custom JS execution error:', err);
-            return JSON.stringify({ ok: false, error: err ? (err.stack || err.message || String(err)) : '执行异常' });
-          }
-        })();
-      ''';
-
-      final result = await controller.evaluateJavascript(source: jsWrapper);
-      if (result != null) {
+    final jsWrapper = '''
+      (async function() {
         try {
+          $_egretCanvasProbeJs
+
+          // 执行用户自定义 JS，支持同步与 await 异步 Promise
+          const __auok_exec_result = await (async function() {
+            $jsContent
+          })();
+
+          // 若用户显式返回 false，则认定为未达成目标 (如未找到游戏内目标元素)
+          if (__auok_exec_result === false) {
+            return JSON.stringify({ ok: false, message: '脚本执行结果为 false (如未找到目标虚拟元素)' });
+          }
+          return JSON.stringify({ ok: true, result: String(__auok_exec_result !== undefined ? __auok_exec_result : '执行成功') });
+        } catch (err) {
+          console.error('Custom JS execution error:', err);
+          return JSON.stringify({ ok: false, error: err ? (err.stack || err.message || String(err)) : '执行异常' });
+        }
+      })();
+    ''';
+
+    // 智能微轮询：在指定超时时间内（默认 5 秒）重试执行，若页面正在异步渲染/组件挂载，自动在元素出现瞬间秒级捕获！
+    final success = await _pollUntilSuccess(() async {
+      try {
+        final result = await controller.evaluateJavascript(source: jsWrapper);
+        if (result != null) {
           final decoded = jsonDecode(result.toString());
           if (decoded is Map) {
-            final isOk = decoded['ok'] == true;
-            if (isOk) {
-              final info = decoded['result']?.toString() ?? '执行成功';
-              onStatusChanged?.call(ScriptStatus.success, 'JS执行完成: $info', null);
+            if (decoded['ok'] == true) {
+              lastSuccessInfo = decoded['result']?.toString() ?? '执行成功';
               return true;
             } else {
-              final errMsg = decoded['error']?.toString() ?? decoded['message']?.toString() ?? '执行失败';
-              onStatusChanged?.call(ScriptStatus.failure, 'JS执行未成功: $errMsg', null);
+              lastErrorMsg = decoded['error']?.toString() ??
+                  decoded['message']?.toString() ??
+                  '执行失败';
               return false;
             }
           }
-        } catch (_) {}
+        }
+        return result.toString() == 'true';
+      } catch (e) {
+        lastErrorMsg = e.toString();
+        return false;
       }
-      return result.toString() == 'true';
-    } catch (e) {
-      onStatusChanged?.call(ScriptStatus.failure, 'JS调用异常: $e', null);
+    }, timeout: timeout);
+
+    if (success) {
+      onStatusChanged?.call(ScriptStatus.success, 'JS执行完成: $lastSuccessInfo', null);
+      return true;
+    } else {
+      onStatusChanged?.call(ScriptStatus.failure, 'JS执行未成功: $lastErrorMsg', null);
       return false;
     }
   }
@@ -1473,7 +1503,7 @@ class ScriptExecutor {
       ''');
 
       return result.toString() == 'true';
-    });
+    }, timeout: _getStepTimeout(script));
   }
 
   Future<bool> _executeLogicScriptAppearText(
@@ -1994,25 +2024,42 @@ class ScriptExecutor {
       })();
     ''';
 
-    final result = await controller.evaluateJavascript(source: jsCode);
+    final timeout = _getStepTimeout(script);
+    String lastResult = 'not_found';
 
-    if (result == 'clicked') {
-      onStatusChanged?.call(ScriptStatus.success, '已点击', null);
+    final success = await _pollUntilSuccess(() async {
+      try {
+        final result = await controller.evaluateJavascript(source: jsCode);
+        lastResult = result?.toString() ?? 'not_found';
+        // 若已成功点击，或数值条件判断不满足（属于正常决策分支），均视为判定成功终态！
+        if (lastResult == 'clicked' || lastResult.startsWith('condition_not_met')) {
+          return true;
+        }
+        // 若未找到元素或元素中未找到数值（可能处于页面异步渲染中），继续微轮询探测
+        return false;
+      } catch (e) {
+        lastResult = e.toString();
+        return false;
+      }
+    }, timeout: timeout);
+
+    if (success) {
+      if (lastResult == 'clicked') {
+        onStatusChanged?.call(ScriptStatus.success, '已点击', null);
+      } else {
+        onStatusChanged?.call(ScriptStatus.success, '条件不满足，未点击 ($lastResult)', null);
+      }
       return true;
-    } else if (result == 'not_found') {
-      onStatusChanged?.call(ScriptStatus.failure, '未找到元素', null);
-      return false;
-    } else if (result == 'index_out_of_bounds') {
-      onStatusChanged?.call(ScriptStatus.failure, '索引超出范围', null);
-      return false;
-    } else if (result == 'no_number_found') {
-      onStatusChanged?.call(ScriptStatus.failure, '未在元素中找到数值', null);
-      return false;
-    } else if (result.toString().startsWith('condition_not_met')) {
-      onStatusChanged?.call(ScriptStatus.success, '条件不满足，未点击 ($result)', null);
-      return true; // Execution successful, just condition not met
     } else {
-      onStatusChanged?.call(ScriptStatus.failure, '未知错误: $result', null);
+      if (lastResult == 'not_found') {
+        onStatusChanged?.call(ScriptStatus.failure, '未找到元素', null);
+      } else if (lastResult == 'index_out_of_bounds') {
+        onStatusChanged?.call(ScriptStatus.failure, '索引超出范围', null);
+      } else if (lastResult == 'no_number_found') {
+        onStatusChanged?.call(ScriptStatus.failure, '未在元素中找到数值', null);
+      } else {
+        onStatusChanged?.call(ScriptStatus.failure, '未知错误: $lastResult', null);
+      }
       return false;
     }
   }
@@ -2095,40 +2142,49 @@ class ScriptExecutor {
     }
 
     final targetTextJson = jsonEncode(targetText);
+    final totalMs = timeoutSeconds * 1000;
+    final stopwatch = Stopwatch()..start();
+    int lastReportSec = -1;
 
-    int elapsedSeconds = 0;
-    while (elapsedSeconds < timeoutSeconds) {
-      double progress = elapsedSeconds / timeoutSeconds;
-      onStatusChanged?.call(ScriptStatus.waiting, '等待文字 "$targetText" ($elapsedSeconds/${timeoutSeconds}s)...', progress);
-
-      final jsCode = '''
-        (function() {
-          $_egretCanvasProbeJs
-          try {
-            const bodyText = document.body.innerText || document.body.textContent || '';
-            if (bodyText.includes($targetTextJson)) return true;
-            const ctx = _auokGetEgretContext();
-            if (ctx) {
-              const egretNodes = _auokScanEgretNodes(ctx.stage);
-              if (egretNodes && egretNodes.some(n => n.text && n.text.includes($targetTextJson))) {
-                return true;
-              }
+    final jsCode = '''
+      (function() {
+        $_egretCanvasProbeJs
+        try {
+          const bodyText = document.body.innerText || document.body.textContent || '';
+          if (bodyText.includes($targetTextJson)) return true;
+          const ctx = _auokGetEgretContext();
+          if (ctx) {
+            const egretNodes = _auokScanEgretNodes(ctx.stage);
+            if (egretNodes && egretNodes.some(n => n.text && n.text.includes($targetTextJson))) {
+              return true;
             }
-            return false;
-          } catch(e) {
-            return false;
           }
-        })();
-      ''';
+          return false;
+        } catch(e) {
+          return false;
+        }
+      })();
+    ''';
 
-      final result = await controller.evaluateJavascript(source: jsCode);
-      if (result.toString() == 'true') {
-        onStatusChanged?.call(ScriptStatus.success, '文字已出现', 1.0);
-        return true;
+    while (stopwatch.elapsedMilliseconds < totalMs) {
+      final elapsedSec = stopwatch.elapsedMilliseconds ~/ 1000;
+      if (elapsedSec != lastReportSec) {
+        lastReportSec = elapsedSec;
+        double progress = (stopwatch.elapsedMilliseconds / totalMs).clamp(0.0, 1.0);
+        onStatusChanged?.call(ScriptStatus.waiting, '等待文字 "$targetText" ($elapsedSec/${timeoutSeconds}s)...', progress);
       }
 
-      await Future.delayed(const Duration(seconds: 1));
-      elapsedSeconds++;
+      try {
+        final result = await controller.evaluateJavascript(source: jsCode);
+        if (result.toString() == 'true') {
+          onStatusChanged?.call(ScriptStatus.success, '文字已出现', 1.0);
+          return true;
+        }
+      } catch (_) {}
+
+      // 极速微轮询：前 500ms 每 40ms 检测一次，之后每 120ms 检测一次，文字就绪毫秒级秒过
+      final delay = stopwatch.elapsedMilliseconds < 500 ? 40 : 120;
+      await Future.delayed(Duration(milliseconds: delay));
     }
 
     onStatusChanged?.call(ScriptStatus.failure, '等待超时，文字未出现', null);
@@ -2174,28 +2230,38 @@ class ScriptExecutor {
       })();
     ''';
 
-    try {
-      final result = await controller.evaluateJavascript(source: jsCode);
-      if (result != null) {
-        final extractedValue = result.toString();
-        final varName = params['变量名'] as String? ??
-            params['保存至变量'] as String? ??
-            '';
-        if (varName.isNotEmpty && variables != null) {
-          variables[varName] = extractedValue;
-          onStatusChanged?.call(
-              ScriptStatus.notification, '提取成功: \$$varName = $extractedValue', null);
-        } else {
-          onStatusChanged?.call(
-              ScriptStatus.notification, '提取结果: $extractedValue', null);
+    final timeout = _getStepTimeout(script);
+    String? extractedValue;
+
+    // 智能微轮询：支持在异步组件渲染期间持续探测，提取到内容瞬间立即返回
+    final success = await _pollUntilSuccess(() async {
+      try {
+        final result = await controller.evaluateJavascript(source: jsCode);
+        if (result != null) {
+          extractedValue = result.toString();
+          return true;
         }
-        return true;
-      } else {
-        onStatusChanged?.call(ScriptStatus.failure, '未找到元素或属性为空', null);
+        return false;
+      } catch (_) {
         return false;
       }
-    } catch (e) {
-      debugPrint('Extract text error: $e');
+    }, timeout: timeout);
+
+    if (success && extractedValue != null) {
+      final varName = params['变量名'] as String? ??
+          params['保存至变量'] as String? ??
+          '';
+      if (varName.isNotEmpty && variables != null) {
+        variables[varName] = extractedValue!;
+        onStatusChanged?.call(
+            ScriptStatus.notification, '提取成功: \$$varName = $extractedValue', null);
+      } else {
+        onStatusChanged?.call(
+            ScriptStatus.notification, '提取结果: $extractedValue', null);
+      }
+      return true;
+    } else {
+      onStatusChanged?.call(ScriptStatus.failure, '未找到元素或属性为空', null);
       return false;
     }
   }

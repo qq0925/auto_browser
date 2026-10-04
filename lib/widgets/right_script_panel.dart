@@ -50,16 +50,16 @@ class RightScriptPanel extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(2, 2, 6, 2),
               child: Stack(
                 children: [
-                  // 嵌在最左上角: 全局（纯文本无框，紧贴左上角）
+                  // 左侧上下居中: 全局
                   Align(
-                    alignment: Alignment.topLeft,
+                    alignment: Alignment.centerLeft,
                     child: Padding(
-                      padding: const EdgeInsets.only(left: 3, top: 1),
+                      padding: const EdgeInsets.only(left: 8),
                       child: const Text(
                         '全局',
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: 10,
+                          fontSize: 10.5,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
