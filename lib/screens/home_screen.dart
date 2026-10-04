@@ -137,8 +137,8 @@ class _BrowserHomePageState extends State<BrowserHomePage>
     final browserProvider = context.read<BrowserProvider>();
     final scriptProvider = context.read<ScriptProvider>();
 
-    // 全局设置智能网页加载等待回调
-    scriptProvider.setWaitForPageLoadCallback(() async {
+    // 全局设置智能网页加载等待回调（支持跨页 Token 与 URL 变更探测，防御 Stale DOM 旧页面误触）
+    scriptProvider.setWaitForPageLoadCallback(({preNavToken, preUrl}) async {
       if (browserProvider.currentTab == null) return;
 
       final tab = browserProvider.currentTab!;
@@ -147,18 +147,55 @@ class _BrowserHomePageState extends State<BrowserHomePage>
       int elapsed = 0;
 
       // 1. 导航启动探测阶段：
-      // 当刚刚调用 loadUrl / reload / goBack 时，WebView 内核需要 20-100ms 触发 onLoadStart。
-      // 我们在 300ms 窗口内以 30ms 极速微轮询，一旦探测到底层进入 loading 状态立即锁定。
-      for (int i = 0; i < 10; i++) {
+      // 当刚刚调用 loadUrl / reload / goBack，或点击了链接/提交表单时，
+      // WebKit 内核 (尤其在 iOS 上) 需要 20-200ms 发出网络请求并触发 onLoadStart。
+      // 我们在最多 800ms 窗口内以 40ms 高频微轮询探测导航是否真正启动：
+      // - tab.isLoading 为 true
+      // - controller.isLoading() 为 true
+      // - 当前 URL 相比 preUrl 发生变化
+      // - 当前 DOM 中的 window.__auok_nav_mark 发生变化/丢失（说明旧 DOM 正在被销毁）
+      bool hasNavStarted = false;
+      const int probeMax = 800;
+      const int probeStep = 40;
+
+      while (elapsed < probeMax) {
         bool isStarting = tab.isLoading;
         if (!isStarting && controller != null) {
           try {
             isStarting = await controller.isLoading();
           } catch (_) {}
         }
-        if (isStarting) break;
-        await Future.delayed(const Duration(milliseconds: 30));
-        elapsed += 30;
+
+        // 探测 URL 变更
+        if (!isStarting && preUrl != null && controller != null) {
+          try {
+            final curUrl = (await controller.getUrl())?.toString();
+            if (curUrl != null && curUrl.isNotEmpty && curUrl != preUrl) {
+              isStarting = true;
+            }
+          } catch (_) {}
+        }
+
+        // 探测旧 DOM 销毁与卸载（Navigation Mark 改变或清空）
+        if (!isStarting && preNavToken != null && controller != null) {
+          try {
+            final token = await controller.evaluateJavascript(
+              source: 'window.__auok_nav_mark',
+            );
+            // 若 token 变成 null，或者不再等于 preNavToken，说明旧文档已卸载或新文档已进入！
+            if (token == null || token.toString() != preNavToken) {
+              isStarting = true;
+            }
+          } catch (_) {}
+        }
+
+        if (isStarting) {
+          hasNavStarted = true;
+          break;
+        }
+
+        await Future.delayed(const Duration(milliseconds: probeStep));
+        elapsed += probeStep;
       }
 
       // 2. 加载中等待阶段：双重检测（Flutter Tab 状态 + WebView Native 状态）
@@ -170,11 +207,12 @@ class _BrowserHomePageState extends State<BrowserHomePage>
           } catch (_) {}
         }
         if (!currentlyLoading) break;
-        await Future.delayed(const Duration(milliseconds: 60));
-        elapsed += 60;
+        await Future.delayed(const Duration(milliseconds: 50));
+        elapsed += 50;
       }
 
       // 3. DOM 就绪阶段：快速微轮询等待 document.readyState == 'complete'
+      // 严密防御：旧页面的 readyState == 'complete' 绝不能虚假放行！
       if (controller != null && elapsed < timeout) {
         int domCheckCount = 0;
         const maxDomChecks = 100; // 最多检查 5 秒 (100 * 50ms)
@@ -185,7 +223,17 @@ class _BrowserHomePageState extends State<BrowserHomePage>
               source: 'document.readyState',
             );
             if (readyState == 'complete') {
-              break;
+              // 若曾经启动了导航，且设置了旧页面标记，必须确认此时已经是新页面（token 已经清除或重置）
+              if (hasNavStarted && preNavToken != null) {
+                final token = await controller.evaluateJavascript(
+                  source: 'window.__auok_nav_mark',
+                );
+                if (token == null || token.toString() != preNavToken) {
+                  break;
+                }
+              } else {
+                break;
+              }
             }
           } catch (_) {}
           await Future.delayed(const Duration(milliseconds: 50));
@@ -193,7 +241,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
         }
       }
 
-      // 4. 渲染微缓冲：给 Vue / React 异步组件挂载预留 60ms 极速缓冲
+      // 4. 渲染微缓冲：给页面重绘与微任务执行预留 60ms 极速缓冲
       await Future.delayed(const Duration(milliseconds: 60));
     });
 

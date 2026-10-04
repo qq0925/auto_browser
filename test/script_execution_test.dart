@@ -146,6 +146,15 @@ void main() {
       expect(ScriptExecutor.egretCanvasProbeJs.contains('_auokScrollNodeIntoView'), true);
       expect(ScriptExecutor.egretCanvasProbeJs.contains('_auokTriggerEgretClick'), true);
     });
+
+    test('点击文字 JS 生成：自动包含超链接与表单提交跨页导航侦测', () {
+      final params = {
+        '点击文本': '全军出击',
+      };
+      final js = executor.buildClickScriptLogic(params);
+      expect(js.contains("targetElement.closest('a')"), true);
+      expect(js.contains('isNavTrigger: isNav'), true);
+    });
   });
 }
 

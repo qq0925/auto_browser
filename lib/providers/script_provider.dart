@@ -70,7 +70,7 @@ class ScriptProvider extends ChangeNotifier {
   int _successCount = 0;
   int _failureCount = 0;
 
-  Future<void> Function()? _waitForPageLoadCallback;
+  Future<void> Function({String? preNavToken, String? preUrl})? _waitForPageLoadCallback;
 
   // Get scripts from current tab
   List<Script> get scripts => _currentTab?.scripts ?? [];
@@ -102,7 +102,8 @@ class ScriptProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setWaitForPageLoadCallback(Future<void> Function() callback) {
+  void setWaitForPageLoadCallback(
+      Future<void> Function({String? preNavToken, String? preUrl}) callback) {
     _waitForPageLoadCallback = callback;
   }
 
@@ -475,6 +476,12 @@ class ScriptProvider extends ChangeNotifier {
       InAppWebViewController controller, int tabIndex, [BrowserTab? targetTab]) async {
     final executingTab = targetTab ?? _currentTab;
     if (executingTab == null || executingTab.scripts.isEmpty || _isRecording) {
+      return;
+    }
+
+    // 防重入拦截：若当前标签页已在执行脚本，忽略重复触发
+    if (executingTab.isExecutingScript) {
+      debugPrint('Tab ${executingTab.id} is already executing script, skipping duplicate start.');
       return;
     }
 

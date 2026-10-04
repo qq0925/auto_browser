@@ -10,13 +10,19 @@ import '../providers/browser_provider.dart';
 import '../providers/script_provider.dart';
 import 'cookie_service.dart';
 
+class _StepExecutionResult {
+  final bool success;
+  final bool isNavTrigger;
+  const _StepExecutionResult({required this.success, this.isNavTrigger = false});
+}
+
 class ScriptExecutor {
   // Execute a script on the given controller
   Future<bool> execute(InAppWebViewController? controller, Script script,
       {int executionDelay = 1000,
       Function(ScriptStatus status, String? message, double? progress)?
           onStatusChanged,
-      Future<void> Function()? waitForPageLoad,
+      Future<void> Function({String? preNavToken, String? preUrl})? waitForPageLoad,
       List<Script>? scripts,
       Map<String, String>? variables}) async {
     if (!script.isEnabled) return false;
@@ -72,6 +78,20 @@ class ScriptExecutor {
       onStatusChanged?.call(ScriptStatus.running, null, null);
 
       bool result = false;
+      bool lastStepTriggeredNav = false;
+
+      // 记录执行前的 URL，并为当前旧页面 DOM 注入唯一 Navigation Mark，用于精确探测旧文档卸载与新页面进入
+      String? preUrl;
+      String? navToken;
+      if (controller != null) {
+        try {
+          preUrl = (await controller.getUrl())?.toString();
+          navToken = 'nav_${DateTime.now().microsecondsSinceEpoch}';
+          await controller.evaluateJavascript(
+            source: 'window.__auok_nav_mark = "$navToken";',
+          );
+        } catch (_) {}
+      }
 
       if (repeatCount > 1) {
         onStatusChanged?.call(
@@ -85,6 +105,7 @@ class ScriptExecutor {
           final beforeScript = Script.fromUserMap(beforeScriptMap);
           await execute(controller, beforeScript,
               executionDelay: executionDelay,
+              waitForPageLoad: waitForPageLoad,
               onStatusChanged: (status, msg, prog) {
             if (status == ScriptStatus.running ||
                 status == ScriptStatus.waiting) {
@@ -99,28 +120,38 @@ class ScriptExecutor {
       // 脚本超时时间（默认 30 秒，可在参数中自定义）
       final timeoutSeconds = resolvedScript.params['超时时间'] as int? ?? 30;
       try {
-        result = await _executeSingleStep(
+        final stepResult = await _executeSingleStep(
           controller,
           resolvedScript,
           onStatusChanged,
           scripts,
           variables: variables,
         ).timeout(Duration(seconds: timeoutSeconds));
+        result = stepResult.success;
+        lastStepTriggeredNav = stepResult.isNavTrigger;
       } on TimeoutException {
         onStatusChanged?.call(
             ScriptStatus.failure, '脚本执行超时 ($timeoutSeconds 秒)', null);
         result = false;
+        lastStepTriggeredNav = false;
       } catch (e) {
         onStatusChanged?.call(ScriptStatus.failure, '脚本执行异常: $e', null);
         result = false;
+        lastStepTriggeredNav = false;
       }
 
-      // 4. 关键：导航动作执行后置等待！
-      // 进入网址、刷新、后退、前进在触发后，必须等待目标新页面真正加载并解析完毕
-      // 彻底解决 0ms 延迟下 loadUrl 刚发出下一步就抢跑在旧/空页面的问题！
-      if (result && isNavAction && waitForPageLoad != null) {
+      // 4. 关键：导航与跨页动作执行后置等待！
+      // 若是原生导航指令（进入网址/刷新/后退/前进）、或用户显式勾选了【等待网页加载】、
+      // 或点击了带跳转链接(<a>/表单提交)触发了页面导航，必须等待目标新页面真正加载并解析完毕！
+      // 彻底解决 iOS/移动端 100ms 全局延迟下旧页面 DOM 未卸载导致下一步抢跑误点旧页面元素的问题！
+      final needWaitAfter = isNavAction ||
+          lastStepTriggeredNav ||
+          resolvedScript.params['等待网页加载'] == true ||
+          resolvedScript.type == '输入框提交';
+
+      if (result && needWaitAfter && waitForPageLoad != null) {
         onStatusChanged?.call(ScriptStatus.waiting, '等待新网页加载完成...', null);
-        await waitForPageLoad();
+        await waitForPageLoad(preNavToken: navToken, preUrl: preUrl);
       }
 
       // 执行后置脚本
@@ -130,6 +161,7 @@ class ScriptExecutor {
           final afterScript = Script.fromUserMap(afterScriptMap);
           await execute(controller, afterScript,
               executionDelay: executionDelay,
+              waitForPageLoad: waitForPageLoad,
               variables: variables,
               onStatusChanged: (status, msg, prog) {
             if (status == ScriptStatus.running ||
@@ -163,7 +195,7 @@ class ScriptExecutor {
     return success;
   }
 
-  Future<bool> _executeSingleStep(
+  Future<_StepExecutionResult> _executeSingleStep(
     InAppWebViewController? controller,
     Script script,
     Function(ScriptStatus status, String? message, double? progress)?
@@ -184,70 +216,74 @@ class ScriptExecutor {
     };
     if (controller == null && !nonControllerTypes.contains(script.type)) {
       onStatusChanged?.call(ScriptStatus.failure, 'WebView 控制器未就绪', null);
-      return false;
+      return const _StepExecutionResult(success: false);
     }
 
     switch (script.type) {
       case "点击文字":
         return await _executeClickScript(controller!, script);
       case "输入框提交":
-        return await _executeFormSubmit(controller!, script);
+        final ok = await _executeFormSubmit(controller!, script);
+        return _StepExecutionResult(success: ok, isNavTrigger: ok);
       case "间隔时间":
-        return await _executeIntervalScript(
+        final ok = await _executeIntervalScript(
             controller!, script, onStatusChanged);
+        return _StepExecutionResult(success: ok);
       case "自定义JS":
-        return await _executeCustomJs(controller!, script,
+        final ok = await _executeCustomJs(controller!, script,
             onStatusChanged: onStatusChanged);
+        return _StepExecutionResult(success: ok);
       case "进入网址":
-        return await _executeNavigate(controller!, script);
+        final ok = await _executeNavigate(controller!, script);
+        return _StepExecutionResult(success: ok, isNavTrigger: ok);
       case "点击图片":
         return await _executeClickImage(controller!, script);
       case "刷新网页":
         await controller!.reload();
-        return true;
+        return const _StepExecutionResult(success: true, isNavTrigger: true);
       case "网页后退":
         final canBack = await controller!.canGoBack();
         if (canBack) await controller.goBack();
-        return true;
+        return const _StepExecutionResult(success: true, isNavTrigger: true);
       case "网页前进":
         final canForward = await controller!.canGoForward();
         if (canForward) await controller.goForward();
-        return true;
+        return const _StepExecutionResult(success: true, isNavTrigger: true);
       case "脚本停止":
         onStatusChanged?.call(ScriptStatus.stopped, '脚本已停止', null);
-        return true;
+        return const _StepExecutionResult(success: true);
       case "脚本暂停":
         onStatusChanged?.call(ScriptStatus.paused, '脚本已暂停', null);
-        return true;
+        return const _StepExecutionResult(success: true);
       case "脚本替换":
         if (script.targetScriptPath != null) {
           onStatusChanged?.call(
               ScriptStatus.replaced, script.targetScriptPath, null);
-          return true;
+          return const _StepExecutionResult(success: true);
         } else {
           onStatusChanged?.call(ScriptStatus.failure, '未指定替换脚本集', null);
-          return false;
+          return const _StepExecutionResult(success: false);
         }
       case "执行本地脚本集":
         if (script.targetScriptPath != null) {
           onStatusChanged?.call(
               ScriptStatus.callSubroutine, script.targetScriptPath, null);
-          return true;
+          return const _StepExecutionResult(success: true);
         } else {
           onStatusChanged?.call(ScriptStatus.failure, '未指定脚本集', null);
-          return false;
+          return const _StepExecutionResult(success: false);
         }
       case "通知栏提醒":
         if (script.params['提醒内容'] != null) {
           onStatusChanged?.call(
               ScriptStatus.notification, script.params['提醒内容'], null);
-          return true;
+          return const _StepExecutionResult(success: true);
         } else {
           onStatusChanged?.call(ScriptStatus.failure, '未指定提醒内容', null);
-          return false;
+          return const _StepExecutionResult(success: false);
         }
       case "延时脚本":
-        return true;
+        return const _StepExecutionResult(success: true);
 
       case "控制脚本开关":
         if (scripts != null) {
@@ -281,52 +317,62 @@ class ScriptExecutor {
             }
             onStatusChanged?.call(ScriptStatus.success,
                 '已更新脚本状态: $indicesStr -> $action', null);
-            return true;
+            return const _StepExecutionResult(success: true);
           }
         }
         onStatusChanged?.call(ScriptStatus.failure, '控制脚本开关参数错误', null);
-        return false;
+        return const _StepExecutionResult(success: false);
 
       case "逻辑脚本-出现文字":
-        return await _executeLogicScriptAppearText(
+        final ok = await _executeLogicScriptAppearText(
             controller!, script, onStatusChanged);
+        return _StepExecutionResult(success: ok);
 
       case "逻辑脚本-时间对比":
-        return await _executeLogicScriptTimeComparison(
+        final ok = await _executeLogicScriptTimeComparison(
             controller!, script, onStatusChanged);
+        return _StepExecutionResult(success: ok);
 
       case "逻辑脚本-数值对比":
-        return await _executeLogicScriptValueComparison(
+        final ok = await _executeLogicScriptValueComparison(
             controller!, script, onStatusChanged);
+        return _StepExecutionResult(success: ok);
 
       case "新建窗口并执行脚本":
-        return await _executeNewWindowScript(script, onStatusChanged);
+        final ok = await _executeNewWindowScript(script, onStatusChanged);
+        return _StepExecutionResult(success: ok);
 
       case "跳转脚本":
-        return await _executeJumpScript(script, onStatusChanged);
+        final ok = await _executeJumpScript(script, onStatusChanged);
+        return _StepExecutionResult(success: ok);
 
       case "数值对比-点击文字":
         return await _executeValueComparisonClickText(
             controller!, script, onStatusChanged);
 
       case "滑动页面":
-        return await _executeScrollPage(controller!, script, onStatusChanged);
+        final ok = await _executeScrollPage(controller!, script, onStatusChanged);
+        return _StepExecutionResult(success: ok);
 
       case "等待文字出现":
-        return await _executeWaitForText(controller!, script, onStatusChanged);
+        final ok = await _executeWaitForText(controller!, script, onStatusChanged);
+        return _StepExecutionResult(success: ok);
 
       case "提取文字":
-        return await _executeExtractText(controller!, script, onStatusChanged,
+        final ok = await _executeExtractText(controller!, script, onStatusChanged,
             variables: variables);
+        return _StepExecutionResult(success: ok);
 
       case "设置Cookie":
-        return await _executeSetCookie(controller!, script, onStatusChanged);
+        final ok = await _executeSetCookie(controller!, script, onStatusChanged);
+        return _StepExecutionResult(success: ok);
 
       case "清除Cookie":
-        return await _executeClearCookie(controller!, script, onStatusChanged);
+        final ok = await _executeClearCookie(controller!, script, onStatusChanged);
+        return _StepExecutionResult(success: ok);
 
       default:
-        return true;
+        return const _StepExecutionResult(success: true);
     }
   }
 
@@ -961,11 +1007,11 @@ class ScriptExecutor {
   /// 公开白鹭引擎与 Canvas 游戏智能探测 JS 脚本，供 WebView 初始化常驻挂载
   static const String egretCanvasProbeJs = _egretCanvasProbeJs;
 
-  Future<bool> _executeClickScript(
+  Future<_StepExecutionResult> _executeClickScript(
       InAppWebViewController controller, Script script) async {
     final params = script.getClickParams();
     final clickText = params['点击文本'] ?? '';
-    if (clickText.isEmpty) return false;
+    if (clickText.isEmpty) return const _StepExecutionResult(success: false);
 
     // Always handle delay if present, regardless of mode
     final delay = params['执行延迟'] ?? 0;
@@ -981,14 +1027,36 @@ class ScriptExecutor {
       await Future.delayed(Duration(milliseconds: delay * multiplier));
     }
 
-    return await _pollUntilSuccess(() async {
-      final result = await controller.evaluateJavascript(source: '''
+    bool stepTriggeredNav = false;
+    final success = await _pollUntilSuccess(() async {
+      final rawResult = await controller.evaluateJavascript(source: '''
         (function() {
           ${_buildClickScriptLogic(params)}
         })();
       ''');
-      return result.toString() == 'true';
+      if (rawResult == null) return false;
+      final rawStr = rawResult.toString().trim();
+      if (rawStr == 'true') {
+        return true;
+      }
+      try {
+        final parsed = jsonDecode(rawStr);
+        if (parsed is Map) {
+          if (parsed['success'] == true) {
+            if (parsed['isNavTrigger'] == true) {
+              stepTriggeredNav = true;
+            }
+            return true;
+          }
+        }
+      } catch (_) {}
+      return false;
     }, timeout: _getStepTimeout(script));
+
+    return _StepExecutionResult(
+      success: success,
+      isNavTrigger: stepTriggeredNav,
+    );
   }
 
   Future<bool> _executeFormSubmit(
@@ -1341,7 +1409,8 @@ class ScriptExecutor {
       
       // 若常规 DOM 树中未匹配到，自动无感触发 Canvas / 白鹭引擎虚拟穿透探针
       if (matchedLinks.length === 0) {
-        return _tryEgretFallback();
+        const egretRes = _tryEgretFallback();
+        return JSON.stringify({ success: !!egretRes, isNavTrigger: false });
       }
 
       // Apply selection index
@@ -1362,16 +1431,33 @@ class ScriptExecutor {
       const targetElement = matchedLinks[targetIndex];
       if (targetElement) {
         _auokHighlight(targetElement);
+
+        // 智能侦测是否触发跨页导航（如原生 <a> 链接、表单 submit 按钮等）
+        const anchor = targetElement.closest('a');
+        let isNav = false;
+        if (anchor) {
+          const href = (anchor.getAttribute('href') || '').trim();
+          if (href && !href.startsWith('#') && !href.startsWith('javascript:void') && !href.startsWith('javascript:;')) {
+            isNav = true;
+          }
+        }
+        if (!isNav) {
+          const form = targetElement.closest('form');
+          const isSubmit = targetElement.type === 'submit' || targetElement.getAttribute('type') === 'submit';
+          if (form && isSubmit) {
+            isNav = true;
+          }
+        }
+
         _auokSimulateClick(targetElement);
         // 若自身不是链接但父级或祖父级为 <a> 则联动触发
-        const anchor = targetElement.closest('a');
         if (anchor && anchor !== targetElement) {
           _auokSimulateClick(anchor);
         }
-        return true;
+        return JSON.stringify({ success: true, isNavTrigger: isNav });
       }
       
-      return false;
+      return JSON.stringify({ success: false, isNavTrigger: false });
     ''';
   }
 
@@ -1406,7 +1492,7 @@ class ScriptExecutor {
     }
   }
 
-  Future<bool> _executeClickImage(
+  Future<_StepExecutionResult> _executeClickImage(
       InAppWebViewController controller, Script script) async {
     final imageSrc = script.params['图片地址'] as String? ?? '';
     final multipleSelection = script.params['多个筛选'] as int? ?? 1;
@@ -1417,8 +1503,9 @@ class ScriptExecutor {
     final afterTextJson = jsonEncode(afterText);
     final beforeTextJson = jsonEncode(beforeText);
 
-    return await _pollUntilSuccess(() async {
-      final result = await controller.evaluateJavascript(source: '''
+    bool stepTriggeredNav = false;
+    final success = await _pollUntilSuccess(() async {
+      final rawResult = await controller.evaluateJavascript(source: '''
         (function() {
           $_highlightJs
           try {
@@ -1485,16 +1572,33 @@ class ScriptExecutor {
             
             if (targetImg) {
               _auokHighlight(targetImg);
+
+              // 智能侦测是否触发跨页导航（如 <a> 包装的图片、表单提交按钮图片）
+              const anchor = targetImg.closest('a');
+              let isNav = false;
+              if (anchor) {
+                const href = (anchor.getAttribute('href') || '').trim();
+                if (href && !href.startsWith('#') && !href.startsWith('javascript:void') && !href.startsWith('javascript:;')) {
+                  isNav = true;
+                }
+              }
+              if (!isNav) {
+                const form = targetImg.closest('form');
+                const isSubmit = targetImg.type === 'submit' || targetImg.getAttribute('type') === 'submit';
+                if (form && isSubmit) {
+                  isNav = true;
+                }
+              }
+
               _auokSimulateClick(targetImg);
               // 若自身不是链接但父级为 <a> 则联动仿真触发
-              const anchor = targetImg.closest('a');
               if (anchor && anchor !== targetImg) {
                 _auokSimulateClick(anchor);
               }
-              return true;
+              return JSON.stringify({ success: true, isNavTrigger: isNav });
             }
             
-            return false;
+            return JSON.stringify({ success: false, isNavTrigger: false });
           } catch (e) {
             console.error(e);
             return false;
@@ -1502,8 +1606,29 @@ class ScriptExecutor {
         })();
       ''');
 
-      return result.toString() == 'true';
+      if (rawResult == null) return false;
+      final rawStr = rawResult.toString().trim();
+      if (rawStr == 'true') {
+        return true;
+      }
+      try {
+        final parsed = jsonDecode(rawStr);
+        if (parsed is Map) {
+          if (parsed['success'] == true) {
+            if (parsed['isNavTrigger'] == true) {
+              stepTriggeredNav = true;
+            }
+            return true;
+          }
+        }
+      } catch (_) {}
+      return false;
     }, timeout: _getStepTimeout(script));
+
+    return _StepExecutionResult(
+      success: success,
+      isNavTrigger: stepTriggeredNav,
+    );
   }
 
   Future<bool> _executeLogicScriptAppearText(
@@ -1820,7 +1945,7 @@ class ScriptExecutor {
                 final targetIndex = browserProvider.tabs.indexOf(newTab);
                 if (targetIndex != -1) {
                   scriptProvider.startExecution(
-                      newTab.controller!, targetIndex);
+                      newTab.controller!, targetIndex, newTab);
                 }
               }
             }();
@@ -1893,7 +2018,7 @@ class ScriptExecutor {
         length, (_) => chars.codeUnitAt(random.nextInt(chars.length))));
   }
 
-  Future<bool> _executeValueComparisonClickText(
+  Future<_StepExecutionResult> _executeValueComparisonClickText(
       InAppWebViewController controller,
       Script script,
       Function(ScriptStatus status, String? message, double? progress)?
@@ -1908,13 +2033,13 @@ class ScriptExecutor {
 
     if (clickText.isEmpty || targetValueStr.isEmpty) {
       onStatusChanged?.call(ScriptStatus.failure, '缺少必要参数', null);
-      return false;
+      return const _StepExecutionResult(success: false);
     }
 
     final targetValue = num.tryParse(targetValueStr);
     if (targetValue == null) {
       onStatusChanged?.call(ScriptStatus.failure, '目标值无效', null);
-      return false;
+      return const _StepExecutionResult(success: false);
     }
 
     final clickTextJson = jsonEncode(clickText);
@@ -2012,12 +2137,28 @@ class ScriptExecutor {
 
         if (result) {
           _auokHighlight(targetElement);
-          _auokSimulateClick(targetElement);
+
           const anchor = targetElement.closest('a');
+          let isNav = false;
+          if (anchor) {
+            const href = (anchor.getAttribute('href') || '').trim();
+            if (href && !href.startsWith('#') && !href.startsWith('javascript:void') && !href.startsWith('javascript:;')) {
+              isNav = true;
+            }
+          }
+          if (!isNav) {
+            const form = targetElement.closest('form');
+            const isSubmit = targetElement.type === 'submit' || targetElement.getAttribute('type') === 'submit';
+            if (form && isSubmit) {
+              isNav = true;
+            }
+          }
+
+          _auokSimulateClick(targetElement);
           if (anchor && anchor !== targetElement) {
             _auokSimulateClick(anchor);
           }
-          return "clicked";
+          return isNav ? "clicked_nav" : "clicked";
         } else {
           return "condition_not_met: " + value;
         }
@@ -2032,7 +2173,7 @@ class ScriptExecutor {
         final result = await controller.evaluateJavascript(source: jsCode);
         lastResult = result?.toString() ?? 'not_found';
         // 若已成功点击，或数值条件判断不满足（属于正常决策分支），均视为判定成功终态！
-        if (lastResult == 'clicked' || lastResult.startsWith('condition_not_met')) {
+        if (lastResult == 'clicked' || lastResult == 'clicked_nav' || lastResult.startsWith('condition_not_met')) {
           return true;
         }
         // 若未找到元素或元素中未找到数值（可能处于页面异步渲染中），继续微轮询探测
@@ -2044,12 +2185,13 @@ class ScriptExecutor {
     }, timeout: timeout);
 
     if (success) {
-      if (lastResult == 'clicked') {
+      final isNav = lastResult == 'clicked_nav';
+      if (lastResult == 'clicked' || lastResult == 'clicked_nav') {
         onStatusChanged?.call(ScriptStatus.success, '已点击', null);
       } else {
         onStatusChanged?.call(ScriptStatus.success, '条件不满足，未点击 ($lastResult)', null);
       }
-      return true;
+      return _StepExecutionResult(success: true, isNavTrigger: isNav);
     } else {
       if (lastResult == 'not_found') {
         onStatusChanged?.call(ScriptStatus.failure, '未找到元素', null);
@@ -2060,7 +2202,7 @@ class ScriptExecutor {
       } else {
         onStatusChanged?.call(ScriptStatus.failure, '未知错误: $lastResult', null);
       }
-      return false;
+      return const _StepExecutionResult(success: false);
     }
   }
 
