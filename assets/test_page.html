@@ -225,7 +225,7 @@
     <header>
       <h1>Auok 脚本引擎基准测试套件</h1>
       <p>用于全面检验脚本录制与回放执行的完全匹配、多重筛选索引、表单输入、数值对比与事件仿真能力</p>
-      <span class="badge">引擎版本: v1.1.9+17 兼容基准</span>
+      <span class="badge">引擎版本: v1.1.10+18 兼容基准</span>
     </header>
 
     <div class="grid">
@@ -367,18 +367,18 @@
         </div>
       </div>
 
-      <!-- 7. 白鹭引擎 (Egret) Canvas 游戏虚拟点击仿真专区 -->
+      <!-- 7. HTML5 Canvas 画布富交互虚拟触控自动化测试专区 -->
       <div class="card" style="border-color: rgba(16, 185, 129, 0.4);">
-        <div class="card-title" style="color: #34d399;">⑦ 白鹭引擎 (Egret) Canvas 游戏虚拟点击测试专区</div>
+        <div class="card-title" style="color: #34d399;">⑦ HTML5 Canvas 画布富交互虚拟触控自动化测试专区</div>
         <div class="card-desc">
           下方为独立 HTML5 &lt;canvas&gt; 画布，DOM 树上无目标文本。
-          测试 Auok 指令「点击文字: 商城」与「点击文字: 返回游戏」是否能穿透 Canvas 舞台触发虚拟点击。
+          测试 Auok 指令「点击文字: 商城」与「点击文字: 返回」是否能穿透 Canvas 画布触发虚拟触控。
         </div>
         <div style="display: flex; flex-direction: column; gap: 10px;">
           <canvas id="egret-game-canvas" width="360" height="80" style="background: #0f172a; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; width: 100%; max-width: 360px; height: 80px;"></canvas>
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
             <button class="btn btn-secondary" onclick="window.clickVirtual('商城')">JS触发 ①号虚拟按键</button>
-            <button class="btn btn-secondary" onclick="window.clickVirtual('返回游戏')">JS触发 ②号虚拟按键</button>
+            <button class="btn btn-secondary" onclick="window.clickVirtual('返回')">JS触发 ②号虚拟按键</button>
           </div>
         </div>
       </div>
@@ -440,13 +440,13 @@
         ctx.textBaseline = 'middle';
         ctx.fillText('🛒 商城', 85, 40);
 
-        // 按钮 2: 返回游戏
+        // 按钮 2: 返回
         ctx.fillStyle = activeBtn === 'back' ? '#34d399' : '#059669';
         ctx.beginPath();
         ctx.roundRect ? ctx.roundRect(190, 20, 140, 40, 6) : ctx.rect(190, 20, 140, 40);
         ctx.fill();
         ctx.fillStyle = '#ffffff';
-        ctx.fillText('🎮 返回游戏', 260, 40);
+        ctx.fillText('🔙 返回', 260, 40);
       }
       drawScene();
 
@@ -481,13 +481,13 @@
         localToGlobal: function(x, y) { return { x: 20 + x, y: 20 + y }; },
         dispatchEvent: function(e) {
           flashButton('shop');
-          logEvent('🎮 [白鹭Canvas] 触发游戏虚拟事件:【商城】(Type: ' + (e.type || 'touchTap') + ')');
+          logEvent('🎨 [Canvas触控] 触发虚拟节点事件:【商城】(Type: ' + (e.type || 'touchTap') + ')');
           return true;
         }
       };
 
       const nodeBack = {
-        text: ' 返回游戏 ', // 模拟带前后空格的游戏真实文本
+        text: ' 返回 ', // 模拟带前后空格的内部文本
         visible: true,
         touchEnabled: false, // 模拟文本节点自身不可点击，依赖父级或冒泡
         parent: parentButton,
@@ -498,7 +498,7 @@
         localToGlobal: function(x, y) { return { x: 190 + x, y: 20 + y }; },
         dispatchEvent: function(e) {
           flashButton('back');
-          logEvent('🎮 [白鹭Canvas] 触发游戏虚拟事件:【返回游戏】(Type: ' + (e.type || 'touchTap') + ')');
+          logEvent('🎨 [Canvas触控] 触发虚拟节点事件:【返回】(Type: ' + (e.type || 'touchTap') + ')');
           return true;
         }
       };
@@ -549,7 +549,7 @@
         return false;
       };
 
-      // 真实白鹭移动端游戏典型行为：在 touchstart 处 preventDefault 压制后续 click
+      // 移动端 Canvas 富交互典型行为：在 touchstart 处 preventDefault 压制后续 click
       canvas.addEventListener('touchstart', function(e) {
         e.preventDefault();
       }, { passive: false });

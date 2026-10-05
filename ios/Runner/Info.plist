@@ -65,7 +65,7 @@
 			<string>Owner</string>
 			<key>LSItemContentTypes</key>
 			<array>
-				<string>com.yourapp.zds</string>
+				<string>$(PRODUCT_BUNDLE_IDENTIFIER).zds</string>
 			</array>
 		</dict>
 	</array>
@@ -73,7 +73,7 @@
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.yourapp.zds</string>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER).zds</string>
 			<key>UTTypeDescription</key>
 			<string>ZDS Script File</string>
 			<key>UTTypeConformsTo</key>
@@ -94,8 +94,6 @@
 			</dict>
 		</dict>
 	</array>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>Auok浏览器需要访问网络以加载网页内容</string>
 	<!-- Enable Files app integration -->
 	<key>UIFileSharingEnabled</key>
 	<true/>

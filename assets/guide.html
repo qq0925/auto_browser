@@ -433,12 +433,12 @@
               <tr>
                 <td><span class="tag tag-blue">页面动作</span></td>
                 <td><strong>点击文字</strong></td>
-                <td>在网页中仿真点击匹配文本。<strong>全新支持双模穿透</strong>：常规 DOM 节点直接点击；若页面为 HTML5 Canvas 游戏（如白鹭 Egret 引擎），底层探针自动穿透画布遍历舞台虚拟节点，无感派发 touchTap 与物理触控！</td>
+                <td>在网页中仿真点击匹配文本。<strong>全新支持双模穿透</strong>：常规 DOM 节点直接点击；若页面为 HTML5 Canvas 富交互画布（如白鹭 Egret 渲染引擎），底层探针自动穿透画布遍历内部交互节点，派发 touchTap 与物理触控事件！</td>
               </tr>
               <tr>
                 <td><span class="tag tag-purple">脚本控制</span></td>
                 <td><strong>自定义JS</strong></td>
-                <td>执行任意 JavaScript 脚本。<strong>全新双模编辑器</strong>：不仅支持选择本地 <code>.js</code> 文件，更支持<strong>大文本框直接编写与剪贴板一键粘贴</strong>，内置常用代码片段，全局提供 <code>window.clickVirtual("商城")</code> 游戏辅助函数。</td>
+                <td>执行任意 JavaScript 脚本。<strong>全新双模编辑器</strong>：不仅支持选择本地 <code>.js</code> 文件，更支持<strong>大文本框直接编写与剪贴板一键粘贴</strong>，内置常用代码片段，全局提供 <code>window.clickVirtual("测试节点")</code> 虚拟触控测试函数。</td>
               </tr>
               <tr>
                 <td><span class="tag tag-blue">页面动作</span></td>
@@ -548,9 +548,9 @@
           <p>对于跨页面大跳转，在【进入网址】之后紧跟一个【等待文字出现】，确保目标页面的核心 DOM 加载完成后再继续后续操作。</p>
         </div>
         <div class="card" style="border-color: rgba(16, 185, 129, 0.4);">
-          <div class="card-icon">🎮</div>
-          <h3>4. 白鹭 Canvas 游戏全自动穿透秘籍</h3>
-          <p>对于白鹭引擎 (Egret Engine) 渲染的 Canvas 游戏（如《地狱之门》等），画面内无常规 DOM 按钮。Auok 现已支持底层穿透：照常添加【点击文字: 商城】➔【延时脚本: 700ms】➔【点击文字: 返回游戏】即可自动调用舞台虚拟节点与物理触控双通道触发！也可在【自定义JS】中使用 <code>window.clickVirtual("商城")</code> 直接调用。</p>
+          <div class="card-icon">🎨</div>
+          <h3>4. HTML5 Canvas 富交互画布自动化测试技巧</h3>
+          <p>对于基于 Canvas 引擎（如白鹭 Egret Engine 等）渲染的富交互 Web 应用，画面内无常规 DOM 按钮。Auok 现已支持底层虚拟节点穿透：照常配置【点击文字: 确认】➔【延时脚本: 500ms】➔【点击文字: 返回】即可自动定位舞台内部虚拟节点并触发触控事件；亦可在【自定义JS】中使用 <code>window.clickVirtual("确认")</code> 进行程序化模拟。</p>
         </div>
       </div>
     </section>

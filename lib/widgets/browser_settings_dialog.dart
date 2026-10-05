@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/browser_provider.dart';
+import 'privacy_policy_dialog.dart';
 
 class BrowserSettingsDialog extends StatelessWidget {
   const BrowserSettingsDialog({super.key});
@@ -184,6 +185,25 @@ class BrowserSettingsDialog extends StatelessWidget {
                       ),
                     );
                   },
+                ),
+                Divider(height: 32, color: dividerColor),
+                _buildSectionTitle('合规与法律条款', textColor),
+                const SizedBox(height: 8),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.privacy_tip_outlined, color: Colors.blue, size: 20),
+                  title: Text('隐私政策 (Privacy Policy)',
+                      style: TextStyle(color: textColor, fontSize: 15)),
+                  trailing: Icon(Icons.chevron_right, size: 18, color: isDarkMode ? Colors.white54 : Colors.grey),
+                  onTap: () => PrivacyPolicyDialog.show(context, initialTabIndex: 0),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.description_outlined, color: Colors.blue, size: 20),
+                  title: Text('用户服务协议 (Terms of Service)',
+                      style: TextStyle(color: textColor, fontSize: 15)),
+                  trailing: Icon(Icons.chevron_right, size: 18, color: isDarkMode ? Colors.white54 : Colors.grey),
+                  onTap: () => PrivacyPolicyDialog.show(context, initialTabIndex: 1),
                 ),
                 const SizedBox(height: 24),
                 SizedBox(
