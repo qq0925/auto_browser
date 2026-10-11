@@ -2312,7 +2312,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
       BuildContext context, BrowserProvider browser, int index) {
     final tab = browser.tabs[index];
     final nameController = TextEditingController(text: tab.customName);
-    String selectedUa = tab.customUserAgent ?? 'Mobile';
+    String selectedUa = tab.customUserAgent ?? browser.userAgent;
 
     showDialog(
       context: context,

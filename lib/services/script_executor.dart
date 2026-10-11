@@ -549,7 +549,7 @@ class ScriptExecutor {
       } catch(e) {}
     }
 
-    // 现代框架（Vue 3 / React 18 / Uni-app / Angular）全仿真交互事件链
+    // 现代框架（Vue 3 / React 18 / Uni-app / Angular）及移动端全仿真交互事件链
     function _auokSimulateClick(el) {
       if (!el) return;
       try {
@@ -557,6 +557,30 @@ class ScriptExecutor {
         if (typeof el.focus === 'function') el.focus();
         try { el.dispatchEvent(new PointerEvent('pointerdown', opts)); } catch(_) {}
         try { el.dispatchEvent(new MouseEvent('mousedown', opts)); } catch(_) {}
+
+        // 尝试分发触控事件，以兼容只监听 touchstart/touchend 的移动端组件及游戏
+        if (typeof Touch !== 'undefined' && typeof TouchEvent !== 'undefined') {
+          try {
+            const rect = el.getBoundingClientRect();
+            const cx = rect.left + rect.width / 2;
+            const cy = rect.top + rect.height / 2;
+            const t = new Touch({
+              identifier: Date.now(),
+              target: el,
+              clientX: cx,
+              clientY: cy,
+              pageX: cx + (window.pageXOffset || 0),
+              pageY: cy + (window.pageYOffset || 0)
+            });
+            el.dispatchEvent(new TouchEvent('touchstart', {
+              touches: [t], targetTouches: [t], changedTouches: [t], bubbles: true, cancelable: true, view: window
+            }));
+            el.dispatchEvent(new TouchEvent('touchend', {
+              touches: [], targetTouches: [], changedTouches: [t], bubbles: true, cancelable: true, view: window
+            }));
+          } catch(_) {}
+        }
+
         try { el.dispatchEvent(new PointerEvent('pointerup', opts)); } catch(_) {}
         try { el.dispatchEvent(new MouseEvent('mouseup', opts)); } catch(_) {}
         el.click();

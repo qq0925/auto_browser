@@ -258,14 +258,8 @@ class _BrowserViewState extends State<BrowserView> {
               iframeAllowFullscreen: true,
               transparentBackground: true,
               userAgent: widget.tab.customUserAgent != null
-                  ? (widget.tab.customUserAgent == 'Mobile'
-                      ? "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1"
-                      : (widget.tab.customUserAgent == 'Desktop'
-                          ? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-                          : "Mozilla/5.0 (iPad; CPU OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1")) // Tablet
-                  : (browserProvider.userAgent == 'Mobile'
-                      ? "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1"
-                      : browserProvider.currentUserAgentString),
+                  ? browserProvider.getUserAgentString(widget.tab.customUserAgent)
+                  : browserProvider.currentUserAgentString,
               preferredContentMode: widget.tab.customUserAgent != null
                   ? (widget.tab.customUserAgent == 'Desktop'
                       ? UserPreferredContentMode.DESKTOP

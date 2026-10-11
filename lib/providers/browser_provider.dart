@@ -621,7 +621,7 @@ class BrowserProvider extends ChangeNotifier {
         _autoLeaveMode = data['autoLeaveMode'] ?? false;
         _isAdBlockEnabled = data['isAdBlockEnabled'] ?? true;
         _searchEngine = data['searchEngine'] ?? 'Baidu';
-        _userAgent = data['userAgent'] ?? 'Mobile';
+        _userAgent = data['userAgent'] ?? defaultUserAgentType;
 
         if (_keepScreenOn) {
           await WakelockPlus.enable();
@@ -632,33 +632,56 @@ class BrowserProvider extends ChangeNotifier {
     }
   }
 
+  /// 获取当前平台的默认 User-Agent 类型（PC/桌面端默认为 Desktop，移动端默认为 Mobile）
+  static String get defaultUserAgentType {
+    if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
+      return 'Desktop';
+    }
+    return 'Mobile';
+  }
+
+  static String get desktopUserAgentString {
+    if (Platform.isWindows) {
+      return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    }
+    return 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+  }
+
+  static String get mobileUserAgentString =>
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1';
+
+  static String get tabletUserAgentString =>
+      'Mozilla/5.0 (iPad; CPU OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1';
+
   // User Agent
-  String _userAgent = 'Mobile'; // Default to Mobile
+  late String _userAgent = defaultUserAgentType;
   String get userAgent => _userAgent;
 
-  final Map<String, String> _uaMap = {
-    'Mobile':
-        'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1',
-    'Tablet':
-        'Mozilla/5.0 (iPad; CPU OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1',
-    'Desktop':
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36',
+  Map<String, String> get uaMap => {
+    'Mobile': mobileUserAgentString,
+    'Tablet': tabletUserAgentString,
+    'Desktop': desktopUserAgentString,
   };
 
+  String getUserAgentString(String? type) {
+    if (type == 'Desktop') return desktopUserAgentString;
+    if (type == 'Tablet') return tabletUserAgentString;
+    if (type == 'Mobile') return mobileUserAgentString;
+    return uaMap[_userAgent] ?? (Platform.isWindows || Platform.isMacOS || Platform.isLinux ? desktopUserAgentString : mobileUserAgentString);
+  }
+
   void setUserAgent(String type) {
-    if (_uaMap.containsKey(type)) {
+    if (uaMap.containsKey(type)) {
       _userAgent = type;
       notifyListeners();
       _saveTabsState();
       // Apply to current tab if exists
-      if (currentTab != null) {
-        if (currentTab != null && currentTab!.controller != null) {
-          currentTab!.controller!.setSettings(
-              settings: InAppWebViewSettings(
-                  userAgent: _uaMap[type] ?? '',
-                  preferredContentMode: _getPreferredContentMode(type)));
-          currentTab!.controller!.reload();
-        }
+      if (currentTab != null && currentTab!.controller != null) {
+        currentTab!.controller!.setSettings(
+            settings: InAppWebViewSettings(
+                userAgent: getUserAgentString(type),
+                preferredContentMode: _getPreferredContentMode(type)));
+        currentTab!.controller!.reload();
       }
     }
   }
@@ -669,7 +692,7 @@ class BrowserProvider extends ChangeNotifier {
     _saveTabsState();
   }
 
-  String get currentUserAgentString => _uaMap[_userAgent]!;
+  String get currentUserAgentString => getUserAgentString(_userAgent);
 
   UserPreferredContentMode _getPreferredContentMode(String userAgentType) {
     if (userAgentType == 'Desktop') {
