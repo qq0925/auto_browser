@@ -283,7 +283,8 @@ class _BrowserViewState extends State<BrowserView> {
               iframeAllow: "camera; microphone",
               iframeAllowFullscreen: true,
               transparentBackground: true,
-              // Android 核心兼容性配置：开启 DOM 本地存储与混合内容支持
+              // ====== 1. 全局核心渲染与主流兼容性支持 ======
+              javaScriptEnabled: true,
               domStorageEnabled: true,
               databaseEnabled: true,
               mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
@@ -291,6 +292,21 @@ class _BrowserViewState extends State<BrowserView> {
               javaScriptCanOpenWindowsAutomatically: true,
               allowFileAccess: true,
               allowContentAccess: true,
+              cacheMode: CacheMode.LOAD_DEFAULT,
+              saveFormData: true,
+
+              // ====== 2. 移动端视口与排版兼容性 (WAP / 老旧网站 / 响应式) ======
+              useWideViewPort: true, // 开启宽视口模式，老旧非响应式网页自动缩放适配屏幕
+              loadWithOverviewMode: true, // 概览缩放模式，避免大图或宽表格撑破屏幕
+              supportZoom: true,
+              builtInZoomControls: true,
+              displayZoomControls: false, // 隐藏 Android 屏幕上过时的 +/- 浮动缩放按钮
+              textZoom: 100, // 锁定文字缩放 100%，防止手机系统字体大小破坏网页排版
+
+              // ====== 3. 多窗口与新标签页支持 ======
+              supportMultipleWindows: true,
+              geolocationEnabled: true,
+              safeBrowsingEnabled: true,
               userAgent: widget.tab.customUserAgent != null
                   ? browserProvider.getUserAgentString(widget.tab.customUserAgent)
                   : browserProvider.currentUserAgentString,
@@ -305,8 +321,6 @@ class _BrowserViewState extends State<BrowserView> {
               useOnDownloadStart: true,
               allowsLinkPreview: false, // 禁用 iOS 链接预览
               allowsBackForwardNavigationGestures: true, // 开启平滑滑动前进后退手势
-              supportZoom: true,
-              builtInZoomControls: true,
               forceDark: browserProvider.isDarkMode
                   ? ForceDark.ON
                   : ForceDark.OFF,
@@ -707,17 +721,55 @@ class _BrowserViewState extends State<BrowserView> {
                 }
               }
             },
+            onCreateWindow: (controller, createWindowAction) async {
+              final targetUrl = createWindowAction.request.url?.toString();
+              DebugLogManager.log('🪟 [onCreateWindow] targetUrl=$targetUrl');
+              if (targetUrl != null &&
+                  targetUrl.isNotEmpty &&
+                  targetUrl != 'about:blank') {
+                browserProvider.addTab(initialUrl: targetUrl);
+                return true;
+              }
+              return false;
+            },
             shouldOverrideUrlLoading: (controller, navigationAction) async {
               final uri = navigationAction.request.url;
-              DebugLogManager.log('🔍 [shouldOverrideUrl] uri=$uri, isMainFrame=${navigationAction.isForMainFrame}, hasGesture=${navigationAction.hasGesture}, navType=${navigationAction.navigationType}');
+              final method = navigationAction.request.method;
+              DebugLogManager.log(
+                  '🔍 [shouldOverrideUrl] uri=$uri, method=$method, isMainFrame=${navigationAction.isForMainFrame}');
+              
+              // 1. 表单 POST 请求必须直接放行，杜绝 Android 重载导致丢 Body 或被降级为 GET
+              if (method == 'POST') {
+                return NavigationActionPolicy.ALLOW;
+              }
+
               if (uri != null) {
                 final urlStr = uri.toString();
+                // 2. 拦截并触发文件下载
                 if (_isDownloadableUrl(urlStr)) {
                   _triggerDownload(controller, urlStr);
                   return NavigationActionPolicy.CANCEL;
                 }
               }
               return NavigationActionPolicy.ALLOW;
+            },
+            onPermissionRequest: (controller, request) async {
+              DebugLogManager.log('🛡️ [onPermissionRequest] resources=${request.resources}');
+              return PermissionResponse(
+                resources: request.resources,
+                action: PermissionResponseAction.GRANT,
+              );
+            },
+            onReceivedServerTrustAuthRequest: (controller, challenge) async {
+              return ServerTrustAuthResponse(
+                action: ServerTrustAuthResponseAction.PROCEED,
+              );
+            },
+            onJsBeforeUnload: (controller, jsBeforeUnloadRequest) async {
+              return JsBeforeUnloadResponse(
+                handledByClient: true,
+                action: JsBeforeUnloadResponseAction.CONFIRM,
+              );
             },
             onReceivedError: (controller, request, error) {
               DebugLogManager.log('❌ [onReceivedError] url=${request.url}, error=${error.description}');
