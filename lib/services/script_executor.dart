@@ -553,13 +553,14 @@ class ScriptExecutor {
     function _auokSimulateClick(el) {
       if (!el) return;
       try {
+        const isSubmitBtn = el.type === 'submit' || (el.getAttribute && el.getAttribute('type') === 'submit');
         const opts = { bubbles: true, cancelable: true, view: window, composed: true };
         if (typeof el.focus === 'function') el.focus();
         try { el.dispatchEvent(new PointerEvent('pointerdown', opts)); } catch(_) {}
         try { el.dispatchEvent(new MouseEvent('mousedown', opts)); } catch(_) {}
 
-        // 尝试分发触控事件，以兼容只监听 touchstart/touchend 的移动端组件及游戏
-        if (typeof Touch !== 'undefined' && typeof TouchEvent !== 'undefined') {
+        // 对原生 submit 按钮跳过 TouchEvent 合成，防止 Android Chromium 手势引擎竞争阻断表单 submit 原生行为
+        if (!isSubmitBtn && typeof Touch !== 'undefined' && typeof TouchEvent !== 'undefined') {
           try {
             const rect = el.getBoundingClientRect();
             const cx = rect.left + rect.width / 2;
@@ -1184,10 +1185,24 @@ class ScriptExecutor {
               
               if (submitBtn) {
                 _auokHighlight(submitBtn);
-                _auokSimulateClick(submitBtn);
+                try {
+                  submitBtn.click();
+                } catch(_) {
+                  _auokSimulateClick(submitBtn);
+                }
                 return true;
               } else if (targetForm) {
-                targetForm.submit();
+                try {
+                  if (typeof targetForm.requestSubmit === 'function') {
+                    targetForm.requestSubmit();
+                  } else {
+                    HTMLFormElement.prototype.submit.call(targetForm);
+                  }
+                } catch (e) {
+                  try {
+                    HTMLFormElement.prototype.submit.call(targetForm);
+                  } catch (e2) {}
+                }
                 return true;
               }
             }

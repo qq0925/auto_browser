@@ -283,6 +283,14 @@ class _BrowserViewState extends State<BrowserView> {
               iframeAllow: "camera; microphone",
               iframeAllowFullscreen: true,
               transparentBackground: true,
+              // Android 核心兼容性配置：开启 DOM 本地存储与混合内容支持
+              domStorageEnabled: true,
+              databaseEnabled: true,
+              mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
+              thirdPartyCookiesEnabled: true,
+              javaScriptCanOpenWindowsAutomatically: true,
+              allowFileAccess: true,
+              allowContentAccess: true,
               userAgent: widget.tab.customUserAgent != null
                   ? browserProvider.getUserAgentString(widget.tab.customUserAgent)
                   : browserProvider.currentUserAgentString,
@@ -716,6 +724,9 @@ class _BrowserViewState extends State<BrowserView> {
             },
             onReceivedHttpError: (controller, request, errorResponse) {
               DebugLogManager.log('⚠️ [onReceivedHttpError] url=${request.url}, statusCode=${errorResponse.statusCode}');
+            },
+            onConsoleMessage: (controller, consoleMessage) {
+              DebugLogManager.log('💬 [Console-${consoleMessage.messageLevel}] ${consoleMessage.message}');
             },
             onJsAlert: (controller, jsAlertRequest) async {
               await showDialog(
