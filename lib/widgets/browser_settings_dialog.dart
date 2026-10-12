@@ -3,8 +3,101 @@ import 'package:provider/provider.dart';
 import '../providers/browser_provider.dart';
 import 'privacy_policy_dialog.dart';
 
-class BrowserSettingsDialog extends StatelessWidget {
+class BrowserSettingsDialog extends StatefulWidget {
   const BrowserSettingsDialog({super.key});
+
+  @override
+  State<BrowserSettingsDialog> createState() => _BrowserSettingsDialogState();
+}
+
+class _BrowserSettingsDialogState extends State<BrowserSettingsDialog> {
+  String _cacheSizeText = '计算中...';
+  bool _isClearingCache = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCacheSize();
+  }
+
+  Future<void> _loadCacheSize() async {
+    final provider = context.read<BrowserProvider>();
+    final size = await provider.getCacheSizeString();
+    if (mounted) {
+      setState(() {
+        _cacheSizeText = size;
+      });
+    }
+  }
+
+  Future<void> _handleClearCache(BrowserProvider provider) async {
+    final isDarkMode = provider.isDarkMode;
+    final dialogBg = isDarkMode ? const Color(0xFF2C2C2C) : Colors.white;
+    final titleColor = isDarkMode ? Colors.white : Colors.black87;
+    final contentColor = isDarkMode ? Colors.white70 : Colors.black54;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: dialogBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.cleaning_services_rounded,
+                color: Colors.blue, size: 24),
+            const SizedBox(width: 8),
+            Text('清空缓存',
+                style: TextStyle(
+                    color: titleColor,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Text(
+          '确定要清空浏览器缓存吗？\n\n此操作将清理网页临时数据、离线脚本与图片缓存，释放本地存储空间。您的书签、保存的账号和浏览历史记录不会受到影响。',
+          style: TextStyle(color: contentColor, fontSize: 14, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx, false),
+            child: Text('取消',
+                style: TextStyle(
+                    color: isDarkMode ? Colors.white60 : Colors.grey.shade700)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(dialogCtx, true),
+            child: const Text('确定清空'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      setState(() {
+        _isClearingCache = true;
+      });
+      await provider.clearCache();
+      if (mounted) {
+        setState(() {
+          _isClearingCache = false;
+          _cacheSizeText = '0.0 MB';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('浏览器缓存已清空'),
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -151,38 +244,114 @@ class BrowserSettingsDialog extends StatelessWidget {
                   builder: (context, provider, child) {
                     final days = provider.maxHistoryDays;
                     final currentText = days == 0 ? '永久' : '$days天';
-                    return ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(
-                        '最大历史记录保存天数',
-                        style: TextStyle(color: textColor, fontSize: 15),
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            '当前:$currentText',
+                    return Column(
+                      children: [
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(
+                            '最大历史记录保存天数',
+                            style: TextStyle(color: textColor, fontSize: 15),
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                '当前:$currentText',
+                                style: TextStyle(
+                                  color: isDarkMode
+                                      ? Colors.white60
+                                      : Colors.black54,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Icon(
+                                Icons.chevron_right,
+                                size: 18,
+                                color: isDarkMode ? Colors.white54 : Colors.grey,
+                              ),
+                            ],
+                          ),
+                          onTap: () => _showHistoryDaysDialog(
+                            context,
+                            provider,
+                            isDarkMode,
+                            textColor,
+                            backgroundColor,
+                            dividerColor,
+                          ),
+                        ),
+                        Divider(height: 16, color: dividerColor),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(
+                            '清空浏览器缓存',
+                            style: TextStyle(color: textColor, fontSize: 15),
+                          ),
+                          subtitle: Text(
+                            '清除网页临时文件与图片缓存',
                             style: TextStyle(
-                              color: isDarkMode ? Colors.white60 : Colors.black54,
-                              fontSize: 14,
+                              color: isDarkMode
+                                  ? Colors.white54
+                                  : Colors.black45,
+                              fontSize: 12,
                             ),
                           ),
-                          const SizedBox(width: 4),
-                          Icon(
-                            Icons.chevron_right,
-                            size: 18,
-                            color: isDarkMode ? Colors.white54 : Colors.grey,
-                          ),
-                        ],
-                      ),
-                      onTap: () => _showHistoryDaysDialog(
-                        context,
-                        provider,
-                        isDarkMode,
-                        textColor,
-                        backgroundColor,
-                        dividerColor,
-                      ),
+                          trailing: _isClearingCache
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2),
+                                )
+                              : Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      _cacheSizeText,
+                                      style: TextStyle(
+                                        color: isDarkMode
+                                          ? Colors.white60
+                                          : Colors.black54,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Icon(
+                                      Icons.chevron_right,
+                                      size: 18,
+                                      color: isDarkMode
+                                          ? Colors.white54
+                                          : Colors.grey,
+                                    ),
+                                  ],
+                                ),
+                          onTap: _isClearingCache
+                              ? null
+                              : () => _handleClearCache(provider),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+                Divider(height: 32, color: dividerColor),
+                _buildSectionTitle('开发者与调试', textColor),
+                const SizedBox(height: 12),
+                Consumer<BrowserProvider>(
+                  builder: (context, provider, child) {
+                    return Column(
+                      children: [
+                        SwitchListTile(
+                          title: Text('显示网页调试悬浮球',
+                              style: TextStyle(color: textColor)),
+                          subtitle: Text('在页面右下角显示调试日志胶囊，可实时查看与复制底层网络请求信息',
+                              style: TextStyle(color: Colors.grey, fontSize: 12)),
+                          value: provider.isDebugModeEnabled,
+                          onChanged: (value) => provider.toggleDebugMode(value),
+                          activeColor: Colors.blue,
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                      ],
                     );
                   },
                 ),

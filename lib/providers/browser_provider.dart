@@ -7,6 +7,7 @@ import 'dart:io';
 import '../models/browser_tab.dart';
 import '../models/browser_data.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:path_provider/path_provider.dart';
 import '../utils/welcome_manager.dart';
 
 class BrowserProvider extends ChangeNotifier {
@@ -253,6 +254,15 @@ class BrowserProvider extends ChangeNotifier {
 
   void toggleAdBlock(bool value) {
     _isAdBlockEnabled = value;
+    notifyListeners();
+    _saveTabsState();
+  }
+
+  bool _isDebugModeEnabled = true;
+  bool get isDebugModeEnabled => _isDebugModeEnabled;
+
+  void toggleDebugMode(bool value) {
+    _isDebugModeEnabled = value;
     notifyListeners();
     _saveTabsState();
   }
@@ -601,6 +611,7 @@ class BrowserProvider extends ChangeNotifier {
         'userAgent': _userAgent, // Save UserAgent
         'autoLeaveMode': _autoLeaveMode,
         'isAdBlockEnabled': _isAdBlockEnabled,
+        'isDebugModeEnabled': _isDebugModeEnabled,
       };
 
       await prefs.setString('last_tabs', jsonEncode(dataToSave));
@@ -620,6 +631,7 @@ class BrowserProvider extends ChangeNotifier {
         _keepScreenOn = data['keepScreenOn'] ?? false;
         _autoLeaveMode = data['autoLeaveMode'] ?? false;
         _isAdBlockEnabled = data['isAdBlockEnabled'] ?? true;
+        _isDebugModeEnabled = data['isDebugModeEnabled'] ?? true;
         _searchEngine = data['searchEngine'] ?? 'Baidu';
         _userAgent = data['userAgent'] ?? defaultUserAgentType;
 
@@ -699,5 +711,66 @@ class BrowserProvider extends ChangeNotifier {
       return UserPreferredContentMode.DESKTOP;
     }
     return UserPreferredContentMode.MOBILE;
+  }
+
+  /// 异步获取当前临时缓存大小估算字符串
+  Future<String> getCacheSizeString() async {
+    try {
+      final tempDir = await getTemporaryDirectory();
+      if (!await tempDir.exists()) return '0.0 MB';
+      int totalBytes = 0;
+      await for (final file
+          in tempDir.list(recursive: true, followLinks: false)) {
+        if (file is File) {
+          try {
+            totalBytes += await file.length();
+          } catch (_) {}
+        }
+      }
+      if (totalBytes < 1024) {
+        return '$totalBytes B';
+      } else if (totalBytes < 1024 * 1024) {
+        return '${(totalBytes / 1024).toStringAsFixed(1)} KB';
+      }
+      return '${(totalBytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    } catch (_) {
+      return '0.0 MB';
+    }
+  }
+
+  /// 清空浏览器缓存
+  /// 深度清除：InAppWebView 全局缓存、各活跃标签页控制器缓存、系统临时目录文件
+  Future<void> clearCache() async {
+    try {
+      // 1. 全局清除 InAppWebView 缓存（涵盖所有活跃与非活跃标签页）
+      try {
+        await InAppWebViewController.clearAllCache();
+      } catch (e) {
+        debugPrint('clearAllCache error: $e');
+      }
+
+      // 2. 清理系统临时目录缓存文件
+      try {
+        final tempDir = await getTemporaryDirectory();
+        if (await tempDir.exists()) {
+          final entities = tempDir.listSync(recursive: false);
+          for (final entity in entities) {
+            try {
+              if (entity is File) {
+                await entity.delete();
+              } else if (entity is Directory) {
+                await entity.delete(recursive: true);
+              }
+            } catch (_) {}
+          }
+        }
+      } catch (e) {
+        debugPrint('Clear temp dir error: $e');
+      }
+
+      notifyListeners();
+    } catch (e) {
+      debugPrint('clearCache failed: $e');
+    }
   }
 }

@@ -11,6 +11,32 @@ import '../services/script_executor.dart';
 import 'download_confirm_dialog.dart';
 import '../utils/welcome_manager.dart';
 
+/// 全局 WebView 调试日志管理器（支持打包 APK 后在设备端直接查看与一键复制）
+class DebugLogManager {
+  static final List<String> logs = [];
+  static final ValueNotifier<int> logCountNotifier = ValueNotifier<int>(0);
+
+  static void log(String msg) {
+    final now = DateTime.now();
+    final timeStr =
+        "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}.${now.millisecond.toString().padLeft(3, '0')}";
+    final entry = '[$timeStr] $msg';
+    debugPrint('🔥 $entry');
+    logs.add(entry);
+    if (logs.length > 500) {
+      logs.removeAt(0);
+    }
+    logCountNotifier.value = logs.length;
+  }
+
+  static void clear() {
+    logs.clear();
+    logCountNotifier.value = 0;
+  }
+
+  static String getAllLogs() => logs.join('\n');
+}
+
 class BrowserView extends StatefulWidget {
   final BrowserTab tab;
   final bool isActive;
@@ -408,6 +434,7 @@ class _BrowserViewState extends State<BrowserView> {
               }
             },
             onLoadStart: (controller, url) {
+              DebugLogManager.log('🚀 [onLoadStart] url=$url');
               if (url != null) {
                 final urlString = url.toString();
                 widget.tab.url = urlString;
@@ -432,6 +459,7 @@ class _BrowserViewState extends State<BrowserView> {
               }
             },
             onLoadStop: (controller, url) async {
+              DebugLogManager.log('🏁 [onLoadStop] url=$url');
               if (url != null) {
                 widget.tab.isLoading = false;
                 final index = browserProvider.tabs.indexOf(widget.tab);
@@ -553,6 +581,17 @@ class _BrowserViewState extends State<BrowserView> {
                   }
 
                   if (title != null && mounted) {
+                    DebugLogManager.log('📄 [确定标题] $title, url=$url');
+                    try {
+                      controller.evaluateJavascript(
+                        source: "document.body ? (document.body.innerText || '').substring(0, 120).replace(/\\n/g, ' ') : ''",
+                      ).then((snippet) {
+                        if (snippet != null && snippet.toString().isNotEmpty) {
+                          DebugLogManager.log('📝 [正文前120字] $snippet');
+                        }
+                      });
+                    } catch (_) {}
+
                     final currentIndex =
                         browserProvider.tabs.indexOf(widget.tab);
                     if (currentIndex != -1) {
@@ -594,6 +633,7 @@ class _BrowserViewState extends State<BrowserView> {
               }
             },
             onTitleChanged: (controller, title) {
+              DebugLogManager.log('🏷️ [onTitleChanged] title=$title');
               if (title != null) {
                 String displayTitle = title;
                 if (displayTitle.isEmpty) {
@@ -613,6 +653,7 @@ class _BrowserViewState extends State<BrowserView> {
               }
             },
             onUpdateVisitedHistory: (controller, url, androidIsReload) async {
+              DebugLogManager.log('📜 [onUpdateHistory] url=$url, androidIsReload=$androidIsReload');
               final index = browserProvider.tabs.indexOf(widget.tab);
               if (index != -1 && mounted) {
                 try {
@@ -660,6 +701,7 @@ class _BrowserViewState extends State<BrowserView> {
             },
             shouldOverrideUrlLoading: (controller, navigationAction) async {
               final uri = navigationAction.request.url;
+              DebugLogManager.log('🔍 [shouldOverrideUrl] uri=$uri, isMainFrame=${navigationAction.isForMainFrame}, hasGesture=${navigationAction.hasGesture}, navType=${navigationAction.navigationType}');
               if (uri != null) {
                 final urlStr = uri.toString();
                 if (_isDownloadableUrl(urlStr)) {
@@ -668,6 +710,12 @@ class _BrowserViewState extends State<BrowserView> {
                 }
               }
               return NavigationActionPolicy.ALLOW;
+            },
+            onReceivedError: (controller, request, error) {
+              DebugLogManager.log('❌ [onReceivedError] url=${request.url}, error=${error.description}');
+            },
+            onReceivedHttpError: (controller, request, errorResponse) {
+              DebugLogManager.log('⚠️ [onReceivedHttpError] url=${request.url}, statusCode=${errorResponse.statusCode}');
             },
             onJsAlert: (controller, jsAlertRequest) async {
               await showDialog(
@@ -751,7 +799,170 @@ class _BrowserViewState extends State<BrowserView> {
               );
             },
           ),
+          // 悬浮调试胶囊（仅在设置中开启调试开关时显示）
+          if (browserProvider.isDebugModeEnabled)
+            Positioned(
+              bottom: 80,
+              right: 12,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () => _showDebugLogModal(context),
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent.withValues(alpha: 0.9),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Colors.black45,
+                        blurRadius: 4,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.bug_report, size: 16, color: Colors.white),
+                      const SizedBox(width: 4),
+                      ValueListenableBuilder<int>(
+                        valueListenable: DebugLogManager.logCountNotifier,
+                        builder: (context, count, _) => Text(
+                          '调试 ($count)',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
+      ),
+    );
+  }
+
+  /// 打开在屏调试日志弹窗（可滑动浏览、一键复制全部、清空）
+  void _showDebugLogModal(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        height: MediaQuery.of(ctx).size.height * 0.78,
+        decoration: const BoxDecoration(
+          color: Color(0xFF1E1E1E),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: Colors.white12)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.bug_report, color: Colors.amber, size: 20),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'WebView 调试日志',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton.icon(
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white70,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                    icon: const Icon(Icons.delete_outline, size: 16),
+                    label: const Text('清空', style: TextStyle(fontSize: 12)),
+                    onPressed: () {
+                      DebugLogManager.clear();
+                    },
+                  ),
+                  const SizedBox(width: 4),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blueAccent,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    ),
+                    icon: const Icon(Icons.copy, size: 14),
+                    label: const Text('复制全部', style: TextStyle(fontSize: 12)),
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: DebugLogManager.getAllLogs()));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('已复制所有调试日志到剪贴板！'),
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ValueListenableBuilder<int>(
+                valueListenable: DebugLogManager.logCountNotifier,
+                builder: (context, count, _) {
+                  if (DebugLogManager.logs.isEmpty) {
+                    return const Center(
+                      child: Text(
+                        '暂无日志\\n请在网页中点击“使用其它物品”触发操作',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white38, fontSize: 13),
+                      ),
+                    );
+                  }
+                  return ListView.builder(
+                    padding: const EdgeInsets.all(12),
+                    itemCount: DebugLogManager.logs.length,
+                    itemBuilder: (context, index) {
+                      final log = DebugLogManager.logs[index];
+                      Color textColor = Colors.white70;
+                      if (log.contains('shouldOverrideUrl')) {
+                        textColor = Colors.amberAccent;
+                      } else if (log.contains('onLoadStart')) {
+                        textColor = Colors.lightBlueAccent;
+                      } else if (log.contains('onLoadStop')) {
+                        textColor = Colors.lightGreenAccent;
+                      } else if (log.contains('Error') || log.contains('❌') || log.contains('⚠️')) {
+                        textColor = Colors.redAccent;
+                      } else if (log.contains('标题') || log.contains('正文')) {
+                        textColor = Colors.purpleAccent;
+                      }
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 3),
+                        child: SelectableText(
+                          log,
+                          style: TextStyle(
+                            color: textColor,
+                            fontSize: 11,
+                            fontFamily: 'monospace',
+                            height: 1.3,
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
