@@ -258,7 +258,7 @@ class BrowserProvider extends ChangeNotifier {
     _saveTabsState();
   }
 
-  bool _isDebugModeEnabled = true;
+  bool _isDebugModeEnabled = false;
   bool get isDebugModeEnabled => _isDebugModeEnabled;
 
   void toggleDebugMode(bool value) {
@@ -631,7 +631,7 @@ class BrowserProvider extends ChangeNotifier {
         _keepScreenOn = data['keepScreenOn'] ?? false;
         _autoLeaveMode = data['autoLeaveMode'] ?? false;
         _isAdBlockEnabled = data['isAdBlockEnabled'] ?? true;
-        _isDebugModeEnabled = data['isDebugModeEnabled'] ?? true;
+        _isDebugModeEnabled = data['isDebugModeEnabled'] ?? false;
         _searchEngine = data['searchEngine'] ?? 'Baidu';
         _userAgent = data['userAgent'] ?? defaultUserAgentType;
 

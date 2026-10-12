@@ -4,5 +4,6 @@
         "${workspaceFolder}/windows/runner",
         "${workspaceFolder}/windows/flutter/ephemeral",
         "${workspaceFolder}/windows/flutter/ephemeral/cpp_client_wrapper/include"
-    ]
+    ],
+    "git.ignoreLimitWarning": true
 }

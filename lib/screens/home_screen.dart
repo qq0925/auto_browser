@@ -1043,105 +1043,125 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                     : -panelWidth,
                 top: 0,
                 bottom: 0,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // 脚本面板切换按钮
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () {
-                        // 切换侧边栏时暂时屏蔽并撤销可能被穿透捕获的录制动作
-                        scriptProvider.cancelLastRecordingIfRecent();
-                        browserProvider.toggleScriptPanel();
-                      },
-                      child: Container(
-                        width: 24,
-                        height: 60,
-                        margin: EdgeInsets.only(
-                          top: MediaQuery.of(context).size.height / 2 - 80,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.grey[800],
-                          borderRadius: const BorderRadius.only(
-                            topLeft: Radius.circular(12),
-                            bottomLeft: Radius.circular(12),
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.3),
-                              blurRadius: 4,
-                              offset: const Offset(-2, 0),
+                child: SizedBox(
+                  width: panelWidth + 24,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final arrowTop = (constraints.maxHeight - 60) / 2;
+                      return Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          // 脚本面板
+                          Positioned(
+                            top: 0,
+                            bottom: 0,
+                            right: 0,
+                            width: panelWidth,
+                            child: Container(
+                              width: panelWidth,
+                              decoration: const BoxDecoration(
+                                color: Colors.transparent,
+                                borderRadius: BorderRadius.horizontal(
+                                    left: Radius.circular(12)),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black26,
+                                    blurRadius: 10,
+                                    offset: Offset(-2, 0),
+                                  ),
+                                ],
+                              ),
+                              child: RightScriptPanel(
+                                onAddScript: () async {
+                                  final result = await showDialog<Script>(
+                                    context: context,
+                                    builder: (context) =>
+                                        const AddScriptDialog(),
+                                  );
+                                  if (result != null && mounted) {
+                                    scriptProvider.addScript(result);
+                                  }
+                                },
+                                onGlobalSettings: () {
+                                  showDialog(
+                                    context: context,
+                                    builder: (context) =>
+                                        const GlobalSettingsDialog(),
+                                  );
+                                },
+                                onExecute: () {
+                                  if (scriptProvider.isExecuting) {
+                                    scriptProvider.stopExecution();
+                                  } else {
+                                    if (browserProvider.currentTab != null &&
+                                        browserProvider.currentTab!.controller !=
+                                            null) {
+                                      scriptProvider.startExecution(
+                                        browserProvider
+                                            .currentTab!.controller!,
+                                        browserProvider.currentIndex,
+                                      );
+                                    }
+                                  }
+                                },
+                                onLoad: () {
+                                  _showLoadScriptDialog(
+                                      context, scriptProvider);
+                                },
+                                onRecordScript: () {
+                                  if (browserProvider.currentTab != null) {
+                                    // 点击录制脚本时自动触发一次收纳脚本管理器的动作，避免遮挡网页
+                                    browserProvider.closeScriptPanel();
+                                    scriptProvider.startRecording();
+                                  }
+                                },
+                              ),
                             ),
-                          ],
-                        ),
-                        child: Icon(
-                          browserProvider.isScriptPanelExpanded
-                              ? Icons.chevron_right
-                              : Icons.chevron_left,
-                          color: Colors.white,
-                          size: 20,
-                        ),
-                      ),
-                    ),
-                    // 脚本面板
-                    Container(
-                      width: panelWidth,
-                      decoration: const BoxDecoration(
-                        color: Colors.transparent,
-                        borderRadius:
-                            BorderRadius.horizontal(left: Radius.circular(12)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black26,
-                            blurRadius: 10,
-                            offset: Offset(-2, 0),
+                          ),
+                          // 脚本面板切换按钮（紧贴在面板左侧边缘，严格仅在箭头 24x60 物理区域内响应触碰）
+                          Positioned(
+                            left: 0,
+                            top: arrowTop,
+                            width: 24,
+                            height: 60,
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () {
+                                // 切换侧边栏时暂时屏蔽并撤销可能被穿透捕获的录制动作
+                                scriptProvider.cancelLastRecordingIfRecent();
+                                browserProvider.toggleScriptPanel();
+                              },
+                              child: Container(
+                                width: 24,
+                                height: 60,
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[800],
+                                  borderRadius: const BorderRadius.only(
+                                    topLeft: Radius.circular(12),
+                                    bottomLeft: Radius.circular(12),
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.3),
+                                      blurRadius: 4,
+                                      offset: const Offset(-2, 0),
+                                    ),
+                                  ],
+                                ),
+                                child: Icon(
+                                  browserProvider.isScriptPanelExpanded
+                                      ? Icons.chevron_right
+                                      : Icons.chevron_left,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                              ),
+                            ),
                           ),
                         ],
-                      ),
-                      child: RightScriptPanel(
-                        onAddScript: () async {
-                          final result = await showDialog<Script>(
-                            context: context,
-                            builder: (context) => const AddScriptDialog(),
-                          );
-                          if (result != null && mounted) {
-                            scriptProvider.addScript(result);
-                          }
-                        },
-                        onGlobalSettings: () {
-                          showDialog(
-                            context: context,
-                            builder: (context) =>
-                                const GlobalSettingsDialog(),
-                          );
-                        },
-                        onExecute: () {
-                          if (scriptProvider.isExecuting) {
-                            scriptProvider.stopExecution();
-                          } else {
-                            if (browserProvider.currentTab != null &&
-                                browserProvider.currentTab!.controller !=
-                                    null) {
-                              scriptProvider.startExecution(
-                                browserProvider.currentTab!.controller!,
-                                browserProvider.currentIndex,
-                              );
-                            }
-                          }
-                        },
-                        onLoad: () {
-                          _showLoadScriptDialog(context, scriptProvider);
-                        },
-                        onRecordScript: () {
-                          if (browserProvider.currentTab != null) {
-                            // 点击录制脚本时自动触发一次收纳脚本管理器的动作，避免遮挡网页
-                            browserProvider.closeScriptPanel();
-                            scriptProvider.startRecording();
-                          }
-                        },
-                      ),
-                    ),
-                  ],
+                      );
+                    },
+                  ),
                 ),
               ),
 
