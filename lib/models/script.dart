@@ -47,11 +47,11 @@ class Script {
   Map<String, dynamic> params;
   bool isEnabled;
 
-  // Runtime state
+  // 运行时状态
   ScriptStatus status = ScriptStatus.idle;
   String? statusMessage;
   double? progress;
-  String? targetScriptPath; // For '脚本替换'
+  String? targetScriptPath; // 用于 '脚本替换' 和 '执行本地脚本集'
 
   Script({
     required this.type,
@@ -60,31 +60,39 @@ class Script {
     this.status = ScriptStatus.idle,
     this.statusMessage,
     this.progress,
-    this.targetScriptPath,
-  });
+    String? targetScriptPath,
+  }) : targetScriptPath = targetScriptPath ??
+            ((type == '脚本替换' || type == '执行本地脚本集') &&
+                    params['脚本集'] != null
+                ? params['脚本集']?.toString()
+                : null);
 
   Map<String, dynamic> getClickParams() {
     return params;
   }
 
   factory Script.fromMap(Map<String, dynamic> map) {
+    final parsedParams = map['params'] is Map
+        ? Map<String, dynamic>.from(map['params'] as Map)
+        : <String, dynamic>{};
     return Script(
-      type: map['type'],
-      params: Map<String, dynamic>.from(map['params']),
-      isEnabled: map['isEnabled'] ?? true,
-      targetScriptPath: map['targetScriptPath'],
+      type: map['type']?.toString() ?? '未知类型',
+      params: parsedParams,
+      isEnabled: map['isEnabled'] as bool? ?? true,
+      targetScriptPath: map['targetScriptPath']?.toString() ??
+          parsedParams['脚本集']?.toString(),
     );
   }
 
-  // Convert from User JSON (flat structure)
+  // 从用户导出的扁平 JSON 结构转换
   factory Script.fromUserMap(Map<String, dynamic> map) {
-    final type = map['脚本类型'] as String? ?? '未知类型';
+    final type = map['脚本类型']?.toString() ?? '未知类型';
     final params = Map<String, dynamic>.from(map);
-    params.remove('脚本类型'); // Remove type from params
+    params.remove('脚本类型');
 
     String? targetScriptPath;
     if ((type == '脚本替换' || type == '执行本地脚本集') && params.containsKey('脚本集')) {
-      targetScriptPath = params['脚本集'];
+      targetScriptPath = params['脚本集']?.toString();
       params.remove('脚本集');
     }
 
@@ -102,11 +110,10 @@ class Script {
       'params': params,
       'isEnabled': isEnabled,
       'targetScriptPath': targetScriptPath,
-      // status and statusMessage are runtime only, not persisted
     };
   }
 
-  // Convert to User JSON (flat structure)
+  // 转换为用户扁平 JSON 结构
   Map<String, dynamic> toUserMap() {
     final map = Map<String, dynamic>.from(params);
     map['脚本类型'] = type;

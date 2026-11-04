@@ -26,8 +26,10 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<BrowserProvider>(
-      builder: (context, browserProvider, child) {
+    // 仅监听深色模式状态变化，避免网页加载进度更新时整棵应用树高频重建
+    return Selector<BrowserProvider, bool>(
+      selector: (_, provider) => provider.isDarkMode,
+      builder: (context, isDarkMode, child) {
         return MaterialApp(
           navigatorKey: BrowserProvider.navigatorKey,
           title: 'Auok浏览器',
@@ -43,14 +45,11 @@ class MyApp extends StatelessWidget {
             Locale('en', 'US'), // 英文（备用）
           ],
           theme: ThemeData(
-            brightness:
-                browserProvider.isDarkMode ? Brightness.dark : Brightness.light,
+            brightness: isDarkMode ? Brightness.dark : Brightness.light,
             primarySwatch: Colors.blue,
-            scaffoldBackgroundColor:
-                browserProvider.isDarkMode ? Colors.black : Colors.white,
+            scaffoldBackgroundColor: isDarkMode ? Colors.black : Colors.white,
             appBarTheme: AppBarTheme(
-              backgroundColor:
-                  browserProvider.isDarkMode ? Colors.grey[900] : Colors.blue,
+              backgroundColor: isDarkMode ? Colors.grey[900] : Colors.blue,
               foregroundColor: Colors.white,
             ),
           ),

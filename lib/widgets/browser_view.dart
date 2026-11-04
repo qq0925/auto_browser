@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'dart:collection';
+import 'dart:convert';
 import 'package:provider/provider.dart';
 import 'dart:io';
 import '../models/browser_tab.dart';
@@ -52,6 +53,8 @@ class BrowserView extends StatefulWidget {
 }
 
 class _BrowserViewState extends State<BrowserView> {
+  bool _isLoadingWelcome = false;
+
   String _normalizeUrl(String input) {
     var url = input.trim();
     if (url.isEmpty) return 'about:blank';
@@ -114,16 +117,18 @@ class _BrowserViewState extends State<BrowserView> {
     final browserProvider = context.read<BrowserProvider>();
     final scriptProvider = context.read<ScriptProvider>();
 
-    // Build initial user scripts list
+    // 构建初始注入脚本列表
     final List<UserScript> initialScripts = [];
 
     // 禁用点击高亮效果，避免快速点击时的视觉残留
     initialScripts.add(UserScript(
       source: '''
         (function() {
-          var style = document.createElement('style');
-          style.textContent = '* { -webkit-tap-highlight-color: transparent !important; }';
-          document.head.appendChild(style);
+          try {
+            var style = document.createElement('style');
+            style.textContent = '* { -webkit-tap-highlight-color: transparent !important; }';
+            (document.head || document.documentElement)?.appendChild(style);
+          } catch(e) {}
         })();
       ''',
       injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
@@ -216,6 +221,17 @@ class _BrowserViewState extends State<BrowserView> {
               menuItems: [
                 ContextMenuItem(
                   id: 1,
+                  title: "剪切",
+                  action: () async {
+                    try {
+                      await widget.tab.controller?.evaluateJavascript(
+                        source: "document.execCommand('cut');",
+                      );
+                    } catch (_) {}
+                  },
+                ),
+                ContextMenuItem(
+                  id: 2,
                   title: "复制",
                   action: () async {
                     try {
@@ -226,7 +242,64 @@ class _BrowserViewState extends State<BrowserView> {
                   },
                 ),
                 ContextMenuItem(
-                  id: 2,
+                  id: 3,
+                  title: "粘贴",
+                  action: () async {
+                    try {
+                      final data = await Clipboard.getData(Clipboard.kTextPlain);
+                      final clipText = data?.text;
+                      if (clipText != null && clipText.isNotEmpty) {
+                        final jsonText = jsonEncode(clipText);
+                        await widget.tab.controller?.evaluateJavascript(
+                          source: """
+                            (function() {
+                              var el = document.activeElement;
+                              if (!el || el === document.body) {
+                                var sel = window.getSelection();
+                                if (sel && sel.anchorNode) {
+                                  var node = sel.anchorNode;
+                                  if (node.nodeType === 3) node = node.parentElement;
+                                  if (node && (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.isContentEditable)) {
+                                    el = node;
+                                  }
+                                }
+                              }
+                              var text = $jsonText;
+                              if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
+                                try { if (typeof el.focus === 'function') el.focus(); } catch(_) {}
+                                var start = 0, end = 0;
+                                try {
+                                  start = el.selectionStart || 0;
+                                  end = el.selectionEnd || 0;
+                                } catch(_) {
+                                  start = (el.value || '').length;
+                                  end = start;
+                                }
+                                var val = el.value || '';
+                                el.value = val.substring(0, start) + text + val.substring(end);
+                                try {
+                                  el.selectionStart = el.selectionEnd = start + text.length;
+                                } catch(_) {}
+                                el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                                el.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+                              } else if (el && el.isContentEditable) {
+                                document.execCommand('insertText', false, text);
+                              } else {
+                                try {
+                                  document.execCommand('insertText', false, text);
+                                } catch(e) {
+                                  try { document.execCommand('paste'); } catch(e2) {}
+                                }
+                              }
+                            })();
+                          """,
+                        );
+                      }
+                    } catch (_) {}
+                  },
+                ),
+                ContextMenuItem(
+                  id: 4,
                   title: "全选",
                   action: () async {
                     try {
@@ -237,7 +310,7 @@ class _BrowserViewState extends State<BrowserView> {
                   },
                 ),
                 ContextMenuItem(
-                  id: 3,
+                  id: 5,
                   title: "在新标签页打开",
                   action: () async {
                     // 在异步操作前获取 provider
@@ -249,7 +322,7 @@ class _BrowserViewState extends State<BrowserView> {
                         source: """
                           (function() {
                             var selection = window.getSelection();
-                            if (selection.rangeCount > 0) {
+                            if (selection && selection.rangeCount > 0) {
                               var range = selection.getRangeAt(0);
                               var container = range.commonAncestorContainer;
                               while (container && container.nodeName !== 'A') {
@@ -259,7 +332,7 @@ class _BrowserViewState extends State<BrowserView> {
                                 return container.href;
                               }
                             }
-                            return null;
+                            return document.activeElement?.closest?.('a')?.href || null;
                           })();
                         """,
                       );
@@ -380,9 +453,13 @@ class _BrowserViewState extends State<BrowserView> {
             onWebViewCreated: (controller) {
               widget.tab.setController(controller);
 
-              // Check if we need to load welcome page (new tab or empty url)
-              if (widget.tab.url == 'about:blank' || widget.tab.url.isEmpty) {
+              // 检查是否需要加载欢迎页（新建标签页或空地址）
+              if (widget.tab.url == 'about:blank' ||
+                  widget.tab.url.isEmpty ||
+                  widget.tab.url.endsWith('welcome.html')) {
+                _isLoadingWelcome = true;
                 WelcomeManager.getWelcomeContent().then((content) {
+                  if (!mounted) return;
                   controller.loadData(
                     data: content,
                     mimeType: 'text/html',
@@ -391,6 +468,7 @@ class _BrowserViewState extends State<BrowserView> {
                   );
                 });
               } else {
+                _isLoadingWelcome = false;
                 final targetUrl = _normalizeUrl(widget.tab.url);
                 widget.tab.url = targetUrl;
                 // 跨平台与 Windows WebView2 离屏补强：延迟检查底层 initialUrlRequest 是否已启动，若未启动则调用 loadUrl
@@ -412,7 +490,7 @@ class _BrowserViewState extends State<BrowserView> {
                 });
               }
 
-              // Add JavaScript Handler for ScriptRunner
+              // 注册脚本执行器 JavaScript 通信处理器
               controller.addJavaScriptHandler(
                 handlerName: 'ScriptRunner',
                 callback: (args) {
@@ -439,8 +517,7 @@ class _BrowserViewState extends State<BrowserView> {
                 },
               );
 
-              // Recording and Night Mode scripts are now in initialUserScripts
-              // This ensures they inject at the earliest possible moment
+              // 录制与夜间模式脚本已通过 initialUserScripts 在文档开始阶段注入
             },
             onLongPressHitTestResult: (controller, hitTestResult) async {
               // 检查是否长按了链接
@@ -459,6 +536,10 @@ class _BrowserViewState extends State<BrowserView> {
               DebugLogManager.log('🚀 [onLoadStart] url=$url');
               if (url != null) {
                 final urlString = url.toString();
+                if (!urlString.endsWith('welcome.html') &&
+                    urlString != 'about:blank') {
+                  _isLoadingWelcome = false;
+                }
                 widget.tab.url = urlString;
                 widget.tab.isLoading = true;
 
@@ -483,6 +564,7 @@ class _BrowserViewState extends State<BrowserView> {
             onLoadStop: (controller, url) async {
               DebugLogManager.log('🏁 [onLoadStop] url=$url');
               if (url != null) {
+                final targetUrlStr = url.toString();
                 widget.tab.isLoading = false;
                 final index = browserProvider.tabs.indexOf(widget.tab);
 
@@ -491,31 +573,34 @@ class _BrowserViewState extends State<BrowserView> {
                     browserProvider.updateTabProgress(1.0);
                   }
 
-                  // Fallback injection for Night Mode (especially for PC/Desktop)
+                  // 夜间模式立即注入（桌面端/动态节点异步轮询加固不阻塞主流程）
                   if (browserProvider.isDarkMode) {
                     try {
                       browserProvider.injectNightMode(controller);
                     } catch (_) {}
 
-                    // Windows: Poll for Night Mode injection to fight dynamic content/CSP
                     if (Platform.isWindows) {
-                      for (int i = 0; i < 4; i++) {
-                        await Future.delayed(const Duration(milliseconds: 800));
-                        if (!mounted) break;
-                        try {
-                          if (browserProvider.isDarkMode) {
+                      () async {
+                        for (int i = 0; i < 4; i++) {
+                          await Future.delayed(
+                              const Duration(milliseconds: 800));
+                          if (!mounted || !browserProvider.isDarkMode) break;
+                          try {
+                            final curUrl =
+                                (await controller.getUrl())?.toString();
+                            if (curUrl != targetUrlStr) break;
                             browserProvider.injectNightMode(controller);
+                          } catch (_) {
+                            break;
                           }
-                        } catch (_) {
-                          break;
                         }
-                      }
+                      }();
                     }
                   }
 
                   if (!mounted) return;
 
-                  // 页面加载完成时补强注入白鹭引擎全局探针
+                  // 页面加载完成时立即补强注入白鹭引擎全局探针
                   try {
                     await controller.evaluateJavascript(
                         source: ScriptExecutor.egretCanvasProbeJs);
@@ -533,81 +618,39 @@ class _BrowserViewState extends State<BrowserView> {
 
                   if (!mounted) return;
 
+                  // 立即获取页面初始标题并更新历史记录与导航状态
                   String? title;
                   try {
                     if (Platform.isWindows) {
-                      // Windows workaround: getTitle() is buggy, use JS
                       final result = await controller.evaluateJavascript(
                           source: "document.title");
                       title = result?.toString();
                     } else {
-                      // Mobile: use standard API
                       title = await controller.getTitle();
                     }
                   } catch (_) {}
 
-                  // Retry getting title if empty (common on Desktop/fast loads)
-                  if ((title == null || title.isEmpty) && mounted) {
-                    await Future.delayed(const Duration(milliseconds: 500));
-                    if (mounted) {
-                      try {
-                        if (Platform.isWindows) {
-                          final result = await controller.evaluateJavascript(
-                              source: "document.title");
-                          title = result?.toString();
-                        } else {
-                          title = await controller.getTitle();
-                        }
-                      } catch (_) {}
-                    }
-                  }
-
                   if (!mounted) return;
 
-                  // Polling for title updates (SPA support) - Windows only
-                  if (Platform.isWindows) {
-                    for (int i = 0; i < 6; i++) {
-                      await Future.delayed(const Duration(milliseconds: 500));
-                      if (!mounted) break;
-                      try {
-                        final result = await controller.evaluateJavascript(
-                            source: "document.title");
-                        final newTitle = result?.toString();
-                        if (newTitle != null &&
-                            newTitle.isNotEmpty &&
-                            newTitle != title &&
-                            mounted) {
-                          title = newTitle;
-                          final currentIndex =
-                              browserProvider.tabs.indexOf(widget.tab);
-                          if (currentIndex != -1) {
-                            browserProvider.updateTabInfo(
-                                currentIndex, url.toString(), title);
-                          }
-                        }
-                      } catch (_) {
-                        break;
-                      }
-                    }
+                  String resolvedTitle = title ?? '';
+                  if (targetUrlStr.endsWith('welcome.html') ||
+                      targetUrlStr == 'about:blank') {
+                    resolvedTitle = '欢迎使用';
+                  } else if (resolvedTitle.isEmpty &&
+                      targetUrlStr.startsWith('http')) {
+                    resolvedTitle = targetUrlStr;
                   }
 
-                  if (!mounted) return;
-
-                  // Handle default page title
-                  if (url.toString().endsWith('welcome.html') ||
-                      url.toString() == 'about:blank') {
-                    title = '欢迎使用';
-                  } else if ((title == null || title.isEmpty) &&
-                      url.toString().startsWith('http')) {
-                    title = url.toString();
-                  }
-
-                  if (title != null && mounted) {
-                    DebugLogManager.log('📄 [确定标题] $title, url=$url');
+                  if (resolvedTitle.isNotEmpty && mounted) {
+                    DebugLogManager.log(
+                        '📄 [确定标题] $resolvedTitle, url=$targetUrlStr');
                     try {
-                      controller.evaluateJavascript(
-                        source: "document.body ? (document.body.innerText || '').substring(0, 120).replace(/\\n/g, ' ') : ''",
-                      ).then((snippet) {
+                      controller
+                          .evaluateJavascript(
+                        source:
+                            "document.body ? (document.body.innerText || '').substring(0, 120).replace(/\\n/g, ' ') : ''",
+                      )
+                          .then((snippet) {
                         if (snippet != null && snippet.toString().isNotEmpty) {
                           DebugLogManager.log('📝 [正文前120字] $snippet');
                         }
@@ -618,19 +661,18 @@ class _BrowserViewState extends State<BrowserView> {
                         browserProvider.tabs.indexOf(widget.tab);
                     if (currentIndex != -1) {
                       browserProvider.updateTabInfo(
-                          currentIndex, url.toString(), title);
-                      // Allow http/https and welcome.html to be added to history
-                      // The provider's addToHistory method has further filtering for other file:// URLs
-                      if (url.toString().startsWith('http') ||
-                          url.toString().endsWith('welcome.html')) {
-                        browserProvider.addToHistory(url.toString(), title);
+                          currentIndex, targetUrlStr, resolvedTitle);
+                      if (targetUrlStr.startsWith('http') ||
+                          targetUrlStr.endsWith('welcome.html')) {
+                        browserProvider.addToHistory(
+                            targetUrlStr, resolvedTitle);
                       }
                     }
                   }
 
                   if (!mounted) return;
 
-                  // Update navigation state
+                  // 立即更新前进/后退导航状态
                   try {
                     final canGoBack = await controller.canGoBack();
                     final canGoForward = await controller.canGoForward();
@@ -641,6 +683,47 @@ class _BrowserViewState extends State<BrowserView> {
                           currentIndex, canGoBack, canGoForward);
                     }
                   } catch (_) {}
+
+                  // 异步轮询延迟标题与单页应用 (SPA) 标题更新，每次校验当前 URL 防止覆盖新导航地址
+                  () async {
+                    String? lastKnownTitle = title;
+                    final maxAttempts = Platform.isWindows ? 6 : 1;
+                    for (int i = 0; i < maxAttempts; i++) {
+                      await Future.delayed(const Duration(milliseconds: 500));
+                      if (!mounted) break;
+                      try {
+                        final currentUrl =
+                            (await controller.getUrl())?.toString();
+                        if (currentUrl != targetUrlStr) break;
+
+                        String? newTitle;
+                        if (Platform.isWindows) {
+                          final result = await controller.evaluateJavascript(
+                              source: "document.title");
+                          newTitle = result?.toString();
+                        } else {
+                          newTitle = await controller.getTitle();
+                        }
+
+                        if (newTitle != null &&
+                            newTitle.isNotEmpty &&
+                            newTitle != lastKnownTitle &&
+                            mounted) {
+                          lastKnownTitle = newTitle;
+                          final currentIndex =
+                              browserProvider.tabs.indexOf(widget.tab);
+                          if (currentIndex != -1) {
+                            browserProvider.updateTabInfo(
+                                currentIndex, targetUrlStr, newTitle);
+                            browserProvider.updateHistoryTitle(
+                                targetUrlStr, newTitle);
+                          }
+                        }
+                      } catch (_) {
+                        break;
+                      }
+                    }
+                  }();
                 }
               }
             },
@@ -691,16 +774,24 @@ class _BrowserViewState extends State<BrowserView> {
 
                   if (urlStr.endsWith('welcome.html') ||
                       urlStr == 'file:///welcome.html') {
-                    WelcomeManager.getWelcomeContent().then((content) {
-                      controller.loadData(
-                        data: content,
-                        mimeType: 'text/html',
-                        encoding: 'utf-8',
-                        baseUrl: WebUri('file:///welcome.html'),
-                      );
-                    });
+                    // 仅当回退至欢迎页且非当前正在加载欢迎页时触发 loadData，防止无限循环
+                    if (!_isLoadingWelcome) {
+                      _isLoadingWelcome = true;
+                      WelcomeManager.getWelcomeContent().then((content) {
+                        if (!mounted) return;
+                        controller.loadData(
+                          data: content,
+                          mimeType: 'text/html',
+                          encoding: 'utf-8',
+                          baseUrl: WebUri('file:///welcome.html'),
+                        );
+                      });
+                    }
                     browserProvider.updateTabInfo(index, urlStr, '欢迎使用');
                   } else {
+                    if (urlStr != 'about:blank') {
+                      _isLoadingWelcome = false;
+                    }
                     String? title;
                     try {
                       if (Platform.isWindows) {
@@ -727,8 +818,7 @@ class _BrowserViewState extends State<BrowserView> {
               if (targetUrl != null &&
                   targetUrl.isNotEmpty &&
                   targetUrl != 'about:blank') {
-                browserProvider.addTab(initialUrl: targetUrl);
-                return true;
+                browserProvider.addTab(initialUrl: _normalizeUrl(targetUrl));
               }
               return false;
             },
@@ -737,7 +827,24 @@ class _BrowserViewState extends State<BrowserView> {
               final method = navigationAction.request.method;
               DebugLogManager.log(
                   '🔍 [shouldOverrideUrl] uri=$uri, method=$method, isMainFrame=${navigationAction.isForMainFrame}');
-              
+
+              if (uri != null) {
+                final scheme = uri.scheme.toLowerCase();
+                if (scheme.isNotEmpty &&
+                    ![
+                      'http',
+                      'https',
+                      'file',
+                      'about',
+                      'data',
+                      'blob',
+                      'javascript',
+                    ].contains(scheme)) {
+                  DebugLogManager.log('🛑 [拦截非标准协议] uri=$uri');
+                  return NavigationActionPolicy.CANCEL;
+                }
+              }
+
               // 1. 表单 POST 请求必须直接放行，杜绝 Android 重载导致丢 Body 或被降级为 GET
               if (method == 'POST') {
                 return NavigationActionPolicy.ALLOW;
@@ -821,27 +928,32 @@ class _BrowserViewState extends State<BrowserView> {
             onJsPrompt: (controller, jsPromptRequest) async {
               final textController =
                   TextEditingController(text: jsPromptRequest.defaultValue);
-              final result = await showDialog<String>(
-                context: context,
-                builder: (context) => AlertDialog(
-                  content: TextField(
-                    controller: textController,
-                    decoration:
-                        InputDecoration(hintText: jsPromptRequest.message),
+              String? result;
+              try {
+                result = await showDialog<String>(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    content: TextField(
+                      controller: textController,
+                      decoration:
+                          InputDecoration(hintText: jsPromptRequest.message),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('取消'),
+                      ),
+                      TextButton(
+                        onPressed: () =>
+                            Navigator.pop(context, textController.text),
+                        child: const Text('确定'),
+                      ),
+                    ],
                   ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('取消'),
-                    ),
-                    TextButton(
-                      onPressed: () =>
-                          Navigator.pop(context, textController.text),
-                      child: const Text('确定'),
-                    ),
-                  ],
-                ),
-              );
+                );
+              } finally {
+                textController.dispose();
+              }
               return JsPromptResponse(
                   handledByClient: true,
                   action: result != null

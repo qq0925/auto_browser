@@ -5,19 +5,42 @@ import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/services.dart' show rootBundle;
 
-/// Utility class for managing welcome.html updates
+/// 欢迎页 welcome.html 资源与远程热更新管理工具类
 class WelcomeManager {
   static const String _remoteUrl = 'http://test.txsj.ink/welcome.html';
   static const String _localFilename = 'welcome.html';
   static const String _assetPath = 'assets/welcome.html';
 
+  // 正在进行的远程请求复用句柄，防止启动阶段多处并发请求并同时写同一个本地文件
+  static Future<String?>? _inFlightFetch;
+
   /// 尝试从服务器拉取并返回最新内容，若获取成功返回内容并缓存到本地，失败返回 null
   static Future<String?> fetchLatestRemoteContent(
       {Duration timeout = const Duration(seconds: 3)}) async {
+    if (_inFlightFetch != null) {
+      try {
+        return await _inFlightFetch!.timeout(timeout);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    final future = _doFetchRemote(timeout);
+    _inFlightFetch = future;
+    try {
+      return await future;
+    } finally {
+      if (identical(_inFlightFetch, future)) {
+        _inFlightFetch = null;
+      }
+    }
+  }
+
+  static Future<String?> _doFetchRemote(Duration timeout) async {
     try {
       final response = await http.get(Uri.parse(_remoteUrl)).timeout(timeout);
       if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
-        final content = utf8.decode(response.bodyBytes);
+        final content = utf8.decode(response.bodyBytes, allowMalformed: true);
         await _saveToLocal(content);
         return content;
       }
@@ -25,8 +48,8 @@ class WelcomeManager {
     return null;
   }
 
-  /// Get the welcome.html content
-  /// Priority: 1. Fetch remote version (timeout 2.5s), 2. Local cached file, 3. Bundled asset
+  /// 获取 welcome.html 内容
+  /// 优先级：1. 远程最新版本 (超时 2.5s)，2. 本地缓存文件，3. 内置安装包资产
   static Future<String> getWelcomeContent(
       {Duration remoteTimeout = const Duration(milliseconds: 2500)}) async {
     // 1. 优先尝试从服务器获取最新起始页
@@ -42,59 +65,57 @@ class WelcomeManager {
       final localFile = File(path.join(documentsDir.path, _localFilename));
 
       if (await localFile.exists()) {
-        return await localFile.readAsString();
+        final localContent = await localFile.readAsString();
+        if (localContent.isNotEmpty) {
+          return localContent;
+        }
       }
-    } catch (e) {
-      // If local file fails, fall through to asset
-    }
+    } catch (_) {}
 
     // 3. 最终降级到内置安装包资产
     return await rootBundle.loadString(_assetPath);
   }
 
-  /// 辅助方法：异步将内容持久化到本地文件
+  /// 辅助方法：原子化将内容持久化到本地文件，防止并发读写撕裂或 Windows 文件锁冲突
   static Future<void> _saveToLocal(String content) async {
     try {
       final documentsDir = await getApplicationDocumentsDirectory();
-      final localFile = File(path.join(documentsDir.path, _localFilename));
-      await localFile.writeAsString(content, encoding: utf8);
+      final targetPath = path.join(documentsDir.path, _localFilename);
+      final tempPath =
+          '$targetPath.${DateTime.now().microsecondsSinceEpoch}.tmp';
+      final tempFile = File(tempPath);
+      await tempFile.writeAsString(content, encoding: utf8, flush: true);
+      try {
+        await tempFile.rename(targetPath);
+      } catch (_) {
+        await File(targetPath).writeAsString(content, encoding: utf8);
+        try {
+          if (await tempFile.exists()) await tempFile.delete();
+        } catch (_) {}
+      }
     } catch (_) {}
   }
 
-  /// Update welcome.html in background (silent, no user feedback)
-  /// Fetches from remote URL and saves to local documents if successful
+  /// 后台静默更新 welcome.html
   static Future<void> updateWelcomeInBackground() async {
-    try {
-      // Fetch remote version with timeout
-      final response = await http
-          .get(Uri.parse(_remoteUrl))
-          .timeout(const Duration(seconds: 5));
-
-      // Check if successful
-      if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
-        final content = utf8.decode(response.bodyBytes);
-        await _saveToLocal(content);
-      }
-    } catch (e) {
-      // Silent fail - network errors, timeouts, etc.
-    }
+    await fetchLatestRemoteContent(timeout: const Duration(seconds: 5));
   }
 
-  /// Get the local file path for loading in WebView
-  /// Returns either local file:// URL or asset path
+  /// 获取可在 WebView 中加载的本地 file:// URL
   static Future<String> getWelcomeUrl() async {
     try {
       final documentsDir = await getApplicationDocumentsDirectory();
       final localFile = File(path.join(documentsDir.path, _localFilename));
 
+      if (!await localFile.exists()) {
+        final assetContent = await rootBundle.loadString(_assetPath);
+        await _saveToLocal(assetContent);
+      }
       if (await localFile.exists()) {
         return Uri.file(localFile.path).toString();
       }
-    } catch (e) {
-      // Fall through to asset
-    }
+    } catch (_) {}
 
-    // Return asset path
-    return _assetPath;
+    return 'file:///welcome.html';
   }
 }

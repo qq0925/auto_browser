@@ -45,6 +45,7 @@ class _CookieManagerDialogState extends State<CookieManagerDialog>
   }
 
   Future<void> _loadData() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
     final cookies = await CookieService.getCookies(widget.currentUrl);
     final profiles = await CookieService.getSavedProfiles(domain: _domain);

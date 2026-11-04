@@ -14,7 +14,7 @@ class ScriptRecordingOverlay extends StatelessWidget {
 
         return Positioned(
           left: 16,
-          bottom: 80, // Above bottom bar
+          bottom: 80, // 位于底部导航栏上方
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -31,7 +31,7 @@ class ScriptRecordingOverlay extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Blinking red dot
+                    // 闪烁红点指示器
                     const _BlinkingRedDot(),
                     const SizedBox(width: 8),
                     const Text(
@@ -158,7 +158,13 @@ class _RecordedActionNotificationState
         _hideTimer?.cancel();
         _hideTimer = Timer(const Duration(seconds: 2), () {
           if (mounted) {
-            _controller.reverse();
+            _controller.reverse().then((_) {
+              if (mounted && _controller.isDismissed) {
+                setState(() {
+                  _currentAction = '';
+                });
+              }
+            });
           }
         });
       }
@@ -175,30 +181,36 @@ class _RecordedActionNotificationState
 
   @override
   Widget build(BuildContext context) {
-    return SlideTransition(
-      position: _offsetAnimation,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () {
-          // 吸收点击事件，防止误触底层 WebView
-        },
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.blue.withValues(alpha: 0.8),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.check_circle, color: Colors.white, size: 16),
-              const SizedBox(width: 8),
-              Text(
-                '已录制: $_currentAction',
-                style: const TextStyle(color: Colors.white, fontSize: 12),
-              ),
-            ],
+    if (_currentAction.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return FadeTransition(
+      opacity: _controller,
+      child: SlideTransition(
+        position: _offsetAnimation,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            // 吸收点击事件，防止误触底层 WebView
+          },
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.blue.withValues(alpha: 0.8),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white, size: 16),
+                const SizedBox(width: 8),
+                Text(
+                  '已录制: $_currentAction',
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                ),
+              ],
+            ),
           ),
         ),
       ),

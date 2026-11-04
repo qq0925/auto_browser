@@ -18,7 +18,9 @@ class BrowserTab {
   int currentLoopIndex = 1; // 当前循环轮次（从1开始）
   int executionDelay = 0; // 全局执行延迟（毫秒）
   String delayTimeUnit = '毫秒'; // 延迟单位
-  List<Script> scripts = []; // 添加每个标签页自己的脚本列表
+  bool hasCustomExecutionConfig = false; // 是否通过脚本集导入了专属全局配置
+  Map<String, String> variables = {}; // 标签页独立的动态变量表
+  List<Script> scripts = []; // 每个标签页自己的脚本列表
   double progress; // 网页加载进度
   String? scriptFilePath; // 脚本的物理文件路径，null表示未保存
   bool canGoBack = false;
@@ -63,14 +65,14 @@ class BrowserTab {
     return '${delay}ms';
   }
 
-  // Call Stack for Subroutines
+  // 子程序调用栈
   List<ExecutionState> executionStack = [];
 
-  // Auto Refresh
+  // 自动刷新状态
   Timer? _autoRefreshTimer;
   bool isAutoRefreshActive = false;
-  int autoRefreshInterval = 0; // in seconds
-  int autoRefreshCount = 0; // 0 means infinite
+  int autoRefreshInterval = 0; // 单位：秒
+  int autoRefreshCount = 0; // 0 表示无限
   int _currentRefreshCount = 0;
 
   BrowserTab({
@@ -90,21 +92,28 @@ class BrowserTab {
     controller = newController;
   }
 
-  void startAutoRefresh(int intervalSeconds, int count) {
+  void startAutoRefresh(
+    int intervalSeconds,
+    int count, {
+    void Function()? onStateChanged,
+  }) {
     stopAutoRefresh();
-    autoRefreshInterval = intervalSeconds;
+    // 防止传入非正数导致 0 秒死循环定时器卡死主线程
+    final safeInterval = intervalSeconds < 1 ? 1 : intervalSeconds;
+    autoRefreshInterval = safeInterval;
     autoRefreshCount = count;
     _currentRefreshCount = 0;
     isAutoRefreshActive = true;
+    onStateChanged?.call();
 
     _autoRefreshTimer =
-        Timer.periodic(Duration(seconds: intervalSeconds), (timer) {
-      if (count > 0 && _currentRefreshCount >= count) {
-        stopAutoRefresh();
-        return;
-      }
+        Timer.periodic(Duration(seconds: safeInterval), (timer) {
       controller?.reload();
       _currentRefreshCount++;
+      if (count > 0 && _currentRefreshCount >= count) {
+        stopAutoRefresh();
+        onStateChanged?.call();
+      }
     });
   }
 
@@ -119,6 +128,7 @@ class ExecutionState {
   final List<Script> scripts;
   final int currentScriptIndex;
   final int remainingLoopCount;
+  final int originalLoopCount;
   final int? currentLoopIndex;
   final String? scriptFilePath;
 
@@ -126,6 +136,7 @@ class ExecutionState {
     required this.scripts,
     required this.currentScriptIndex,
     required this.remainingLoopCount,
+    this.originalLoopCount = 1,
     this.currentLoopIndex,
     this.scriptFilePath,
   });

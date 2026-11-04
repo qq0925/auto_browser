@@ -128,20 +128,36 @@ class _SplashScreenViewState extends State<SplashScreenView>
     );
 
     _introController.forward();
-    _pulseController.repeat(reverse: true);
-    _startStatusRotation();
+    if (widget.isStarting) {
+      _pulseController.repeat(reverse: true);
+      _startStatusRotation();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant SplashScreenView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.isStarting && oldWidget.isStarting) {
+      _pulseController.stop();
+      _statusController.stop();
+    } else if (widget.isStarting && !oldWidget.isStarting) {
+      if (!_pulseController.isAnimating) {
+        _pulseController.repeat(reverse: true);
+      }
+      _startStatusRotation();
+    }
   }
 
   void _startStatusRotation() async {
-    while (mounted) {
+    while (mounted && widget.isStarting) {
       await Future.delayed(const Duration(milliseconds: 950));
-      if (!mounted) break;
+      if (!mounted || !widget.isStarting) break;
       await _statusController.forward();
-      if (!mounted) break;
+      if (!mounted || !widget.isStarting) break;
       setState(() {
         _statusTextIndex = (_statusTextIndex + 1) % _statusTexts.length;
       });
-      _statusController.reverse();
+      await _statusController.reverse();
     }
   }
 

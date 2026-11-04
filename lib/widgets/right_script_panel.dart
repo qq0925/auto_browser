@@ -17,7 +17,7 @@ class RightScriptPanel extends StatelessWidget {
   final VoidCallback onGlobalSettings;
   final VoidCallback onExecute;
   final VoidCallback onLoad;
-  final VoidCallback? onRecordScript; // Optional callback for recording
+  final VoidCallback? onRecordScript; // 录制脚本回调
 
   const RightScriptPanel({
     super.key,
@@ -42,210 +42,211 @@ class RightScriptPanel extends StatelessWidget {
         borderRadius: const BorderRadius.horizontal(left: Radius.circular(11.5)),
         child: Column(
           children: [
-          // --- Top Section: Global Settings ---
-          InkWell(
-            onTap: onGlobalSettings,
-            child: Container(
-              height: 44,
-              padding: const EdgeInsets.fromLTRB(2, 2, 6, 2),
-              child: Stack(
-                children: [
-                  // 左侧上下居中: 全局
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Padding(
-                      padding: const EdgeInsets.only(left: 8),
-                      child: const Text(
-                        '全局',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
-                  // 中间居中: 执行延迟 / 循环次数 (内部左对齐，上下成列完美对齐)
-                  Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text(
-                              '执行延迟: ',
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 10.5,
-                              ),
-                            ),
-                            Text(
-                              '${scriptProvider.executionDelay ~/ scriptProvider.delayTimeUnit.multiplier}${scriptProvider.delayTimeUnit.label}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 2),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text(
-                              '循环次数: ',
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 10.5,
-                              ),
-                            ),
-                            Text(
-                              '${scriptProvider.originalLoopCount}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // 分割线：全局与中间内容分隔
-          const Divider(height: 1, color: Colors.white24),
-
-          // --- 脚本文件名展示条 (当脚本已载入或已保存为文件时展示) ---
-          if (scriptProvider.currentScriptFilePath != null &&
-              scriptProvider.currentScriptFilePath!.isNotEmpty) ...[
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 10),
-              color: Colors.white.withValues(alpha: 0.08),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.description_outlined,
-                    size: 14,
-                    color: Colors.amberAccent,
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      path.basename(scriptProvider.currentScriptFilePath!),
-                      style: const TextStyle(
-                        color: Colors.amberAccent,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    '${scriptProvider.scripts.length}',
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 1, color: Colors.white12),
-          ],
-
-          // --- Middle Section: Script List & Management ---
-          Expanded(
-            child: Column(
-              children: [
-                // Header
-                Container(
-                  width: double.infinity,
-                  padding:
-                      const EdgeInsets.symmetric(vertical: 7, horizontal: 12),
-                  color: Colors.white.withValues(alpha: 0.04),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        '脚本列表 (${scriptProvider.scripts.length})',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // Divider (Subtle)
-                const Divider(height: 1, color: Colors.white12),
-
-                // Scrollable List
-                Expanded(
-                  child: scriptProvider.scripts.isEmpty
-                      ? _buildEmptyState(scriptProvider)
-                      : ListView.builder(
-                          itemCount: scriptProvider.scripts.length,
-                          itemBuilder: (context, index) =>
-                              _buildScriptItem(context, scriptProvider, index),
-                        ),
-                ),
-
-                // Divider (Subtle)
-                const Divider(height: 1, color: Colors.white12),
-
-                // Add Script Button
-                InkWell(
-                  onTap: onAddScript,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.add_circle_outline,
-                            color: Colors.white, size: 18),
-                        SizedBox(width: 6),
-                        Text(
-                          '添加脚本',
+            // --- 顶部区域：全局设置 ---
+            InkWell(
+              onTap: onGlobalSettings,
+              child: Container(
+                height: 44,
+                padding: const EdgeInsets.fromLTRB(2, 2, 6, 2),
+                child: Stack(
+                  children: [
+                    // 左侧上下居中: 全局
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 8),
+                        child: const Text(
+                          '全局',
                           style: TextStyle(
                             color: Colors.white,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                    // 中间居中: 执行延迟 / 循环次数 (内部左对齐，上下成列完美对齐)
+                    Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Text(
+                                '执行延迟: ',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 10.5,
+                                ),
+                              ),
+                              Text(
+                                '${scriptProvider.executionDelay ~/ scriptProvider.delayTimeUnit.multiplier}${scriptProvider.delayTimeUnit.label}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Text(
+                                '循环次数: ',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 10.5,
+                                ),
+                              ),
+                              Text(
+                                '${scriptProvider.originalLoopCount}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // 分割线：全局与中间内容分隔
+            const Divider(height: 1, color: Colors.white24),
+
+            // --- 脚本文件名展示条 (当脚本已载入或已保存为文件时展示) ---
+            if (scriptProvider.currentScriptFilePath != null &&
+                scriptProvider.currentScriptFilePath!.isNotEmpty) ...[
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(vertical: 6, horizontal: 10),
+                color: Colors.white.withValues(alpha: 0.08),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.description_outlined,
+                      size: 14,
+                      color: Colors.amberAccent,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        path.basename(scriptProvider.currentScriptFilePath!),
+                        style: const TextStyle(
+                          color: Colors.amberAccent,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '${scriptProvider.scripts.length}',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1, color: Colors.white12),
+            ],
+
+            // --- 中间区域：脚本列表与管理 ---
+            Expanded(
+              child: Column(
+                children: [
+                  // 列表标题栏
+                  Container(
+                    width: double.infinity,
+                    padding:
+                        const EdgeInsets.symmetric(vertical: 7, horizontal: 12),
+                    color: Colors.white.withValues(alpha: 0.04),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '脚本列表 (${scriptProvider.scripts.length})',
+                          style: const TextStyle(
+                            color: Colors.white,
                             fontSize: 12,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
                       ],
                     ),
                   ),
-                ),
-              ],
+
+                  // 细分割线
+                  const Divider(height: 1, color: Colors.white12),
+
+                  // 可滚动脚本列表
+                  Expanded(
+                    child: scriptProvider.scripts.isEmpty
+                        ? _buildEmptyState(scriptProvider)
+                        : ListView.builder(
+                            itemCount: scriptProvider.scripts.length,
+                            itemBuilder: (context, index) =>
+                                _buildScriptItem(context, scriptProvider, index),
+                          ),
+                  ),
+
+                  // 细分割线
+                  const Divider(height: 1, color: Colors.white12),
+
+                  // 添加脚本按钮
+                  InkWell(
+                    onTap: onAddScript,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.add_circle_outline,
+                              color: Colors.white, size: 18),
+                          SizedBox(width: 6),
+                          Text(
+                            '添加脚本',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
 
-          // Divider 2 (White) - Separates Middle and Bottom
-          Container(height: 1, color: Colors.white),
+            // 白色分割线：分隔中间列表与底部动作区
+            Container(height: 1, color: Colors.white),
 
-          // --- Bottom Section: Action Buttons ---
-          IntrinsicHeight(
-            child: scriptProvider.isExecuting
-                ? _buildExecutingActions(scriptProvider)
-                : _buildIdleActions(context, scriptProvider),
-          ),
-        ],
+            // --- 底部区域：操作按钮 ---
+            IntrinsicHeight(
+              child: scriptProvider.isExecuting
+                  ? _buildExecutingActions(scriptProvider)
+                  : _buildIdleActions(context, scriptProvider),
+            ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
   }
 
   Widget _buildEmptyState(ScriptProvider scriptProvider) {
@@ -300,7 +301,8 @@ class RightScriptPanel extends StatelessWidget {
     // 2. 根据脚本类型或具体参数填充详细字段
     switch (script.type) {
       case '新建窗口并执行脚本':
-        final boundScript = params['绑定脚本'] ?? params['脚本集'] ?? script.targetScriptPath;
+        final boundScript =
+            params['绑定脚本'] ?? params['脚本集'] ?? script.targetScriptPath;
         if (boundScript != null && boundScript.toString().isNotEmpty) {
           list.add(MapEntry('绑定脚本', path.basename(boundScript.toString())));
           handledKeys.addAll(['绑定脚本', '脚本集']);
@@ -320,7 +322,8 @@ class RightScriptPanel extends StatelessWidget {
         }
         if (params.containsKey('立即执行')) {
           final execNow = params['立即执行'];
-          list.add(MapEntry('立即执行', (execNow == true || execNow == '是') ? '是' : '否'));
+          list.add(
+              MapEntry('立即执行', (execNow == true || execNow == '是') ? '是' : '否'));
           handledKeys.add('立即执行');
         }
         break;
@@ -341,13 +344,15 @@ class RightScriptPanel extends StatelessWidget {
         }
         if (params['多个筛选'] != null) {
           final filter = params['多个筛选'];
+          final filterNum =
+              filter is num ? filter : int.tryParse(filter.toString()) ?? 0;
           String filterStr = '第1个';
-          if (filter == 0) {
+          if (filterNum == 0) {
             filterStr = '随机';
-          } else if (filter is num && filter < 0) {
-            filterStr = '倒数第${-filter}个';
-          } else if (filter != null) {
-            filterStr = '第$filter个';
+          } else if (filterNum < 0) {
+            filterStr = '倒数第${-filterNum}个';
+          } else {
+            filterStr = '第$filterNum个';
           }
           list.add(MapEntry('多个筛选', filterStr));
           handledKeys.add('多个筛选');
@@ -376,13 +381,15 @@ class RightScriptPanel extends StatelessWidget {
         }
         if (params['多个筛选'] != null) {
           final filter = params['多个筛选'];
+          final filterNum =
+              filter is num ? filter : int.tryParse(filter.toString()) ?? 0;
           String filterStr = '第1个';
-          if (filter == 0) {
+          if (filterNum == 0) {
             filterStr = '随机';
-          } else if (filter is num && filter < 0) {
-            filterStr = '倒数第${-filter}个';
-          } else if (filter != null) {
-            filterStr = '第$filter个';
+          } else if (filterNum < 0) {
+            filterStr = '倒数第${-filterNum}个';
+          } else {
+            filterStr = '第$filterNum个';
           }
           list.add(MapEntry('多个筛选', filterStr));
           handledKeys.add('多个筛选');
@@ -397,7 +404,8 @@ class RightScriptPanel extends StatelessWidget {
         }
         final formData = params['表单数据'];
         if (formData is Map && formData.isNotEmpty) {
-          final summary = formData.entries.map((e) => '${e.key}: ${e.value}').join(', ');
+          final summary =
+              formData.entries.map((e) => '${e.key}: ${e.value}').join(', ');
           list.add(MapEntry('表单数据', summary));
           handledKeys.add('表单数据');
         }
@@ -424,7 +432,8 @@ class RightScriptPanel extends StatelessWidget {
           final code = (params['代码'] ?? params['js内容'] ?? '').toString().trim();
           if (code.isNotEmpty) {
             final firstLine = code.split('\n').first.trim();
-            list.add(MapEntry('代码内容', firstLine.length > 30 ? '${firstLine.substring(0, 30)}...' : firstLine));
+            list.add(MapEntry('代码内容',
+                firstLine.length > 30 ? '${firstLine.substring(0, 30)}...' : firstLine));
           }
         }
         handledKeys.addAll(['代码', 'js内容']);
@@ -444,7 +453,8 @@ class RightScriptPanel extends StatelessWidget {
         break;
 
       case '跳转脚本':
-        final targetIdx = params['跳转的脚本序号'] ?? params['跳转至序号'] ?? params['跳转标签'];
+        final targetIdx =
+            params['跳转的脚本序号'] ?? params['跳转至序号'] ?? params['跳转标签'];
         if (targetIdx != null && targetIdx.toString().isNotEmpty) {
           list.add(MapEntry('跳转序号', targetIdx.toString()));
           handledKeys.addAll(['跳转的脚本序号', '跳转至序号', '跳转标签']);
@@ -529,23 +539,28 @@ class RightScriptPanel extends StatelessWidget {
         break;
 
       case '设置Cookie':
-        if (params['账号存档名称'] != null && params['账号存档名称'].toString().isNotEmpty) {
+        if (params['账号存档名称'] != null &&
+            params['账号存档名称'].toString().isNotEmpty) {
           list.add(MapEntry('账号存档', params['账号存档名称'].toString()));
           handledKeys.add('账号存档名称');
-        } else if (params['Cookie名称'] != null && params['Cookie名称'].toString().isNotEmpty) {
-          list.add(MapEntry('Cookie', '${params['Cookie名称']}=${params['Cookie值'] ?? ''}'));
+        } else if (params['Cookie名称'] != null &&
+            params['Cookie名称'].toString().isNotEmpty) {
+          list.add(MapEntry(
+              'Cookie', '${params['Cookie名称']}=${params['Cookie值'] ?? ''}'));
           handledKeys.addAll(['Cookie名称', 'Cookie值']);
         }
         break;
 
       case '提取文字':
-        if (params['CSS选择器'] != null && params['CSS选择器'].toString().isNotEmpty) {
+        if (params['CSS选择器'] != null &&
+            params['CSS选择器'].toString().isNotEmpty) {
           list.add(MapEntry('CSS选择器', params['CSS选择器'].toString()));
           handledKeys.add('CSS选择器');
         }
-        if (params['保存至变量'] != null && params['保存至变量'].toString().isNotEmpty) {
-          list.add(MapEntry('保存变量', params['保存至变量'].toString()));
-          handledKeys.add('保存至变量');
+        final varName = params['变量名'] ?? params['保存至变量'];
+        if (varName != null && varName.toString().isNotEmpty) {
+          list.add(MapEntry('保存变量', varName.toString()));
+          handledKeys.addAll(['变量名', '保存至变量']);
         }
         break;
 
@@ -571,8 +586,12 @@ class RightScriptPanel extends StatelessWidget {
     });
 
     // 通用字段：执行延迟 (若设置且大于0)
-    if (params['执行延迟'] != null && params['执行延迟'] is num && params['执行延迟'] > 0) {
-      list.add(MapEntry('执行延迟', '${params['执行延迟']}ms'));
+    final delayVal = params['执行延迟'];
+    final delayNum = delayVal is num
+        ? delayVal
+        : int.tryParse(delayVal?.toString() ?? '') ?? 0;
+    if (delayNum > 0) {
+      list.add(MapEntry('执行延迟', '${delayNum}ms'));
     }
 
     return list;
@@ -623,7 +642,8 @@ class RightScriptPanel extends StatelessWidget {
                       child: Text(
                         item.key,
                         style: TextStyle(
-                          color: script.isEnabled ? Colors.white70 : Colors.white38,
+                          color:
+                              script.isEnabled ? Colors.white70 : Colors.white38,
                           fontSize: 10.5,
                           height: 1.25,
                         ),
@@ -636,11 +656,16 @@ class RightScriptPanel extends StatelessWidget {
                         item.value,
                         style: TextStyle(
                           color: script.isEnabled
-                              ? (isFirstRow ? Colors.white : Colors.white.withValues(alpha: 0.9))
+                              ? (isFirstRow
+                                  ? Colors.white
+                                  : Colors.white.withValues(alpha: 0.9))
                               : Colors.white38,
                           fontSize: 10.5,
-                          fontWeight: isFirstRow ? FontWeight.w600 : FontWeight.normal,
-                          decoration: script.isEnabled ? null : TextDecoration.lineThrough,
+                          fontWeight:
+                              isFirstRow ? FontWeight.w600 : FontWeight.normal,
+                          decoration: script.isEnabled
+                              ? null
+                              : TextDecoration.lineThrough,
                           height: 1.25,
                         ),
                         maxLines: item.key.contains('网址') ? 2 : 3,
@@ -654,7 +679,8 @@ class RightScriptPanel extends StatelessWidget {
                         child: Text(
                           '${index + 1}',
                           style: TextStyle(
-                            color: script.isEnabled ? Colors.white : Colors.white38,
+                            color:
+                                script.isEnabled ? Colors.white : Colors.white38,
                             fontSize: 11.5,
                             fontWeight: FontWeight.bold,
                           ),
@@ -665,7 +691,7 @@ class RightScriptPanel extends StatelessWidget {
               );
             }),
 
-            // Status Line (正在执行状态，进度条)
+            // 正在执行状态与进度条
             if (scriptProvider.isExecuting &&
                 script.status != ScriptStatus.idle) ...[
               const SizedBox(height: 3),
@@ -725,7 +751,7 @@ class RightScriptPanel extends StatelessWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (context) {
+      builder: (sheetContext) {
         return SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -742,7 +768,7 @@ class RightScriptPanel extends StatelessWidget {
                 ),
                 onTap: () {
                   scriptProvider.toggleScriptEnabled(index, !script.isEnabled);
-                  Navigator.pop(context);
+                  Navigator.pop(sheetContext);
                 },
               ),
               const Divider(color: Colors.white24, height: 1),
@@ -756,7 +782,7 @@ class RightScriptPanel extends StatelessWidget {
                   if (copied != null) {
                     scriptProvider.addScript(copied);
                   }
-                  Navigator.pop(context);
+                  Navigator.pop(sheetContext);
                 },
               ),
               const Divider(color: Colors.white24, height: 1),
@@ -771,7 +797,7 @@ class RightScriptPanel extends StatelessWidget {
                   if (copied != null) {
                     scriptProvider.insertScript(index, copied);
                   }
-                  Navigator.pop(context);
+                  Navigator.pop(sheetContext);
                 },
               ),
               const Divider(color: Colors.white24, height: 1),
@@ -782,7 +808,7 @@ class RightScriptPanel extends StatelessWidget {
                 title: const Text('删除', style: TextStyle(color: Colors.red)),
                 onTap: () {
                   scriptProvider.removeScript(index);
-                  Navigator.pop(context);
+                  Navigator.pop(sheetContext);
                 },
               ),
               const Divider(color: Colors.white24, height: 1),
@@ -794,9 +820,10 @@ class RightScriptPanel extends StatelessWidget {
                 title: const Text('在前插入新脚本',
                     style: TextStyle(color: Colors.white)),
                 onTap: () async {
-                  Navigator.pop(context);
+                  Navigator.pop(sheetContext);
+                  if (!context.mounted) return;
 
-                  // Show index info on screen
+                  // 在屏幕上提示插入位置信息
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('准备在位置 $index 插入 (序号${index + 1}之前)'),
@@ -806,12 +833,12 @@ class RightScriptPanel extends StatelessWidget {
 
                   final result = await showDialog<Script>(
                     context: context,
-                    builder: (context) => const AddScriptDialog(),
+                    builder: (dialogContext) => const AddScriptDialog(),
                   );
                   if (result != null) {
                     scriptProvider.insertScript(index, result);
 
-                    // Show result
+                    // 展示插入结果
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
@@ -834,7 +861,7 @@ class RightScriptPanel extends StatelessWidget {
   Widget _buildExecutingActions(ScriptProvider scriptProvider) {
     return Row(
       children: [
-        // Pause/Resume button
+        // 暂停/恢复按钮
         Expanded(
           child: InkWell(
             onTap: () {
@@ -854,9 +881,9 @@ class RightScriptPanel extends StatelessWidget {
             ),
           ),
         ),
-        // Vertical divider
+        // 竖向分割线
         Container(width: 1, color: Colors.white),
-        // Stop button
+        // 停止按钮
         Expanded(
           child: InkWell(
             onTap: () => scriptProvider.stopExecution(),
@@ -873,9 +900,9 @@ class RightScriptPanel extends StatelessWidget {
             ),
           ),
         ),
-        // Vertical divider
+        // 竖向分割线
         Container(width: 1, color: Colors.white),
-        // Counts display
+        // 成功/失败计数展示
         Expanded(
           child: Container(
             padding: const EdgeInsets.symmetric(vertical: 8),
@@ -908,7 +935,7 @@ class RightScriptPanel extends StatelessWidget {
       BuildContext context, ScriptProvider scriptProvider) {
     return Row(
       children: [
-        // Execute button
+        // 执行按钮
         Expanded(
           child: InkWell(
             onTap: scriptProvider.isRecording ? null : onExecute,
@@ -926,9 +953,9 @@ class RightScriptPanel extends StatelessWidget {
             ),
           ),
         ),
-        // Vertical divider
+        // 竖向分割线
         Container(width: 1, color: Colors.white),
-        // Load button
+        // 读取按钮
         Expanded(
           child: InkWell(
             onTap: () {
@@ -947,9 +974,9 @@ class RightScriptPanel extends StatelessWidget {
             ),
           ),
         ),
-        // Vertical divider
+        // 竖向分割线
         Container(width: 1, color: Colors.white),
-        // Menu button (3 dots)
+        // 更多菜单按钮 (三点)
         Expanded(
           child: PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert, color: Colors.white, size: 20),
@@ -966,9 +993,12 @@ class RightScriptPanel extends StatelessWidget {
                 _showSaveDialog(context, scriptProvider);
               } else if (value == 'guide') {
                 try {
-                  final content = await rootBundle.loadString('assets/guide.html');
+                  final content =
+                      await rootBundle.loadString('assets/guide.html');
                   if (context.mounted) {
-                    final tab = Provider.of<BrowserProvider>(context, listen: false).currentTab;
+                    final tab =
+                        Provider.of<BrowserProvider>(context, listen: false)
+                            .currentTab;
                     await tab?.controller?.loadData(
                         data: content,
                         mimeType: 'text/html',
@@ -980,9 +1010,12 @@ class RightScriptPanel extends StatelessWidget {
                 }
               } else if (value == 'test_page') {
                 try {
-                  final content = await rootBundle.loadString('assets/test_page.html');
+                  final content =
+                      await rootBundle.loadString('assets/test_page.html');
                   if (context.mounted) {
-                    final tab = Provider.of<BrowserProvider>(context, listen: false).currentTab;
+                    final tab =
+                        Provider.of<BrowserProvider>(context, listen: false)
+                            .currentTab;
                     await tab?.controller?.loadData(
                         data: content,
                         mimeType: 'text/html',
@@ -999,7 +1032,8 @@ class RightScriptPanel extends StatelessWidget {
                 value: 'guide',
                 child: Row(
                   children: [
-                    Icon(Icons.help_outline, color: Colors.lightBlueAccent, size: 18),
+                    Icon(Icons.help_outline,
+                        color: Colors.lightBlueAccent, size: 18),
                     SizedBox(width: 8),
                     Text('使用教程', style: TextStyle(color: Colors.white)),
                   ],
@@ -1009,7 +1043,8 @@ class RightScriptPanel extends StatelessWidget {
                 value: 'test_page',
                 child: Row(
                   children: [
-                    Icon(Icons.science_outlined, color: Colors.amberAccent, size: 18),
+                    Icon(Icons.science_outlined,
+                        color: Colors.amberAccent, size: 18),
                     SizedBox(width: 8),
                     Text('测试网页', style: TextStyle(color: Colors.white)),
                   ],
@@ -1042,12 +1077,14 @@ class RightScriptPanel extends StatelessWidget {
         final filter = params['多个筛选'];
         String filterStr = '';
         if (filter != null) {
-          if (filter == 0) {
+          final filterNum =
+              filter is num ? filter : int.tryParse(filter.toString()) ?? 0;
+          if (filterNum == 0) {
             filterStr = ' [随机]';
-          } else if (filter < 0) {
-            filterStr = ' [倒数第${-filter}个]';
+          } else if (filterNum < 0) {
+            filterStr = ' [倒数第${-filterNum}个]';
           } else {
-            filterStr = ' [第$filter个]';
+            filterStr = ' [第$filterNum个]';
           }
         }
         return '点击: ${params['点击文本'] ?? ''}$filterStr';
@@ -1055,12 +1092,15 @@ class RightScriptPanel extends StatelessWidget {
         final imgFilter = params['多个筛选'];
         String imgFilterStr = '';
         if (imgFilter != null) {
-          if (imgFilter == 0) {
+          final filterNum = imgFilter is num
+              ? imgFilter
+              : int.tryParse(imgFilter.toString()) ?? 0;
+          if (filterNum == 0) {
             imgFilterStr = ' [随机]';
-          } else if (imgFilter < 0) {
-            imgFilterStr = ' [倒数第${-imgFilter}个]';
+          } else if (filterNum < 0) {
+            imgFilterStr = ' [倒数第${-filterNum}个]';
           } else {
-            imgFilterStr = ' [第$imgFilter个]';
+            imgFilterStr = ' [第$filterNum个]';
           }
         }
         return '点击图片$imgFilterStr';
@@ -1099,15 +1139,17 @@ class RightScriptPanel extends StatelessWidget {
       case '脚本暂停':
         return '暂停运行';
       case '自定义JS':
-        final path = params['jsFilePath']?.toString();
-        if (path != null && path.isNotEmpty) {
-          final filename = path.split(RegExp(r'[\\/]')).last;
+        final jsPath = params['jsFilePath']?.toString();
+        if (jsPath != null && jsPath.isNotEmpty) {
+          final filename = jsPath.split(RegExp(r'[\\/]')).last;
           return '文件: $filename';
         }
         final code = (params['代码'] ?? params['js内容'] ?? '').toString().trim();
         if (code.isNotEmpty) {
           final firstLine = code.split('\n').first.trim();
-          return firstLine.length > 25 ? '${firstLine.substring(0, 25)}...' : firstLine;
+          return firstLine.length > 25
+              ? '${firstLine.substring(0, 25)}...'
+              : firstLine;
         }
         return 'JS代码块';
       default:
@@ -1173,12 +1215,12 @@ class RightScriptPanel extends StatelessWidget {
       String filePath;
 
       if (existingFilePath == null || existingFilePath.isEmpty) {
-        // First-time save: ask for filename and use default directory
+        // 首次保存：询问文件名并使用默认脚本目录
         final String defaultDir = await FileManager.getScriptDirectory();
 
         if (!context.mounted) return;
 
-        // Show filename input dialog
+        // 弹出文件名输入对话框
         final TextEditingController filenameController = TextEditingController(
           text: 'script_${DateTime.now().millisecondsSinceEpoch}',
         );
@@ -1222,22 +1264,22 @@ class RightScriptPanel extends StatelessWidget {
 
         if (filename == null || filename.isEmpty) return;
 
-        // Create full file path in default directory
+        // 拼接默认目录下的完整文件路径
         filePath = path.join(defaultDir, '$filename.json');
       } else {
-        // Overwrite existing file
+        // 覆盖保存已有文件
         filePath = existingFilePath;
       }
 
-      // Get script content and save
+      // 导出脚本内容并写入文件
       final scriptContent = scriptProvider.exportScript();
       final file = File(filePath);
       await file.writeAsString(scriptContent);
 
-      // Update file path in provider
+      // 更新 Provider 中的脚本文件路径
       scriptProvider.updateScriptFilePath(filePath);
 
-      // Show success message
+      // 提示保存成功
       if (context.mounted) {
         final String message = existingFilePath == null
             ? '脚本已保存到: Auok/脚本/${path.basename(filePath)}'
@@ -1268,11 +1310,11 @@ class RightScriptPanel extends StatelessWidget {
     try {
       final String? filePath = scriptProvider.currentScriptFilePath;
 
-      // Check if script is saved
+      // 检查脚本是否已经保存
       if (filePath == null ||
           filePath.isEmpty ||
           !await FileManager.fileExists(filePath)) {
-        // Show warning: file not saved
+        // 提示尚未保存文件
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -1285,7 +1327,7 @@ class RightScriptPanel extends StatelessWidget {
         return;
       }
 
-      // Share the saved file
+      // 调用系统分享已保存的脚本文件
       final result = await Share.shareXFiles(
         [XFile(filePath)],
         subject: '脚本分享',
@@ -1367,13 +1409,15 @@ class RightScriptPanel extends StatelessWidget {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('取消', style: TextStyle(color: Colors.white54)),
+                  child:
+                      const Text('取消', style: TextStyle(color: Colors.white54)),
                 ),
                 TextButton(
                   onPressed: () {
                     Navigator.pop(context, 'import_external');
                   },
-                  child: const Text('从外部文件导入...', style: TextStyle(color: Colors.blue)),
+                  child: const Text('从外部文件导入...',
+                      style: TextStyle(color: Colors.blue)),
                 ),
               ],
             );
@@ -1381,32 +1425,34 @@ class RightScriptPanel extends StatelessWidget {
         ),
       ).then((result) async {
         if (result == null) return;
-        
+
         String? filePath;
 
         if (result == 'import_external') {
-          // Get default script directory
+          // 获取默认脚本目录
           final String defaultDir = await FileManager.getScriptDirectory();
 
-          // Let user pick a JSON file
-          // Note: initialDirectory is not supported on Android, so we only use it on iOS
+          // 允许用户选择脚本文件（Android 不支持 initialDirectory，仅在 iOS 下传入）
           FilePickerResult? pickResult = await FilePicker.platform.pickFiles(
             dialogTitle: '选择脚本文件',
             type: FileType.any,
             initialDirectory: Platform.isIOS ? defaultDir : null,
           );
 
-          if (pickResult == null || pickResult.files.single.path == null) return;
+          if (pickResult == null || pickResult.files.single.path == null) {
+            return;
+          }
           filePath = pickResult.files.single.path!;
         } else {
           filePath = result as String;
         }
 
-        if (!filePath.toLowerCase().endsWith('.json')) {
+        final lower = filePath.toLowerCase();
+        if (!lower.endsWith('.json') && !lower.endsWith('.zds')) {
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('请选择 .json 格式的脚本文件'),
+                content: Text('请选择 .json 或 .zds 格式的脚本文件'),
                 backgroundColor: Colors.orange,
               ),
             );
@@ -1417,10 +1463,10 @@ class RightScriptPanel extends StatelessWidget {
         final file = File(filePath);
         final content = await file.readAsString();
 
-        // Import script
+        // 导入脚本内容
         scriptProvider.importScript(content);
 
-        // Update file path for this tab
+        // 更新当前标签页关联的脚本文件路径
         scriptProvider.updateScriptFilePath(filePath);
 
         if (context.mounted) {

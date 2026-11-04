@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/script_provider.dart';
 import '../models/script.dart';
@@ -45,7 +46,7 @@ class _GlobalSettingsDialogState extends State<GlobalSettingsDialog> {
     return Dialog(
       backgroundColor: Colors.black87,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12), // Rounded corners
+        borderRadius: BorderRadius.circular(12), // 圆角边框
       ),
       child: Padding(
         padding: const EdgeInsets.all(20.0),
@@ -80,6 +81,7 @@ class _GlobalSettingsDialogState extends State<GlobalSettingsDialog> {
                     controller: _delayController,
                     style: const TextStyle(color: Colors.white),
                     keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     decoration: InputDecoration(
                       filled: true,
                       fillColor: Colors.white24,
@@ -138,6 +140,7 @@ class _GlobalSettingsDialogState extends State<GlobalSettingsDialog> {
                     controller: _loopCountController,
                     style: const TextStyle(color: Colors.white),
                     keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     decoration: InputDecoration(
                       filled: true,
                       fillColor: Colors.white24,
@@ -181,11 +184,11 @@ class _GlobalSettingsDialogState extends State<GlobalSettingsDialog> {
                   child: TextButton(
                     onPressed: () {
                       final scriptProvider = context.read<ScriptProvider>();
-                      final delay = int.tryParse(_delayController.text) ?? 1000;
+                      final delay = int.tryParse(_delayController.text) ?? 0;
                       final loopCount =
                           int.tryParse(_loopCountController.text) ?? 1;
 
-                      // Map '分' to TimeUnit
+                      // 映射时间单位枚举
                       TimeUnit unit;
                       if (_timeUnit == '毫秒') {
                         unit = TimeUnit.milliseconds;

@@ -279,7 +279,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       if (_selectedScriptType == '间隔时间') {
         _targetScriptPath = params['间隔时间后执行脚本'];
       } else {
-        _targetScriptPath = params['脚本集'];
+        _targetScriptPath = params['脚本集']?.toString() ?? widget.script!.targetScriptPath;
       }
       _submitButtonTextController.text = params['提交按钮文字'] ?? '';
 
@@ -321,7 +321,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
       _extractSelectorController.text = params['CSS选择器'] ?? '';
       _extractAttributeController.text = params['属性'] ?? 'text';
-      _extractVarNameController.text = params['变量名'] ?? '';
+      _extractVarNameController.text = (params['变量名'] ?? params['保存至变量'] ?? '').toString();
 
       if (params['执行每个脚本前执行'] != null) {
         _beforeScript =
@@ -1731,13 +1731,14 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     );
   }
 
-  // Helper method to convert delay to milliseconds based on selected unit
+  // 根据所选时间单位将执行延迟转换为毫秒数
   int _convertDelayToMilliseconds() {
     final value = int.tryParse(_delayController.text) ?? 0;
     switch (_delayTimeUnit) {
       case '秒':
         return value * 1000;
       case '分':
+      case '分钟':
         return value * 60000;
       default: // '毫秒'
         return value;
@@ -1747,14 +1748,17 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   void _handleSubmit() {
     final scriptProvider = context.read<ScriptProvider>();
 
-    // Build params based on script type
+    // 根据脚本类型构建参数映射
     final params = <String, dynamic>{};
 
     if (_selectedScriptType != '全局设置') {
       params['重复次数'] = int.tryParse(_repeatCountController.text) ?? 1;
+      if (_delayController.text.isNotEmpty) {
+        params['执行延迟'] = _convertDelayToMilliseconds();
+      }
     }
 
-    // Add type-specific params based on JSON structure
+    // 根据不同脚本类型填充专属参数
     switch (_selectedScriptType) {
       case '全局设置':
         if (_delayController.text.isEmpty) return;
@@ -1948,6 +1952,9 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
       case '新建窗口并执行脚本':
         if (_urlController.text.isEmpty) return;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
         params['窗口名称'] = _windowNameController.text;
         params['窗口UA'] = _windowUa;
         params['网址'] = _urlController.text;
@@ -1959,6 +1966,9 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
       case '跳转脚本':
         if (_targetScriptIndicesController.text.isEmpty) return;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
         params['跳转的脚本序号'] = _targetScriptIndicesController.text;
         break;
 
@@ -2028,7 +2038,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         break;
     }
 
-    // Save nested scripts
+    // 保存前置与后置嵌套脚本
     if (_beforeScript != null) {
       params['执行每个脚本前执行'] = _beforeScript!.toUserMap();
     }
@@ -2044,7 +2054,11 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     final newScript = Script(
       type: _selectedScriptType,
       params: params,
-      isEnabled: true,
+      isEnabled: widget.script?.isEnabled ?? true,
+      targetScriptPath: (_selectedScriptType == '脚本替换' ||
+              _selectedScriptType == '执行本地脚本集')
+          ? _targetScriptPath
+          : null,
     );
 
     if (widget.isNested) {
@@ -2053,11 +2067,11 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     }
 
     if (widget.script != null && widget.index != null) {
-      // Update existing script
+      // 更新已有脚本
       scriptProvider.updateScript(widget.index!, newScript);
       Navigator.pop(context);
     } else {
-      // Return new script for external handling (insertScript or addScript)
+      // 返回新建脚本供外部调用方处理（插入或追加）
       Navigator.pop(context, newScript);
     }
   }

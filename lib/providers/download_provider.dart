@@ -11,6 +11,7 @@ import '../services/download_service.dart';
 /// 支持断点续传、并发控制、Cookie/UA鉴权、持久化与实时速率监测
 class DownloadProvider with ChangeNotifier {
   static const String _storageKey = 'auok_download_tasks_v1';
+  static int _idCounter = 0;
 
   final List<DownloadTask> _tasks = [];
   bool _isInitialized = false;
@@ -111,18 +112,34 @@ class DownloadProvider with ChangeNotifier {
     // 1. 获取安全的存储目录
     final saveDir = await DownloadService.getDownloadDirectory();
 
-    // 2. 确定文件名与唯一存储路径
+    // 2. 确定文件名与唯一存储路径（同时检查磁盘文件与当前内存中活跃任务路径，防止并发冲突）
     String targetFileName = customFileName?.trim().isNotEmpty == true
         ? DownloadService.sanitizeFileName(customFileName!)
-        : DownloadService.extractFileName(url, suggestedFilename: suggestedFilename);
+        : DownloadService.extractFileName(url,
+            suggestedFilename: suggestedFilename);
 
     final fullPath = path.join(saveDir, targetFileName);
-    final uniquePath = await DownloadService.getUniqueFilePath(fullPath);
+    String uniquePath = await DownloadService.getUniqueFilePath(fullPath);
+    if (_tasks.any((t) =>
+        t.filePath == uniquePath && t.status != DownloadStatus.canceled)) {
+      final dir = path.dirname(uniquePath);
+      final baseName = path.basenameWithoutExtension(uniquePath);
+      final ext = path.extension(uniquePath);
+      int counter = 1;
+      while (_tasks.any((t) =>
+              t.filePath == uniquePath &&
+              t.status != DownloadStatus.canceled) ||
+          await File(uniquePath).exists() ||
+          await File('$uniquePath.part').exists()) {
+        uniquePath = path.join(dir, '$baseName ($counter)$ext');
+        counter++;
+      }
+    }
     targetFileName = path.basename(uniquePath);
 
-    // 3. 构造任务对象
+    // 3. 构造任务对象（使用自增计数器保证并发创建时 ID 绝对唯一）
     final task = DownloadTask(
-      id: '${DateTime.now().millisecondsSinceEpoch}_${_tasks.length}',
+      id: '${DateTime.now().millisecondsSinceEpoch}_${++_idCounter}',
       url: url,
       fileName: targetFileName,
       filePath: uniquePath,
@@ -173,7 +190,8 @@ class DownloadProvider with ChangeNotifier {
   }
 
   /// 内部执行下载流（基于 HttpClient 与断点续传）
-  Future<void> _executeDownload(DownloadTask task) async {
+  Future<void> _executeDownload(DownloadTask task,
+      {bool isRetry416 = false}) async {
     task.status = DownloadStatus.downloading;
     task.error = null;
     task.speed = 0;
@@ -181,7 +199,7 @@ class DownloadProvider with ChangeNotifier {
     _lastTime[task.id] = DateTime.now();
     notifyListeners();
 
-    final tempFile = File(task.tempPath);
+    File tempFile = File(task.tempPath);
     int existingLength = 0;
     if (await tempFile.exists()) {
       existingLength = await tempFile.length();
@@ -218,10 +236,16 @@ class DownloadProvider with ChangeNotifier {
 
         // 设置断点续传 Range 请求头
         if (existingLength > 0) {
-          request.headers.set(HttpHeaders.rangeHeader, 'bytes=$existingLength-');
+          request.headers
+              .set(HttpHeaders.rangeHeader, 'bytes=$existingLength-');
         }
 
         final res = await request.close();
+        if (task.status == DownloadStatus.paused ||
+            task.status == DownloadStatus.canceled ||
+            !_tasks.contains(task)) {
+          return;
+        }
         final code = res.statusCode;
 
         // 处理 HTTP 301/302/303/307/308 重定向
@@ -253,7 +277,8 @@ class DownloadProvider with ChangeNotifier {
       if (statusCode == HttpStatus.partialContent) {
         // 206 Partial Content：服务端支持断点续传
         isResume = true;
-        final contentRange = response.headers.value(HttpHeaders.contentRangeHeader);
+        final contentRange =
+            response.headers.value(HttpHeaders.contentRangeHeader);
         if (contentRange != null) {
           // 例如 bytes 1000-1999/2000
           final parts = contentRange.split('/');
@@ -273,32 +298,52 @@ class DownloadProvider with ChangeNotifier {
           task.totalBytes = response.contentLength;
         }
       } else if (statusCode == HttpStatus.requestedRangeNotSatisfiable) {
-        // 416 Range Not Satisfiable：文件可能已经下载完成或者文件在服务端已更新，重头开始
-        await DownloadService.deleteFile(task.filePath, tempPath: task.tempPath);
+        // 416 Range Not Satisfiable：防止无限递归，仅允许重试一次
+        if (isRetry416) {
+          await _handleTaskError(task, 'HTTP 416: 断点范围无效');
+          return;
+        }
+        await DownloadService.deleteFile(task.filePath,
+            tempPath: task.tempPath);
         task.receivedBytes = 0;
-        _executeDownload(task);
+        await _executeDownload(task, isRetry416: true);
         return;
       } else {
         throw 'HTTP 状态码异常: $statusCode (${response.reasonPhrase})';
       }
 
-      // 提取文件名（如果服务器提供了 Content-Disposition）
-      final disposition = response.headers.value('content-disposition');
-      if (disposition != null && disposition.contains('filename=')) {
-        try {
-          final regex = RegExp(r"""filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?""");
-          final match = regex.firstMatch(disposition);
-          if (match != null && match.group(1) != null) {
-            final decoded = Uri.decodeComponent(match.group(1)!);
-            final sanitized = DownloadService.sanitizeFileName(decoded);
-            if (sanitized.isNotEmpty && sanitized != task.fileName) {
-              // 更新最终路径
-              final dir = path.dirname(task.filePath);
-              task.fileName = sanitized;
-              task.filePath = path.join(dir, sanitized);
+      // 提取文件名（仅当从 0 字节开始初次下载且服务器提供了 Content-Disposition 时更新）
+      if (existingLength == 0) {
+        final disposition = response.headers.value('content-disposition');
+        if (disposition != null && disposition.contains('filename')) {
+          try {
+            final regex = RegExp(
+              r"""filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?""",
+              caseSensitive: false,
+            );
+            final match = regex.firstMatch(disposition);
+            if (match != null && match.group(1) != null) {
+              final decoded = Uri.decodeComponent(match.group(1)!);
+              final sanitized = DownloadService.sanitizeFileName(decoded);
+              if (sanitized.isNotEmpty && sanitized != task.fileName) {
+                // 使用唯一路径更新最终文件路径，防止覆盖已有同名文件
+                final dir = path.dirname(task.filePath);
+                final uniqueNewPath = await DownloadService.getUniqueFilePath(
+                    path.join(dir, sanitized));
+                task.filePath = uniqueNewPath;
+                task.fileName = path.basename(uniqueNewPath);
+                if (tempFile.path != task.tempPath) {
+                  try {
+                    if (await tempFile.exists()) {
+                      await tempFile.delete();
+                    }
+                  } catch (_) {}
+                  tempFile = File(task.tempPath);
+                }
+              }
             }
-          }
-        } catch (_) {}
+          } catch (_) {}
+        }
       }
 
       // 打开文件流写入
@@ -309,14 +354,29 @@ class DownloadProvider with ChangeNotifier {
 
       final subscription = response.listen(
         (chunk) {
+          if (task.status == DownloadStatus.paused ||
+              task.status == DownloadStatus.canceled ||
+              !_tasks.contains(task)) {
+            return;
+          }
           sink.add(chunk);
           task.receivedBytes += chunk.length;
           _updateSpeedAndProgress(task);
         },
         onError: (e) {
+          if (task.status == DownloadStatus.paused ||
+              task.status == DownloadStatus.canceled ||
+              !_tasks.contains(task)) {
+            return;
+          }
           _handleTaskError(task, '传输异常: $e');
         },
         onDone: () async {
+          if (task.status == DownloadStatus.paused ||
+              task.status == DownloadStatus.canceled ||
+              !_tasks.contains(task)) {
+            return;
+          }
           await _handleTaskComplete(task, sink, tempFile);
         },
         cancelOnError: true,
@@ -324,7 +384,12 @@ class DownloadProvider with ChangeNotifier {
 
       _activeSubscriptions[task.id] = subscription;
     } catch (e) {
-      _handleTaskError(task, '$e');
+      if (task.status == DownloadStatus.paused ||
+          task.status == DownloadStatus.canceled ||
+          !_tasks.contains(task)) {
+        return;
+      }
+      await _handleTaskError(task, '$e');
     } finally {
       client?.close();
     }
@@ -388,7 +453,7 @@ class DownloadProvider with ChangeNotifier {
       task.status = DownloadStatus.failed;
       task.error = '完成处理失败: $e';
     } finally {
-      _cleanupTaskHandles(task.id);
+      await _cleanupTaskHandles(task.id);
       notifyListeners();
       await _saveTasks();
       _scheduleNextPendingTask();
@@ -396,32 +461,40 @@ class DownloadProvider with ChangeNotifier {
   }
 
   /// 任务异常处理
-  void _handleTaskError(DownloadTask task, String errorMsg) {
-    _cleanupTaskHandles(task.id);
+  Future<void> _handleTaskError(DownloadTask task, String errorMsg) async {
+    if (task.status == DownloadStatus.paused ||
+        task.status == DownloadStatus.canceled ||
+        !_tasks.contains(task)) {
+      return;
+    }
+    await _cleanupTaskHandles(task.id);
     task.status = DownloadStatus.failed;
     task.error = errorMsg;
     task.speed = 0;
     notifyListeners();
-    _saveTasks();
+    await _saveTasks();
     _scheduleNextPendingTask();
   }
 
   /// 清理任务关联的所有网络和文件句柄
-  void _cleanupTaskHandles(String taskId) {
+  Future<void> _cleanupTaskHandles(String taskId) async {
     try {
-      _activeSubscriptions[taskId]?.cancel();
+      await _activeSubscriptions.remove(taskId)?.cancel();
     } catch (_) {}
-    _activeSubscriptions.remove(taskId);
+
+    final sink = _activeSinks.remove(taskId);
+    if (sink != null) {
+      try {
+        await sink.flush();
+      } catch (_) {}
+      try {
+        await sink.close();
+      } catch (_) {}
+    }
 
     try {
-      _activeRequests[taskId]?.abort();
+      _activeRequests.remove(taskId)?.abort();
     } catch (_) {}
-    _activeRequests.remove(taskId);
-
-    try {
-      _activeSinks[taskId]?.close();
-    } catch (_) {}
-    _activeSinks.remove(taskId);
 
     _lastBytes.remove(taskId);
     _lastTime.remove(taskId);
@@ -446,9 +519,9 @@ class DownloadProvider with ChangeNotifier {
     if (taskIndex == -1) return;
     final task = _tasks[taskIndex];
 
-    _cleanupTaskHandles(taskId);
     task.status = DownloadStatus.paused;
     task.speed = 0;
+    await _cleanupTaskHandles(taskId);
     notifyListeners();
     await _saveTasks();
 
@@ -476,9 +549,9 @@ class DownloadProvider with ChangeNotifier {
     if (taskIndex == -1) return;
     final task = _tasks[taskIndex];
 
-    _cleanupTaskHandles(taskId);
     task.status = DownloadStatus.canceled;
     task.speed = 0;
+    await _cleanupTaskHandles(taskId);
 
     // 清理临时 .part 文件
     await DownloadService.deleteFile(task.filePath, tempPath: task.tempPath);
@@ -490,18 +563,20 @@ class DownloadProvider with ChangeNotifier {
   }
 
   /// 删除任务（可选择是否连同本地文件一起删除）
-  Future<void> deleteTask(String taskId, {bool deleteFileOnDisk = false}) async {
+  Future<void> deleteTask(String taskId,
+      {bool deleteFileOnDisk = false}) async {
     final taskIndex = _tasks.indexWhere((t) => t.id == taskId);
     if (taskIndex == -1) return;
     final task = _tasks[taskIndex];
 
-    _cleanupTaskHandles(taskId);
+    _tasks.removeAt(taskIndex);
+    task.status = DownloadStatus.canceled;
+    await _cleanupTaskHandles(taskId);
 
     if (deleteFileOnDisk) {
       await DownloadService.deleteFile(task.filePath, tempPath: task.tempPath);
     }
 
-    _tasks.removeAt(taskIndex);
     notifyListeners();
     await _saveTasks();
     _scheduleNextPendingTask();
@@ -518,7 +593,8 @@ class DownloadProvider with ChangeNotifier {
 
     for (var task in toRemove) {
       if (deleteFilesOnDisk) {
-        await DownloadService.deleteFile(task.filePath, tempPath: task.tempPath);
+        await DownloadService.deleteFile(task.filePath,
+            tempPath: task.tempPath);
       }
       _tasks.remove(task);
     }
