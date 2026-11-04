@@ -83,10 +83,7 @@ class _DownloadManagerDialogState extends State<DownloadManagerDialog>
           ElevatedButton(
             onPressed: () {
               final url = urlController.text.trim();
-              final uri = Uri.tryParse(url);
-              if (uri == null ||
-                  !(uri.isScheme('http') || uri.isScheme('https')) ||
-                  uri.host.isEmpty) {
+              if (url.isEmpty || !url.startsWith('http')) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('请输入合法的 HTTP/HTTPS 下载链接')),
                 );

@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:io';
-import 'package:path/path.dart' as path;
 import '../models/browser_tab.dart';
 import '../models/browser_data.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -19,12 +18,12 @@ class BrowserProvider extends ChangeNotifier {
   bool _isDarkMode = false;
   bool _keepScreenOn = false;
   bool _autoLeaveMode = false;
-  bool _isScriptPanelExpanded = false; // 默认收起脚本面板
-  String _searchEngine = 'Baidu'; // 默认使用百度搜索引擎
+  bool _isScriptPanelExpanded = false; // Default to false (collapsed)
+  String _searchEngine = 'Baidu'; // Default to Baidu
   String? _nightCssContent;
   int _maxHistoryDays = 4; // 最大历史记录保存天数，默认4天，0为永久保存
 
-  // 夜间模式内置兜底高优先级 CSS
+  // Hardcoded fallback CSS for Night Mode (High Specificity)
   static const String _fallbackNightCss = '''
     html, body {
       background-color: #121212 !important;
@@ -43,7 +42,7 @@ class BrowserProvider extends ChangeNotifier {
     img { opacity: 0.8 !important; }
   ''';
 
-  // 全局导航 Key
+  // Need a navigator key to access context for AssetBundle if context not available
   static final GlobalKey<NavigatorState> navigatorKey =
       GlobalKey<NavigatorState>();
 
@@ -51,7 +50,7 @@ class BrowserProvider extends ChangeNotifier {
   int get currentIndex => _currentIndex;
   List<Bookmark> get bookmarks => _bookmarks;
 
-  // 过滤掉可见历史记录中的 welcome.html
+  // Filter welcome.html from visible history
   List<HistoryItem> get history =>
       _history.where((item) => !item.url.endsWith('welcome.html')).toList();
 
@@ -74,29 +73,29 @@ class BrowserProvider extends ChangeNotifier {
 
   Future<void> _init() async {
     await _loadBookmarksAndHistory();
-    // 先加载配置和夜间模式样式，再创建初始标签页，避免竞态导致夜间模式未注入
+    // await _restoreTabsState(); // Removed restoration logic
+    // Instead, just ensure settings are loaded or defaults set, and add a default tab
     await _loadSettings();
+    await addTab(); // Always start with a new tab
     try {
       final String content = await rootBundle.loadString('assets/night.css');
       _nightCssContent = content;
-      _nightModeUserScript = null; // 重置缓存以使用最新加载的 CSS 内容
+      _nightModeUserScript = null; // Reset cache to use loaded content
     } catch (e) {
       debugPrint('Error loading night.css: $e');
     }
 
-    await addTab(); // 始终以新标签页启动
-
-    // 对已存在的标签页应用恢复的夜间模式
-    if (_isDarkMode && nightModeUserScript != null) {
+    // Apply restored dark mode to any existing tabs (handling race condition)
+    if (_isDarkMode && _nightCssContent != null) {
       for (var tab in _tabs) {
-        if (tab.controller != null) {
+        if (tab.controller != null && nightModeUserScript != null) {
           tab.controller!.addUserScript(userScript: nightModeUserScript!);
           _injectNightMode(tab.controller!);
         }
       }
     }
 
-    // 后台静默更新 welcome.html
+    // Start background welcome.html update (fire-and-forget)
     WelcomeManager.updateWelcomeInBackground();
 
     _isInitialized = true;
@@ -109,61 +108,55 @@ class BrowserProvider extends ChangeNotifier {
   UserScript? _nightModeUserScript;
 
   String _getNightModeJs() {
-    final baseCss = (_nightCssContent != null && _nightCssContent!.isNotEmpty)
-        ? _nightCssContent!
+    final css = (_nightCssContent != null && _nightCssContent!.isNotEmpty)
+        ? _nightCssContent
         : _fallbackNightCss;
-    final fullCss =
-        '$baseCss\nhtml, body { background-color: #121212 !important; }';
 
-    // 使用 jsonEncode 生成合法的 JS 字符串字面量，防止 \r、\n、反斜杠或引号引发语法错误
-    final safeCssJson = jsonEncode(fullCss);
+    // Escape newlines and quotes for JS string
+    final safeCss = css!
+        .replaceAll('\n', ' ')
+        .replaceAll("'", "\\'")
+        .replaceAll('"', '\\"');
 
     return '''
       (function() {
-        // 1. 立即隐藏页面防止白屏闪烁
-        if (!document.getElementById('auok-night-mode') && !document.getElementById('auok-night-hide')) {
+        // 1. Immediately hide page to prevent white flash
+        if (!document.getElementById('auok-night-mode')) {
           var hideStyle = document.createElement('style');
           hideStyle.id = 'auok-night-hide';
-          hideStyle.textContent = 'html, body { visibility: hidden !important; background: #121212 !important; }';
+          hideStyle.innerHTML = 'html, body { visibility: hidden !important; background: #121212 !important; }';
           var earlyTarget = document.head || document.documentElement || document.body;
           if (earlyTarget) earlyTarget.appendChild(hideStyle);
         }
         
-        // 2. 注入夜间模式 CSS
+        // 2. Inject night mode CSS
         if (document.getElementById('auok-night-mode')) {
-          var hideEl = document.getElementById('auok-night-hide');
-          if (hideEl) hideEl.remove();
+          document.getElementById('auok-night-hide')?.remove();
           return;
         }
         var style = document.createElement('style');
         style.id = 'auok-night-mode';
-        style.textContent = $safeCssJson;
-        var target = document.head || document.documentElement || document.body;
+        style.innerHTML = '$safeCss';
+        var target = document.head || document.documentElement;
         if (target) {
           target.appendChild(style);
-          var hideEl = document.getElementById('auok-night-hide');
-          if (hideEl) hideEl.remove();
         } else {
           setTimeout(function() {
-            var targetRetry = document.head || document.documentElement || document.body;
-            if (targetRetry && !document.getElementById('auok-night-mode')) {
-              targetRetry.appendChild(style);
-            }
-            var hideEl = document.getElementById('auok-night-hide');
-            if (hideEl) hideEl.remove();
+             var targetRetry = document.head || document.documentElement;
+             if (targetRetry) targetRetry.appendChild(style);
           }, 50);
         }
         
-        // 3. 样式应用后移除防闪烁遮罩以显示页面
+        // 3. Reveal page after CSS is applied
         requestAnimationFrame(function() {
-          var hideEl = document.getElementById('auok-night-hide');
-          if (hideEl) hideEl.remove();
+          document.getElementById('auok-night-hide')?.remove();
         });
       })();
     ''';
   }
 
   UserScript? get nightModeUserScript {
+    // if (_nightCssContent == null) return null; // Removed to allow fallback
     _nightModeUserScript ??= UserScript(
       source: _getNightModeJs(),
       injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
@@ -171,53 +164,68 @@ class BrowserProvider extends ChangeNotifier {
     return _nightModeUserScript;
   }
 
-  Future<void> toggleDarkMode(bool value) async {
+  void toggleDarkMode(bool value) {
     _isDarkMode = value;
     notifyListeners();
     _saveTabsState();
 
-    // 应用到所有标签页（先读取当前设置再修改，防止重置多窗口、下载拦截、UA等关键设置）
+    // Apply to all tabs
     for (var tab in _tabs) {
-      final controller = tab.controller;
-      if (controller == null) continue;
-
-      try {
-        final currentSettings =
-            await controller.getSettings() ?? InAppWebViewSettings();
-        currentSettings.preferredContentMode =
-            _getPreferredContentMode(tab.customUserAgent ?? userAgent);
-        await controller.setSettings(settings: currentSettings);
-      } catch (_) {}
+      tab.controller?.setSettings(
+          settings: InAppWebViewSettings(
+        preferredContentMode: _getPreferredContentMode(userAgent),
+      ));
 
       if (value) {
-        if (nightModeUserScript != null) {
-          // 为后续导航添加 UserScript
-          await controller.addUserScript(userScript: nightModeUserScript!);
-          // 立即对当前页面注入夜间模式
-          _injectNightMode(controller);
+        if (tab.controller != null && nightModeUserScript != null) {
+          // Add UserScript for future navigations
+          tab.controller!.addUserScript(userScript: nightModeUserScript!);
+          // Inject immediately for current page
+          _injectNightMode(tab.controller!);
         }
       } else {
-        if (nightModeUserScript != null) {
-          // 移除 UserScript
-          await controller.removeUserScript(userScript: nightModeUserScript!);
+        if (tab.controller != null && nightModeUserScript != null) {
+          // Remove UserScript
+          tab.controller!.removeUserScript(userScript: nightModeUserScript!);
+          // Remove style from current page
+          tab.controller!.evaluateJavascript(
+              source: "document.getElementById('auok-night-mode')?.remove();");
         }
-        // 从当前页面移除夜间模式 style 标签与防闪烁标签
-        await controller.evaluateJavascript(source: '''
-          (function() {
-            document.getElementById('auok-night-mode')?.remove();
-            document.getElementById('auok-night-hide')?.remove();
-          })();
-        ''');
       }
     }
   }
 
   void injectNightMode(InAppWebViewController controller) {
-    try {
-      // 统一通过带 id (auok-night-mode) 的 style 标签注入夜间模式 CSS（含强制深色背景），
-      // 避免在 Windows 上使用无法移除的 injectCSSCode 或永久内联背景色，确保关闭夜间模式时可干净移除
-      controller.evaluateJavascript(source: _getNightModeJs());
-    } catch (_) {}
+    final css = (_nightCssContent != null && _nightCssContent!.isNotEmpty)
+        ? _nightCssContent
+        : _fallbackNightCss;
+
+    if (css != null) {
+      try {
+        if (Platform.isWindows) {
+          // Windows-specific aggressive injection
+          // 1. Try official CSS injection (Best for Windows/WebView2)
+          controller.injectCSSCode(source: css);
+
+          // 2. Fallback: JS Injection of Style Tag (Original method)
+          controller.evaluateJavascript(source: _getNightModeJs());
+
+          // 3. Nuclear Option: Direct Style Manipulation (For stubborn pages)
+          // Force background to dark immediately
+          controller.evaluateJavascript(source: """
+            (function() {
+              try {
+                document.body.style.backgroundColor = '#121212';
+                document.documentElement.style.backgroundColor = '#121212';
+              } catch(e) {}
+            })();
+          """);
+        } else {
+          // Mobile (Android/iOS): Use original, standard method
+          controller.evaluateJavascript(source: _getNightModeJs());
+        }
+      } catch (_) {}
+    }
   }
 
   void _injectNightMode(InAppWebViewController controller) {
@@ -315,12 +323,12 @@ class BrowserProvider extends ChangeNotifier {
     if (index < 0 || index >= _tabs.length) return;
     final tab = _tabs[index];
 
-    // 若标签页正在执行脚本，禁止关闭
+    // Prevent closing if executing script
     if (tab.isExecutingScript) {
-      return;
+      return; // Caller should show error message
     }
 
-    // 停止标签页定时自动刷新
+    // Stop tab auto refresh timer
     tab.stopAutoRefresh();
 
     _tabs.removeAt(index);
@@ -380,7 +388,9 @@ class BrowserProvider extends ChangeNotifier {
   }
 
   void addToHistory(String url, String title) {
-    // 允许记录 welcome.html 供内部使用，但在 history getter 中过滤不在 UI 展示；排除其他本地文件和 about:blank
+    // Allow welcome.html to be recorded, but exclude other file URLs and about:blank
+    // We allow welcome.html so it's in the history list (for potential internal use)
+    // but we filter it out in the 'history' getter so it's not shown in UI.
     if ((url.startsWith('file:///') && !url.endsWith('welcome.html')) ||
         url == 'about:blank') {
       return;
@@ -401,7 +411,7 @@ class BrowserProvider extends ChangeNotifier {
   void updateHistoryTitle(String url, String title) {
     if (_history.isEmpty) return;
 
-    // 若最新一条历史记录 URL 匹配，则更新其标题
+    // Check if the most recent item matches the URL
     if (_history.first.url == url) {
       final oldItem = _history.first;
       _history[0] = HistoryItem(
@@ -455,7 +465,7 @@ class BrowserProvider extends ChangeNotifier {
       _bookmarks.sort((a, b) => a.title.compareTo(b.title));
     } else if (type == 'time') {
       _bookmarks
-          .sort((a, b) => b.createdAt.compareTo(a.createdAt)); // 按时间从新到旧排序
+          .sort((a, b) => b.createdAt.compareTo(a.createdAt)); // Newest first
     }
     notifyListeners();
     _saveBookmarksAndHistory();
@@ -576,10 +586,10 @@ class BrowserProvider extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
 
-      // 构建待保存的标签页状态数据
+      // Ensure we have valid data to save
       final tabsData = await Future.wait(_tabs.map((tab) async {
         String url = tab.url;
-        // 如果 URL 是本地欢迎页路径，保存为 about:blank 以便恢复时触发欢迎页逻辑
+        // If url is file path (welcome page), save as about:blank to trigger welcome logic on restore
         if (url.startsWith('file:///')) {
           url = 'about:blank';
         }
@@ -598,7 +608,7 @@ class BrowserProvider extends ChangeNotifier {
         'keepScreenOn': _keepScreenOn,
         'isScriptPanelExpanded': _isScriptPanelExpanded,
         'searchEngine': _searchEngine,
-        'userAgent': _userAgent, // 保存 UserAgent
+        'userAgent': _userAgent, // Save UserAgent
         'autoLeaveMode': _autoLeaveMode,
         'isAdBlockEnabled': _isAdBlockEnabled,
         'isDebugModeEnabled': _isDebugModeEnabled,
@@ -663,45 +673,35 @@ class BrowserProvider extends ChangeNotifier {
     return 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
   }
 
-  // User-Agent 配置
+  // User Agent
   late String _userAgent = defaultUserAgentType;
   String get userAgent => _userAgent;
 
   Map<String, String> get uaMap => {
-        'Mobile': mobileUserAgentString,
-        'Tablet': tabletUserAgentString,
-        'Desktop': desktopUserAgentString,
-      };
+    'Mobile': mobileUserAgentString,
+    'Tablet': tabletUserAgentString,
+    'Desktop': desktopUserAgentString,
+  };
 
   String getUserAgentString(String? type) {
     if (type == 'Desktop') return desktopUserAgentString;
     if (type == 'Tablet') return tabletUserAgentString;
     if (type == 'Mobile') return mobileUserAgentString;
-    return uaMap[_userAgent] ??
-        (Platform.isWindows || Platform.isMacOS || Platform.isLinux
-            ? desktopUserAgentString
-            : mobileUserAgentString);
+    return uaMap[_userAgent] ?? (Platform.isWindows || Platform.isMacOS || Platform.isLinux ? desktopUserAgentString : mobileUserAgentString);
   }
 
-  Future<void> setUserAgent(String type) async {
+  void setUserAgent(String type) {
     if (uaMap.containsKey(type)) {
       _userAgent = type;
       notifyListeners();
       _saveTabsState();
-      // 应用到当前标签页（先读取已有设置再修改，避免覆盖多窗口、下载拦截等设置）
-      final tab = currentTab;
-      final controller = tab?.controller;
-      if (tab != null && controller != null) {
-        final effectiveType = tab.customUserAgent ?? type;
-        try {
-          final currentSettings =
-              await controller.getSettings() ?? InAppWebViewSettings();
-          currentSettings.userAgent = getUserAgentString(effectiveType);
-          currentSettings.preferredContentMode =
-              _getPreferredContentMode(effectiveType);
-          await controller.setSettings(settings: currentSettings);
-        } catch (_) {}
-        await controller.reload();
+      // Apply to current tab if exists
+      if (currentTab != null && currentTab!.controller != null) {
+        currentTab!.controller!.setSettings(
+            settings: InAppWebViewSettings(
+                userAgent: getUserAgentString(type),
+                preferredContentMode: _getPreferredContentMode(type)));
+        currentTab!.controller!.reload();
       }
     }
   }
@@ -725,15 +725,10 @@ class BrowserProvider extends ChangeNotifier {
   Future<String> getCacheSizeString() async {
     try {
       final tempDir = await getTemporaryDirectory();
-      // Windows 平台下 getTemporaryDirectory() 返回系统全局 Temp 目录，仅统计应用专属子目录
-      final cacheDir = Platform.isWindows
-          ? Directory(path.join(tempDir.path, 'auok_browser_cache'))
-          : tempDir;
-      if (!await cacheDir.exists()) return '0.0 MB';
+      if (!await tempDir.exists()) return '0.0 MB';
       int totalBytes = 0;
-      await for (final file in cacheDir
-          .list(recursive: true, followLinks: false)
-          .handleError((_) {})) {
+      await for (final file
+          in tempDir.list(recursive: true, followLinks: false)) {
         if (file is File) {
           try {
             totalBytes += await file.length();
@@ -762,17 +757,11 @@ class BrowserProvider extends ChangeNotifier {
         debugPrint('clearAllCache error: $e');
       }
 
-      // 2. 清理临时目录缓存文件（Windows 下仅清理应用专属子目录，防止误删系统全局 Temp 文件）
+      // 2. 清理系统临时目录缓存文件
       try {
         final tempDir = await getTemporaryDirectory();
-        final cacheDir = Platform.isWindows
-            ? Directory(path.join(tempDir.path, 'auok_browser_cache'))
-            : tempDir;
-        if (await cacheDir.exists()) {
-          List<FileSystemEntity> entities = [];
-          try {
-            entities = cacheDir.listSync(recursive: false, followLinks: false);
-          } catch (_) {}
+        if (await tempDir.exists()) {
+          final entities = tempDir.listSync(recursive: false);
           for (final entity in entities) {
             try {
               if (entity is File) {

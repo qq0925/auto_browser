@@ -25,19 +25,11 @@ class DownloadService {
         final docDir = await getApplicationDocumentsDirectory();
         return docDir.path;
       } else if (Platform.isAndroid) {
-        // 优先使用标准公共下载目录（通过写入探针文件检测真实写权限，兼容 Android 10+ 分区存储）
+        // 优先使用标准公共下载目录
         try {
           const publicDownloadPath = '/storage/emulated/0/Download';
           final publicDir = Directory(publicDownloadPath);
           if (await publicDir.exists()) {
-            final probeFile = File(path.join(
-              publicDownloadPath,
-              '.auok_probe_${DateTime.now().microsecondsSinceEpoch}',
-            ));
-            await probeFile.writeAsString('', flush: true);
-            if (await probeFile.exists()) {
-              await probeFile.delete();
-            }
             return publicDownloadPath;
           }
         } catch (_) {}
@@ -71,11 +63,11 @@ class DownloadService {
     }
   }
 
-  /// 清洗并标准化文件名，过滤操作系统非法字符与控制字符，并限制最大长度
+  /// 清洗并标准化文件名，过滤操作系统非法字符
   static String sanitizeFileName(String rawName) {
     var name = rawName.trim();
-    // 过滤 Windows/Linux/macOS 特殊非法字符与控制字符: \ / : * ? " < > | \x00-\x1F
-    name = name.replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1F]'), '_');
+    // 过滤 Windows/Linux/macOS 特殊非法字符: \ / : * ? " < > | \0
+    name = name.replaceAll(RegExp(r'[\\/:*?"<>|\x00]'), '_');
     // 去除连续下划线
     name = name.replaceAll(RegExp(r'_+'), '_');
     // 去除前后点号和空格
@@ -84,14 +76,6 @@ class DownloadService {
     if (name.isEmpty) {
       name = 'download_${DateTime.now().millisecondsSinceEpoch}';
     }
-
-    // 截断超长主文件名（保留扩展名，主文件名不超过 180 个字符）
-    final ext = path.extension(name);
-    final base = path.basenameWithoutExtension(name);
-    if (base.length > 180) {
-      name = '${base.substring(0, 180)}$ext';
-    }
-
     return name;
   }
 
@@ -105,14 +89,9 @@ class DownloadService {
       final uri = Uri.parse(url);
       final segments = uri.pathSegments.where((s) => s.isNotEmpty).toList();
       if (segments.isNotEmpty) {
-        String fileName;
-        try {
-          fileName = Uri.decodeComponent(segments.last);
-        } catch (_) {
-          fileName = segments.last;
-        }
-        if (fileName.contains('.')) {
-          return sanitizeFileName(fileName);
+        final last = Uri.decodeComponent(segments.last);
+        if (last.contains('.')) {
+          return sanitizeFileName(last);
         }
       }
     } catch (_) {}
@@ -120,10 +99,10 @@ class DownloadService {
     return sanitizeFileName('download_${DateTime.now().millisecondsSinceEpoch}');
   }
 
-  /// 获取唯一文件保存路径（若存在同名文件或同名 .part 临时文件则自动递增添加 (1)、(2)）
+  /// 获取唯一文件保存路径（若存在同名文件则自动递增添加 (1)、(2)）
   static Future<String> getUniqueFilePath(String targetPath) async {
     var file = File(targetPath);
-    if (!await file.exists() && !await File('${file.path}.part').exists()) {
+    if (!await file.exists()) {
       return targetPath;
     }
 
@@ -137,7 +116,7 @@ class DownloadService {
       newPath = path.join(dir, '$baseName ($counter)$extension');
       file = File(newPath);
       counter++;
-    } while (await file.exists() || await File('${file.path}.part').exists());
+    } while (await file.exists());
 
     return newPath;
   }
@@ -207,10 +186,7 @@ class DownloadService {
 
     try {
       if (Platform.isWindows) {
-        await Process.run(
-          'explorer.exe',
-          ['/select,${path.normalize(filePath).replaceAll('/', '\\')}'],
-        );
+        await Process.run('explorer.exe', ['/select,', filePath]);
       } else {
         // 移动端唤起系统分享面板
         await shareFile(filePath);

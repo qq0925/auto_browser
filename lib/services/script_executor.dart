@@ -65,21 +65,8 @@ class ScriptExecutor {
 
       // 3. 执行单步配置的延迟或全局延迟
       int delay = executionDelay;
-      if (resolvedScript.params.containsKey('执行延迟')) {
-        final rawDelay = resolvedScript.params['执行延迟'];
-        final parsedDelay = rawDelay is int
-            ? rawDelay
-            : int.tryParse(rawDelay?.toString() ?? '');
-        if (parsedDelay != null) {
-          final timeUnit = resolvedScript.params['时间单位']?.toString() ?? '毫秒';
-          final multiplier = TimeUnit.values
-              .firstWhere(
-                (unit) => unit.label == timeUnit,
-                orElse: () => TimeUnit.milliseconds,
-              )
-              .multiplier;
-          delay = parsedDelay * multiplier;
-        }
+      if (script.params.containsKey('执行延迟')) {
+        delay = script.params['执行延迟'] as int;
       }
 
       if (delay > 0) {
@@ -112,15 +99,13 @@ class ScriptExecutor {
       }
 
       // 执行前置脚本
-      if (resolvedScript.params['执行每个脚本前执行'] != null) {
-        final beforeScriptMap = resolvedScript.params['执行每个脚本前执行'];
+      if (script.params['执行每个脚本前执行'] != null) {
+        final beforeScriptMap = script.params['执行每个脚本前执行'];
         if (beforeScriptMap is Map<String, dynamic>) {
           final beforeScript = Script.fromUserMap(beforeScriptMap);
           await execute(controller, beforeScript,
               executionDelay: executionDelay,
               waitForPageLoad: waitForPageLoad,
-              scripts: scripts,
-              variables: variables,
               onStatusChanged: (status, msg, prog) {
             if (status == ScriptStatus.running ||
                 status == ScriptStatus.waiting) {
@@ -132,29 +117,8 @@ class ScriptExecutor {
         }
       }
 
-      // 计算外层保护超时时间：
-      // - 间隔时间脚本：按总间隔时长 + 30 秒缓冲，防止长间隔 (>30s) 被提前中断
-      // - 其他步骤：按步骤自身超时 (_getStepTimeout) + 5 秒缓冲，确保内部微轮询可正常结束并汇报具体错误
-      Duration outerTimeout;
-      if (resolvedScript.type == '间隔时间') {
-        final h = (resolvedScript.params['时间间隔-小时'] as int?) ??
-            int.tryParse(resolvedScript.params['时间间隔-小时']?.toString() ?? '') ??
-            0;
-        final m = (resolvedScript.params['时间间隔-分钟'] as int?) ??
-            int.tryParse(resolvedScript.params['时间间隔-分钟']?.toString() ?? '') ??
-            0;
-        final s = (resolvedScript.params['时间间隔-秒'] as int?) ??
-            int.tryParse(resolvedScript.params['时间间隔-秒']?.toString() ?? '') ??
-            0;
-        final intervalDuration = Duration(seconds: max(0, h * 3600 + m * 60 + s));
-        outerTimeout = intervalDuration + const Duration(seconds: 30);
-      } else {
-        final defaultStepMs = resolvedScript.type == '等待文字出现' ? 10000 : 5000;
-        outerTimeout = _getStepTimeout(resolvedScript, defaultMs: defaultStepMs) +
-            const Duration(seconds: 5);
-      }
-
-      bool stepCancelled = false;
+      // 脚本超时时间（默认 30 秒，可在参数中自定义）
+      final timeoutSeconds = resolvedScript.params['超时时间'] as int? ?? 30;
       try {
         final stepResult = await _executeSingleStep(
           controller,
@@ -162,23 +126,18 @@ class ScriptExecutor {
           onStatusChanged,
           scripts,
           variables: variables,
-          isCancelled: () => stepCancelled,
-        ).timeout(outerTimeout);
+        ).timeout(Duration(seconds: timeoutSeconds));
         result = stepResult.success;
         lastStepTriggeredNav = stepResult.isNavTrigger;
       } on TimeoutException {
-        stepCancelled = true;
         onStatusChanged?.call(
-            ScriptStatus.failure, '脚本执行超时 (${outerTimeout.inSeconds} 秒)', null);
+            ScriptStatus.failure, '脚本执行超时 ($timeoutSeconds 秒)', null);
         result = false;
         lastStepTriggeredNav = false;
       } catch (e) {
-        stepCancelled = true;
         onStatusChanged?.call(ScriptStatus.failure, '脚本执行异常: $e', null);
         result = false;
         lastStepTriggeredNav = false;
-      } finally {
-        stepCancelled = true;
       }
 
       // 4. 关键：导航与跨页动作执行后置等待！
@@ -203,7 +162,6 @@ class ScriptExecutor {
           await execute(controller, afterScript,
               executionDelay: executionDelay,
               waitForPageLoad: waitForPageLoad,
-              scripts: scripts,
               variables: variables,
               onStatusChanged: (status, msg, prog) {
             if (status == ScriptStatus.running ||
@@ -244,7 +202,6 @@ class ScriptExecutor {
         onStatusChanged,
     List<Script>? scripts, {
     Map<String, String>? variables,
-    bool Function()? isCancelled,
   }) async {
     const nonControllerTypes = {
       "控制脚本开关",
@@ -270,8 +227,7 @@ class ScriptExecutor {
         return _StepExecutionResult(success: ok, isNavTrigger: ok);
       case "间隔时间":
         final ok = await _executeIntervalScript(
-            controller!, script, onStatusChanged,
-            isCancelled: isCancelled);
+            controller!, script, onStatusChanged);
         return _StepExecutionResult(success: ok);
       case "自定义JS":
         final ok = await _executeCustomJs(controller!, script,
@@ -409,19 +365,11 @@ class ScriptExecutor {
 
       case "设置Cookie":
         final ok = await _executeSetCookie(controller!, script, onStatusChanged);
-        final shouldReload = (script.params['刷新页面'] as bool?) ??
-            (script.params['设置后刷新页面'] as bool?) ??
-            true;
-        return _StepExecutionResult(
-            success: ok, isNavTrigger: ok && shouldReload);
+        return _StepExecutionResult(success: ok);
 
       case "清除Cookie":
         final ok = await _executeClearCookie(controller!, script, onStatusChanged);
-        final shouldReload = (script.params['刷新页面'] as bool?) ??
-            (script.params['清除后刷新页面'] as bool?) ??
-            true;
-        return _StepExecutionResult(
-            success: ok, isNavTrigger: ok && shouldReload);
+        return _StepExecutionResult(success: ok);
 
       default:
         return const _StepExecutionResult(success: true);
@@ -445,9 +393,7 @@ class ScriptExecutor {
       final profileName = script.params['账号存档名称'] as String?;
       final cookieName = script.params['Cookie名称'] as String?;
       final cookieValue = script.params['Cookie值'] as String?;
-      final autoReload = (script.params['刷新页面'] as bool?) ??
-          (script.params['设置后刷新页面'] as bool?) ??
-          true;
+      final autoReload = script.params['设置后刷新页面'] as bool? ?? true;
 
       if (profileName != null && profileName.isNotEmpty) {
         // 通过账号存档切换
@@ -495,9 +441,7 @@ class ScriptExecutor {
   ) async {
     try {
       final isClearAll = script.params['清除全部站点'] as bool? ?? false;
-      final autoReload = (script.params['刷新页面'] as bool?) ??
-          (script.params['清除后刷新页面'] as bool?) ??
-          true;
+      final autoReload = script.params['清除后刷新页面'] as bool? ?? true;
 
       if (isClearAll) {
         await CookieService.clearAllCookies();
@@ -526,28 +470,19 @@ class ScriptExecutor {
       InAppWebViewController controller,
       Script script,
       Function(ScriptStatus status, String? message, double? progress)?
-          onStatusChanged,
-      {bool Function()? isCancelled}) async {
+          onStatusChanged) async {
     final params = script.params;
-    final h = (params['时间间隔-小时'] as int?) ??
-        int.tryParse(params['时间间隔-小时']?.toString() ?? '') ??
-        0;
-    final m = (params['时间间隔-分钟'] as int?) ??
-        int.tryParse(params['时间间隔-分钟']?.toString() ?? '') ??
-        0;
-    final s = (params['时间间隔-秒'] as int?) ??
-        int.tryParse(params['时间间隔-秒']?.toString() ?? '') ??
-        0;
+    final h = params['时间间隔-小时'] ?? 0;
+    final m = params['时间间隔-分钟'] ?? 0;
+    final s = params['时间间隔-秒'] ?? 0;
 
     int totalSeconds = h * 3600 + m * 60 + s;
     if (totalSeconds <= 0) return true;
 
     for (var i = totalSeconds; i > 0; i--) {
-      if (isCancelled?.call() == true) return false;
       double progress = 1.0 - (i / totalSeconds);
       onStatusChanged?.call(ScriptStatus.waiting, '等待延迟 ${i}s', progress);
       await Future.delayed(const Duration(seconds: 1));
-      if (isCancelled?.call() == true) return false;
     }
     onStatusChanged?.call(ScriptStatus.waiting, '等待延迟 0s', 1.0);
 
@@ -564,9 +499,8 @@ class ScriptExecutor {
   /// 解析动作级超时时间（优先读取脚本参数中的【超时时间】，未配置时默认 5000 毫秒）
   Duration _getStepTimeout(Script script, {int defaultMs = 5000}) {
     if (script.params.containsKey('超时时间')) {
-      final raw = script.params['超时时间'];
-      final t = raw is int ? raw : int.tryParse(raw?.toString() ?? '');
-      if (t != null && t > 0) {
+      final t = script.params['超时时间'];
+      if (t is int && t > 0) {
         // 用户配置若 <= 120 视为秒；若 > 120 视为毫秒
         return Duration(milliseconds: t <= 120 ? t * 1000 : t);
       }
@@ -1104,6 +1038,20 @@ class ScriptExecutor {
     final clickText = params['点击文本'] ?? '';
     if (clickText.isEmpty) return const _StepExecutionResult(success: false);
 
+    // Always handle delay if present, regardless of mode
+    final delay = params['执行延迟'] ?? 0;
+    if (delay > 0) {
+      final timeUnit = params['时间单位'] ?? '毫秒';
+      final multiplier = TimeUnit.values
+          .firstWhere(
+            (unit) => unit.label == timeUnit,
+            orElse: () => TimeUnit.milliseconds,
+          )
+          .multiplier;
+
+      await Future.delayed(Duration(milliseconds: delay * multiplier));
+    }
+
     bool stepTriggeredNav = false;
     final success = await _pollUntilSuccess(() async {
       final rawResult = await controller.evaluateJavascript(source: '''
@@ -1192,22 +1140,11 @@ class ScriptExecutor {
               }
             }
             
-            // 在指定作用域（表单或文档）内安全查找输入框（转义引号/反斜杠并独立捕获选择器异常）
+            // Helper to find input within scope (form or document)
             function findInput(fieldName, scope) {
-              const safeName = String(fieldName).replace(/\\\\/g, '\\\\\\\\').replace(/"/g, '\\\\"');
-              let el = null;
-              try {
-                el = scope.querySelector('[name="' + safeName + '"]');
-              } catch (_) {}
-              if (el) return el;
-              try {
-                el = scope.querySelector('[id="' + safeName + '"]');
-              } catch (_) {}
-              if (el) return el;
-              try {
-                el = scope.querySelector('[placeholder="' + safeName + '"]');
-              } catch (_) {}
-              return el;
+              return scope.querySelector("[name='" + fieldName + "']") || 
+                     scope.querySelector("#" + fieldName) ||
+                     scope.querySelector("[placeholder='" + fieldName + "']");
             }
 
             const scope = targetForm || document;
@@ -1477,54 +1414,31 @@ class ScriptExecutor {
         }
       }
 
-      // 按位置约束（“在此之后” / “在此之前”）过滤：优先使用 DOM 树最深文本锚点与 compareDocumentPosition，避免相同 outerHTML 按钮误判
+      // Filter by position constraints if specified
       const afterText = ($afterTextJson).trim();
       const beforeText = ($beforeTextJson).trim();
       
       if (afterText || beforeText) {
-        const allDomNodes = Array.from((document.body || document).querySelectorAll('*')).filter(n => {
-          const tag = n.tagName ? n.tagName.toLowerCase() : '';
-          return !['html', 'head', 'style', 'script', 'meta', 'link', 'noscript', 'title', 'body'].includes(tag);
-        });
-        function _findDeepestAnchor(text) {
-          if (!text) return null;
-          return allDomNodes.filter(n => {
-            const t = n.innerText || n.textContent || '';
-            return t.includes(text) && !Array.from(n.children).some(c => (c.innerText || c.textContent || '').includes(text));
-          })[0] || null;
-        }
-        const afterAnchor = afterText ? _findDeepestAnchor(afterText) : null;
-        const beforeAnchor = beforeText ? _findDeepestAnchor(beforeText) : null;
-        const bodyHTML = document.body ? document.body.innerHTML : '';
-
         matchedLinks = matchedLinks.filter(link => {
-          // 校验“在此之后”约束
+          const linkHTML = link.outerHTML;
+          const bodyHTML = document.body.innerHTML;
+          const linkPosition = bodyHTML.indexOf(linkHTML);
+          
+          if (linkPosition === -1) return false;
+          
+          // Check "在此之后" constraint
           if (afterText) {
-            if (afterAnchor) {
-              if (link === afterAnchor || !(afterAnchor.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING)) {
-                return false;
-              }
-            } else {
-              const linkPosition = bodyHTML.indexOf(link.outerHTML);
-              const afterPosition = bodyHTML.indexOf(afterText);
-              if (linkPosition === -1 || afterPosition === -1 || linkPosition <= afterPosition) {
-                return false;
-              }
+            const afterPosition = bodyHTML.indexOf(afterText);
+            if (afterPosition === -1 || linkPosition <= afterPosition) {
+              return false;
             }
           }
           
-          // 校验“在此之前”约束
+          // Check "在此之前" constraint
           if (beforeText) {
-            if (beforeAnchor) {
-              if (link === beforeAnchor || !(beforeAnchor.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_PRECEDING)) {
-                return false;
-              }
-            } else {
-              const linkPosition = bodyHTML.indexOf(link.outerHTML);
-              const beforePosition = linkPosition !== -1 ? bodyHTML.indexOf(beforeText, linkPosition) : -1;
-              if (linkPosition === -1 || beforePosition === -1) {
-                return false;
-              }
+            const beforePosition = bodyHTML.indexOf(beforeText, linkPosition);
+            if (beforePosition === -1) {
+              return false;
             }
           }
           
@@ -1648,49 +1562,27 @@ class ScriptExecutor {
               });
             }
             
-            // 3. 按位置约束（“在此之后” / “在此之前”）过滤：优先使用 DOM 树最深文本锚点与 compareDocumentPosition
+            // 3. Filter by position (After/Before)
             const afterText = ($afterTextJson).trim();
             const beforeText = ($beforeTextJson).trim();
             
             if (afterText || beforeText) {
-              const allDomNodes = Array.from((document.body || document).querySelectorAll('*')).filter(n => {
-                const tag = n.tagName ? n.tagName.toLowerCase() : '';
-                return !['html', 'head', 'style', 'script', 'meta', 'link', 'noscript', 'title', 'body'].includes(tag);
-              });
-              function _findDeepestAnchor(text) {
-                if (!text) return null;
-                return allDomNodes.filter(n => {
-                  const t = n.innerText || n.textContent || '';
-                  return t.includes(text) && !Array.from(n.children).some(c => (c.innerText || c.textContent || '').includes(text));
-                })[0] || null;
-              }
-              const afterAnchor = afterText ? _findDeepestAnchor(afterText) : null;
-              const beforeAnchor = beforeText ? _findDeepestAnchor(beforeText) : null;
-              const bodyHTML = document.body ? document.body.innerHTML : '';
+              const bodyHTML = document.body.innerHTML;
               
               images = images.filter(img => {
+                const imgHTML = img.outerHTML;
+                const imgPosition = bodyHTML.indexOf(imgHTML);
+                
+                if (imgPosition === -1) return false;
+                
                 if (afterText) {
-                  if (afterAnchor) {
-                    if (img === afterAnchor || !(afterAnchor.compareDocumentPosition(img) & Node.DOCUMENT_POSITION_FOLLOWING)) {
-                      return false;
-                    }
-                  } else {
-                    const imgPosition = bodyHTML.indexOf(img.outerHTML);
-                    const afterPosition = bodyHTML.indexOf(afterText);
-                    if (imgPosition === -1 || afterPosition === -1 || imgPosition <= afterPosition) return false;
-                  }
+                  const afterPosition = bodyHTML.indexOf(afterText);
+                  if (afterPosition === -1 || imgPosition <= afterPosition) return false;
                 }
                 
                 if (beforeText) {
-                  if (beforeAnchor) {
-                    if (img === beforeAnchor || !(beforeAnchor.compareDocumentPosition(img) & Node.DOCUMENT_POSITION_PRECEDING)) {
-                      return false;
-                    }
-                  } else {
-                    const imgPosition = bodyHTML.indexOf(img.outerHTML);
-                    const beforePosition = imgPosition !== -1 ? bodyHTML.indexOf(beforeText, imgPosition) : -1;
-                    if (imgPosition === -1 || beforePosition === -1) return false;
-                  }
+                  const beforePosition = bodyHTML.indexOf(beforeText, imgPosition);
+                  if (beforePosition === -1) return false;
                 }
                 
                 return true;
@@ -1960,13 +1852,11 @@ class ScriptExecutor {
           if (searchStartIndex >= searchEndIndex) return null;
           
           const searchArea = bodyHTML.substring(searchStartIndex, searchEndIndex);
-          const tempDiv = document.createElement('div');
-          tempDiv.innerHTML = searchArea;
-          const searchAreaText = tempDiv.innerText || tempDiv.textContent || '';
           
-          // 先剥离 HTML 标签再提取数值，避免把 <h2> 或样式/属性中的数字误识别为页面数值
+          // Extract numbers from search area
+          // This regex matches integers and floats
           const regex = /[-+]?[0-9]*\\.?[0-9]+/g;
-          const matches = searchAreaText.match(regex);
+          const matches = searchArea.match(regex);
           
           if (!matches || matches.length === 0) return null;
           
@@ -2227,19 +2117,19 @@ class ScriptExecutor {
         var beforeSearchText = ($beforeSearchJson).trim();
 
         if (afterSearchText) {
-          const allNodes = Array.from(document.querySelectorAll('*'));
-          const afterNode = allNodes.filter(n => (n.innerText || n.textContent || '').includes(afterSearchText) && !Array.from(n.children).some(c => (c.innerText || c.textContent || '').includes(afterSearchText)))[0];
           elements = elements.filter(el => {
-            if (!afterNode || el === afterNode) return false;
+            const allNodes = Array.from(document.querySelectorAll('*'));
+            const afterNode = allNodes.find(n => (n.innerText || n.textContent || '').includes(afterSearchText));
+            if (!afterNode) return false;
             return (el.compareDocumentPosition(afterNode) & Node.DOCUMENT_POSITION_PRECEDING);
           });
         }
 
         if (beforeSearchText) {
-          const allNodes = Array.from(document.querySelectorAll('*'));
-          const beforeNode = allNodes.filter(n => (n.innerText || n.textContent || '').includes(beforeSearchText) && !Array.from(n.children).some(c => (c.innerText || c.textContent || '').includes(beforeSearchText)))[0];
           elements = elements.filter(el => {
-            if (!beforeNode || el === beforeNode) return false;
+            const allNodes = Array.from(document.querySelectorAll('*'));
+            const beforeNode = allNodes.find(n => (n.innerText || n.textContent || '').includes(beforeSearchText));
+            if (!beforeNode) return false;
             return (el.compareDocumentPosition(beforeNode) & Node.DOCUMENT_POSITION_FOLLOWING);
           });
         }
@@ -2557,7 +2447,7 @@ class ScriptExecutor {
     }
   }
 
-  /// 递归解析脚本参数中的动态变量引用（将 ${varName} 或 $varName 替换为对应值）
+  /// 递归解析脚本参数中的动态变量引用（将 ${varName} 替换为对应值）
   Script _resolveVariables(Script original, Map<String, String>? vars) {
     if (vars == null || vars.isEmpty) return original;
     final newParams = <String, dynamic>{};
@@ -2568,9 +2458,6 @@ class ScriptExecutor {
       type: original.type,
       params: newParams,
       isEnabled: original.isEnabled,
-      targetScriptPath: original.targetScriptPath != null
-          ? _replaceVarInValue(original.targetScriptPath, vars)?.toString()
-          : null,
       status: original.status,
       statusMessage: original.statusMessage,
       progress: original.progress,
@@ -2579,23 +2466,13 @@ class ScriptExecutor {
 
   dynamic _replaceVarInValue(dynamic val, Map<String, String> vars) {
     if (val is String) {
-      if (vars.isEmpty) return val;
-      // 按变量名长度降序排序，单次正则替换避免前缀冲突（如 $a 与 $ab）及二次替换污染
-      final sortedKeys = vars.keys.where((k) => k.isNotEmpty).toList()
-        ..sort((a, b) => b.length.compareTo(a.length));
-      if (sortedKeys.isEmpty) return val;
-      final pattern = sortedKeys.map(RegExp.escape).join('|');
-      final regex = RegExp(
-          r'\$\{(' + pattern + r')\}|\$(' + pattern + r')(?![a-zA-Z0-9_])');
-      return val.replaceAllMapped(regex, (match) {
-        final key = match.group(1) ?? match.group(2);
-        return (key != null && vars.containsKey(key))
-            ? vars[key]!
-            : match.group(0)!;
+      String str = val;
+      vars.forEach((k, v) {
+        str = str.replaceAll('\${$k}', v).replaceAll('\$$k', v);
       });
+      return str;
     } else if (val is Map) {
-      return val.map<String, dynamic>(
-          (k, v) => MapEntry(k.toString(), _replaceVarInValue(v, vars)));
+      return val.map((k, v) => MapEntry(k, _replaceVarInValue(v, vars)));
     } else if (val is List) {
       return val.map((e) => _replaceVarInValue(e, vars)).toList();
     }

@@ -38,22 +38,19 @@ class _PageInfoDialogState extends State<PageInfoDialog> {
 
   Future<void> _loadPageSource() async {
     try {
-      // 获取完整的 HTML 页面源码
+      // Get the full HTML content
       final Object? result = await widget.controller
           ?.evaluateJavascript(source: "document.documentElement.outerHTML");
 
-      String source = result?.toString() ?? '';
-      // 如果返回结果是被双引号包裹的 JSON 字符串，则使用 jsonDecode 完整还原转义字符
+      String source = result.toString();
+      // Clean up the result if it's a quoted string (common in some webview implementations)
       if (source.startsWith('"') && source.endsWith('"')) {
-        try {
-          source = jsonDecode(source) as String;
-        } catch (_) {
-          source = source.substring(1, source.length - 1);
-          source = source
-              .replaceAll('\\"', '"')
-              .replaceAll('\\n', '\n')
-              .replaceAll('\\t', '\t');
-        }
+        source = source.substring(1, source.length - 1);
+        // Unescape common characters if needed, though usually runJavaScriptReturningResult handles this
+        source = source
+            .replaceAll('\\"', '"')
+            .replaceAll('\\n', '\n')
+            .replaceAll('\\t', '\t');
       }
 
       if (mounted) {
@@ -89,7 +86,7 @@ class _PageInfoDialogState extends State<PageInfoDialog> {
       final newSource = _sourceController.text;
       final jsonSource = jsonEncode(newSource);
 
-      // 使用 JavaScript 替换文档内容并保留当前 URL 上下文
+      // Use JavaScript to replace the document content while maintaining the URL context
       await widget.controller?.evaluateJavascript(source: '''
         (function() {
           document.open();
@@ -99,9 +96,8 @@ class _PageInfoDialogState extends State<PageInfoDialog> {
       ''');
 
       if (mounted) {
-        final messenger = ScaffoldMessenger.of(context);
         Navigator.of(context).pop();
-        messenger.showSnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
               content: Text('页面源码已更新'), duration: Duration(seconds: 1)),
         );
@@ -119,7 +115,8 @@ class _PageInfoDialogState extends State<PageInfoDialog> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: const Color(0xFF333333), // 深色标题栏背景
+        backgroundColor:
+            const Color(0xFF333333), // Dark background as per screenshot
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
           onPressed: () => Navigator.of(context).pop(),
@@ -128,15 +125,15 @@ class _PageInfoDialogState extends State<PageInfoDialog> {
         elevation: 0,
       ),
       body: Container(
-        color: const Color(0xFFF0F0F0), // 浅灰背景
+        color: const Color(0xFFF0F0F0), // Light grey background
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            // 名称行
+            // Name Row
             _buildInfoRow('名称', widget.title, true),
             const SizedBox(height: 16),
 
-            // 地址行
+            // Address Row
             _buildInfoRow(
               '地址',
               (widget.url.endsWith('welcome.html') ||
@@ -147,7 +144,7 @@ class _PageInfoDialogState extends State<PageInfoDialog> {
             ),
             const SizedBox(height: 16),
 
-            // 源码标题及操作栏
+            // Source Header Row
             Row(
               children: [
                 const Text(
@@ -163,13 +160,13 @@ class _PageInfoDialogState extends State<PageInfoDialog> {
             ),
             const SizedBox(height: 8),
 
-            // 源码编辑框
+            // Source Code Editor
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
                   border: Border.all(
                       color: Colors.amber,
-                      width: 2), // 琥珀色边框
+                      width: 2), // Yellow/Amber border as per screenshot
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(4),
                 ),
@@ -181,7 +178,7 @@ class _PageInfoDialogState extends State<PageInfoDialog> {
                         style: const TextStyle(
                           fontFamily: 'monospace',
                           fontSize: 12,
-                          color: Colors.black87, // 深色文字
+                          color: Colors.black87, // Darker text color
                         ),
                         decoration: const InputDecoration(
                           border: InputBorder.none,
@@ -226,7 +223,7 @@ class _PageInfoDialogState extends State<PageInfoDialog> {
       child: ElevatedButton(
         onPressed: onPressed,
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF555555), // 深灰按钮背景
+          backgroundColor: const Color(0xFF555555), // Dark grey button
           foregroundColor: Colors.white,
           padding: const EdgeInsets.symmetric(horizontal: 12),
           shape: RoundedRectangleBorder(

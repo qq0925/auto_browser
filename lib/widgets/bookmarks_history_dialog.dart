@@ -71,7 +71,7 @@ class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
-          // 显示操作菜单
+          // Show actions menu similar to screenshot
           _showActionsMenu(context);
         },
         backgroundColor: const Color(0xFF333333),
@@ -504,11 +504,9 @@ class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
           ),
           TextButton(
             onPressed: () {
-              final title = titleController.text.trim();
-              final rawUrl = urlController.text.trim();
-              if (title.isNotEmpty && rawUrl.isNotEmpty) {
-                provider.addBookmark(
-                    BrowserProvider.normalizeUrl(rawUrl), title);
+              if (titleController.text.isNotEmpty &&
+                  urlController.text.isNotEmpty) {
+                provider.addBookmark(urlController.text, titleController.text);
               }
               Navigator.pop(context);
             },

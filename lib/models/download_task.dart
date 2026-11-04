@@ -134,9 +134,8 @@ class DownloadTask {
         parsedStatus = DownloadStatus.failed;
       }
     }
-    // 如果持久化时是下载中或排队等待中，重启恢复时统一转为已暂停，避免永久卡在等待中
-    if (parsedStatus == DownloadStatus.downloading ||
-        parsedStatus == DownloadStatus.pending) {
+    // 如果持久化时是下载中，恢复时转为暂停
+    if (parsedStatus == DownloadStatus.downloading) {
       parsedStatus = DownloadStatus.paused;
     }
 
@@ -169,7 +168,6 @@ class DownloadTask {
     int? totalBytes,
     DownloadStatus? status,
     String? error,
-    bool clearError = false,
     DateTime? completeTime,
     int? speed,
     String? mimeType,
@@ -184,7 +182,7 @@ class DownloadTask {
       receivedBytes: receivedBytes ?? this.receivedBytes,
       totalBytes: totalBytes ?? this.totalBytes,
       status: status ?? this.status,
-      error: clearError ? null : (error ?? this.error),
+      error: error ?? this.error,
       createTime: createTime,
       completeTime: completeTime ?? this.completeTime,
       speed: speed ?? this.speed,

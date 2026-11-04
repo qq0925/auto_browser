@@ -28,7 +28,7 @@ class ScriptProvider extends ChangeNotifier {
     }
 
     try {
-      // 初始化本地通知插件
+      // Initialize Local Notifications
       const AndroidInitializationSettings initializationSettingsAndroid =
           AndroidInitializationSettings('@mipmap/ic_launcher');
       final DarwinInitializationSettings initializationSettingsDarwin =
@@ -44,17 +44,11 @@ class ScriptProvider extends ChangeNotifier {
       );
       await _flutterLocalNotificationsPlugin.initialize(initializationSettings);
 
-      // 请求 Android 13+ 通知权限
-      final androidPlatform = _flutterLocalNotificationsPlugin
-          .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>();
-      await androidPlatform?.requestNotificationsPermission();
-
-      // 请求 iOS 通知权限
-      final iosPlatform = _flutterLocalNotificationsPlugin
-          .resolvePlatformSpecificImplementation<
+      // Request permissions for iOS
+      final platform =
+          _flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<
               IOSFlutterLocalNotificationsPlugin>();
-      await iosPlatform?.requestPermissions(
+      await platform?.requestPermissions(
         alert: true,
         badge: true,
         sound: true,
@@ -65,7 +59,7 @@ class ScriptProvider extends ChangeNotifier {
   }
 
   bool _isRecording = false;
-  // 按标签页独立维护执行与暂停状态，以下字段作为当前标签页的默认值或回退
+  // Removed global _isExecuting - now using per-tab isExecutingScript
   bool _isPaused = false;
   int _currentScriptIndex = 0;
   int _executionDelay = 1000;
@@ -76,84 +70,44 @@ class ScriptProvider extends ChangeNotifier {
   int _successCount = 0;
   int _failureCount = 0;
 
-  Future<void> Function(
-          {String? preNavToken, String? preUrl, BrowserTab? targetTab})?
-      _waitForPageLoadCallback;
+  Future<void> Function({String? preNavToken, String? preUrl})? _waitForPageLoadCallback;
 
-  // 获取当前标签页的脚本列表与执行状态（优先读取当前标签页自身状态）
+  // Get scripts from current tab
   List<Script> get scripts => _currentTab?.scripts ?? [];
   BrowserTab? get currentTab => _currentTab;
   bool get isRecording => _isRecording;
 
   bool get isExecuting => _currentTab?.isExecutingScript ?? false;
-  bool get isPaused => _currentTab?.isPaused ?? _isPaused;
-  int get currentScriptIndex =>
-      _currentTab?.currentScriptIndex ?? _currentScriptIndex;
-  int get executionDelay =>
-      (_currentTab != null && _currentTab!.hasCustomExecutionConfig)
-          ? _currentTab!.executionDelay
-          : _executionDelay;
-  int get originalLoopCount =>
-      (_currentTab != null && _currentTab!.hasCustomExecutionConfig)
-          ? _currentTab!.originalLoopCount
-          : _originalLoopCount;
-  int get remainingLoopCount =>
-      _currentTab?.remainingLoopCount ?? _remainingLoopCount;
-  TimeUnit get delayTimeUnit =>
-      (_currentTab != null && _currentTab!.hasCustomExecutionConfig)
-          ? TimeUnit.values.firstWhere(
-              (u) => u.label == _currentTab!.delayTimeUnit,
-              orElse: () => _delayTimeUnit,
-            )
-          : _delayTimeUnit;
-  int get successCount => _currentTab?.successCount ?? _successCount;
-  int get failureCount => _currentTab?.failureCount ?? _failureCount;
+  bool get isPaused => _isPaused;
+  int get currentScriptIndex => _currentScriptIndex;
+  int get executionDelay => _executionDelay;
+  int get originalLoopCount => _originalLoopCount;
+  int get remainingLoopCount => _remainingLoopCount;
+  TimeUnit get delayTimeUnit => _delayTimeUnit;
+  int get successCount => _successCount;
+  int get failureCount => _failureCount;
   String? get currentScriptFilePath => _currentTab?.scriptFilePath;
 
   // 跨步骤动态变量字典
   final Map<String, String> _variables = {};
-  Map<String, String> get variables => Map.unmodifiable(
-        _currentTab != null && _currentTab!.variables.isNotEmpty
-            ? _currentTab!.variables
-            : _variables,
-      );
+  Map<String, String> get variables => Map.unmodifiable(_variables);
 
   void setVariable(String key, String value) {
     _variables[key] = value;
-    if (_currentTab != null) {
-      _currentTab!.variables[key] = value;
-    }
     notifyListeners();
   }
 
   void clearVariables() {
     _variables.clear();
-    _currentTab?.variables.clear();
     notifyListeners();
   }
 
   void setWaitForPageLoadCallback(
-      Future<void> Function(
-              {String? preNavToken, String? preUrl, BrowserTab? targetTab})
-          callback) {
+      Future<void> Function({String? preNavToken, String? preUrl}) callback) {
     _waitForPageLoadCallback = callback;
   }
 
   void setCurrentTab(BrowserTab? tab) {
-    if (_isRecording && _currentTab != tab) {
-      if (_currentTab?.controller != null) {
-        try {
-          _currentTab!.controller!
-              .removeUserScript(userScript: recordingUserScript);
-        } catch (_) {}
-      }
-      if (tab?.controller != null) {
-        try {
-          tab!.controller!.evaluateJavascript(source: recordingJs);
-          tab.controller!.addUserScript(userScript: recordingUserScript);
-        } catch (_) {}
-      }
-    }
     _currentTab = tab;
     notifyListeners();
   }
@@ -162,7 +116,7 @@ class ScriptProvider extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
 
-      // 加载全局默认执行设置（脚本列表按标签页隔离存储）
+      // Load global settings only (scripts are now tab-specific)
       _executionDelay = prefs.getInt('script_global_delay') ?? 1000;
       _originalLoopCount = prefs.getInt('script_global_loop') ?? 1;
       final unitIndex = prefs.getInt('script_global_unit') ?? 0;
@@ -179,7 +133,7 @@ class ScriptProvider extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
 
-      // 保存全局默认执行设置
+      // Save global settings only (scripts are now tab-specific)
       await prefs.setInt('script_global_delay', _executionDelay);
       await prefs.setInt('script_global_loop', _originalLoopCount);
       await prefs.setInt('script_global_unit', _delayTimeUnit.index);
@@ -229,11 +183,11 @@ class ScriptProvider extends ChangeNotifier {
   }
 
   void startRecording() {
-    // 若当前标签页正在执行脚本，禁止开启录制
+    // Prevent recording while any tab is executing
     if (_currentTab?.isExecutingScript ?? false) return;
     _isRecording = true;
 
-    // 若当前标签页控制器可用，立即注入录制脚本并注册 UserScript
+    // Inject recording script immediately if controller is available
     if (_currentTab?.controller != null) {
       _currentTab!.controller!.evaluateJavascript(source: recordingJs);
       _currentTab!.controller!.addUserScript(userScript: recordingUserScript);
@@ -255,7 +209,6 @@ class ScriptProvider extends ChangeNotifier {
     if (_currentTab != null) {
       _currentTab!.scripts.clear();
       _currentTab!.scriptFilePath = null;
-      _currentTab!.hasCustomExecutionConfig = false;
       notifyListeners();
     }
   }
@@ -286,7 +239,7 @@ class ScriptProvider extends ChangeNotifier {
     }
   }
 
-  // 在指定索引位置插入脚本
+  // Insert script at specific index
   void insertScript(int index, Script script) {
     if (_currentTab != null &&
         index >= 0 &&
@@ -297,7 +250,7 @@ class ScriptProvider extends ChangeNotifier {
     }
   }
 
-  // 复制指定索引的脚本（深拷贝参数并保留子脚本路径）
+  // Duplicate (copy) a script
   Script? duplicateScript(int index) {
     if (_currentTab != null &&
         index >= 0 &&
@@ -305,17 +258,14 @@ class ScriptProvider extends ChangeNotifier {
       final original = _currentTab!.scripts[index];
       return Script(
         type: original.type,
-        params: Map<String, dynamic>.from(
-          jsonDecode(jsonEncode(original.params)) as Map,
-        ),
+        params: Map<String, dynamic>.from(original.params),
         isEnabled: original.isEnabled,
-        targetScriptPath: original.targetScriptPath,
       );
     }
     return null;
   }
 
-  // 更新当前标签页关联的脚本文件路径
+  // Update the script file path for the current tab
   void updateScriptFilePath(String? filePath) {
     if (_currentTab != null) {
       _currentTab!.scriptFilePath = filePath;
@@ -327,18 +277,14 @@ class ScriptProvider extends ChangeNotifier {
   DateTime? _ignoreRecordingUntil;
 
   /// 暂时忽略指定时间内的录制消息，防止侧边栏切换、弹窗或悬浮条被误录制
-  void temporarilyIgnoreRecording(
-      [Duration duration = const Duration(milliseconds: 600)]) {
+  void temporarilyIgnoreRecording([Duration duration = const Duration(milliseconds: 600)]) {
     _ignoreRecordingUntil = DateTime.now().add(duration);
   }
 
   /// 如果最近几百毫秒内误录制了一条动作（例如点击悬浮条/侧边栏手柄被穿透捕获），立即撤销并忽略后续点击
-  void cancelLastRecordingIfRecent(
-      [Duration duration = const Duration(milliseconds: 500)]) {
+  void cancelLastRecordingIfRecent([Duration duration = const Duration(milliseconds: 500)]) {
     temporarilyIgnoreRecording(const Duration(milliseconds: 600));
-    if (_currentTab != null &&
-        _currentTab!.scripts.isNotEmpty &&
-        _lastRecordTime != null) {
+    if (_currentTab != null && _currentTab!.scripts.isNotEmpty && _lastRecordTime != null) {
       if (DateTime.now().difference(_lastRecordTime!) < duration) {
         _currentTab!.scripts.removeLast();
         notifyListeners();
@@ -346,7 +292,7 @@ class ScriptProvider extends ChangeNotifier {
     }
   }
 
-  // 最新录制动作广播流，用于触发 UI 动画提示
+  // Stream controller for last recorded action to trigger UI animation
   final _lastRecordedActionController = StreamController<String>.broadcast();
   Stream<String> get lastRecordedActionStream =>
       _lastRecordedActionController.stream;
@@ -391,8 +337,7 @@ class ScriptProvider extends ChangeNotifier {
     if (!_isRecording) return;
     if (_ignoreRecordingUntil != null &&
         DateTime.now().isBefore(_ignoreRecordingUntil!)) {
-      debugPrint(
-          '[ScriptRecorder] Discarded recording event during ignore window: $message');
+      debugPrint('[ScriptRecorder] Discarded recording event during ignore window: $message');
       return;
     }
 
@@ -508,8 +453,7 @@ class ScriptProvider extends ChangeNotifier {
   }
   return false;
 })();
-'''
-                .trim(),
+'''.trim(),
             '脚本名称': '点击元素 ($description)',
           },
           isEnabled: true,
@@ -529,8 +473,7 @@ class ScriptProvider extends ChangeNotifier {
   }
 
   Future<void> startExecution(
-      InAppWebViewController controller, int tabIndex,
-      [BrowserTab? targetTab]) async {
+      InAppWebViewController controller, int tabIndex, [BrowserTab? targetTab]) async {
     final executingTab = targetTab ?? _currentTab;
     if (executingTab == null || executingTab.scripts.isEmpty || _isRecording) {
       return;
@@ -538,40 +481,32 @@ class ScriptProvider extends ChangeNotifier {
 
     // 防重入拦截：若当前标签页已在执行脚本，忽略重复触发
     if (executingTab.isExecutingScript) {
-      debugPrint(
-          'Tab ${executingTab.id} is already executing script, skipping duplicate start.');
+      debugPrint('Tab ${executingTab.id} is already executing script, skipping duplicate start.');
       return;
     }
 
-    // 绑定执行控制器到当前目标标签页（避免切换标签页导致控制器错位）
+    // Lock execution to this specific tab (not _currentTab which can change)
     final executingController = executingTab.controller ?? controller;
 
-    // 标记标签页进入执行状态（使用标签页独立状态，防止多标签页并发互相干扰）
+    // Mark tab as executing (use tab-specific state)
     executingTab.isExecutingScript = true;
     executingTab.isPaused = false;
+    _isPaused = false;
+    _currentScriptIndex = 0;
+    _remainingLoopCount = _originalLoopCount;
     executingTab.currentScriptIndex = 0;
     executingTab.successCount = 0;
     executingTab.failureCount = 0;
-
-    if (!executingTab.hasCustomExecutionConfig) {
-      executingTab.originalLoopCount = _originalLoopCount;
-      executingTab.executionDelay = _executionDelay;
-      executingTab.delayTimeUnit = _delayTimeUnit.label;
-    }
-    executingTab.remainingLoopCount = executingTab.originalLoopCount;
+    executingTab.remainingLoopCount = _remainingLoopCount;
+    executingTab.originalLoopCount = _originalLoopCount;
     executingTab.currentLoopIndex = 1;
+    executingTab.executionDelay = _executionDelay;
+    executingTab.delayTimeUnit = _delayTimeUnit.label;
 
-    if (executingTab == _currentTab) {
-      _isPaused = false;
-      _currentScriptIndex = 0;
-      _remainingLoopCount = executingTab.remainingLoopCount;
-      _successCount = 0;
-      _failureCount = 0;
-    }
-
-    // 初始化当前标签页独立变量字典（以全局预设变量为初始种子）
-    executingTab.variables = Map<String, String>.from(_variables);
-
+    // Reset status and counts
+    _successCount = 0;
+    _failureCount = 0;
+    _variables.clear();
     for (var script in executingTab.scripts) {
       script.status = ScriptStatus.idle;
       script.statusMessage = null;
@@ -583,27 +518,23 @@ class ScriptProvider extends ChangeNotifier {
       await WakelockPlus.enable();
     } catch (_) {}
 
-    // 循环执行：originalLoopCount 为 0 表示无限循环，否则按指定次数循环
+    // Loop execution: 0 means infinite loop, otherwise loop the specified times
     int startScriptIndex = 0;
 
     while (executingTab.isExecutingScript) {
-      // 当前脚本集合的循环执行
+      // Inner loop for current script set
       while (executingTab.isExecutingScript &&
-          (executingTab.originalLoopCount == 0 ||
-              executingTab.remainingLoopCount > 0)) {
+          (_originalLoopCount == 0 || _remainingLoopCount > 0)) {
         for (var i = startScriptIndex; i < executingTab.scripts.length; i++) {
           if (!executingTab.isExecutingScript) break;
 
-          // 处理当前标签页的暂停状态（仅检查 executingTab.isPaused，避免阻塞其他后台标签页）
-          while (executingTab.isPaused && executingTab.isExecutingScript) {
+          // Handle pause
+          while ((executingTab.isPaused || _isPaused) && executingTab.isExecutingScript) {
             await Future.delayed(const Duration(milliseconds: 100));
           }
-          if (!executingTab.isExecutingScript) break;
 
+          _currentScriptIndex = i;
           executingTab.currentScriptIndex = i;
-          if (executingTab == _currentTab) {
-            _currentScriptIndex = i;
-          }
           notifyListeners();
 
           final script = executingTab.scripts[i];
@@ -611,56 +542,41 @@ class ScriptProvider extends ChangeNotifier {
             await _executor.execute(
               executingController,
               script,
-              executionDelay: executingTab.executionDelay,
-              variables: executingTab.variables,
+              executionDelay: _executionDelay,
+              variables: _variables,
               onStatusChanged: (status, message, progress) async {
                 script.status = status;
                 script.statusMessage = message;
                 script.progress = progress;
 
                 if (status == ScriptStatus.success) {
+                  _successCount++;
                   executingTab.successCount++;
-                  if (executingTab == _currentTab) {
-                    _successCount = executingTab.successCount;
-                  }
                 } else if (status == ScriptStatus.failure) {
+                  _failureCount++;
                   executingTab.failureCount++;
-                  if (executingTab == _currentTab) {
-                    _failureCount = executingTab.failureCount;
-                  }
                 } else if (status == ScriptStatus.stopped) {
                   executingTab.isExecutingScript = false;
                   if (script.params['执行完成提醒'] == true) {
                     _showNotification('Auok浏览器窗口${tabIndex + 1}', '脚本已停止');
                   }
                 } else if (status == ScriptStatus.paused) {
-                  executingTab.isPaused = true;
-                  if (executingTab == _currentTab) {
-                    _isPaused = true;
-                  }
+                  _isPaused = true;
                   if (script.params['执行完成提醒'] == true) {
                     _showNotification('Auok浏览器窗口${tabIndex + 1}', '脚本已暂停');
                   }
                 } else if (status == ScriptStatus.notification) {
-                  // 处理脚本通知消息
-                  _showNotification(
-                      'Auok浏览器窗口${tabIndex + 1}', message ?? '');
+                  // Handle Notification
+                  _showNotification('Auok浏览器窗口${tabIndex + 1}', message ?? '');
                 }
 
                 notifyListeners();
               },
-              waitForPageLoad: _waitForPageLoadCallback != null
-                  ? ({String? preNavToken, String? preUrl}) =>
-                      _waitForPageLoadCallback!(
-                        preNavToken: preNavToken,
-                        preUrl: preUrl,
-                        targetTab: executingTab,
-                      )
-                  : null,
+              waitForPageLoad: _waitForPageLoadCallback,
               scripts: executingTab.scripts,
             );
 
-            // 处理脚本替换
+            // Handle Script Replacement
             if (script.status == ScriptStatus.replaced &&
                 script.statusMessage != null) {
               try {
@@ -669,43 +585,11 @@ class ScriptProvider extends ChangeNotifier {
                 if (await file.exists()) {
                   final content = await file.readAsString();
                   final jsonList = jsonDecode(content) as List;
-                  final rawScripts =
+                  final newScripts =
                       jsonList.map((e) => Script.fromUserMap(e)).toList();
 
-                  int newLoopCount = executingTab.originalLoopCount;
-                  for (final s in rawScripts) {
-                    if (s.type == '全局设置') {
-                      if (s.params.containsKey('循环次数')) {
-                        newLoopCount = s.params['循环次数'] as int? ?? 1;
-                      }
-                      if (s.params.containsKey('执行延迟')) {
-                        final delay = s.params['执行延迟'] as int? ?? 1000;
-                        final unitLabel = s.params['时间单位'] as String?;
-                        final unit = unitLabel != null
-                            ? TimeUnit.values.firstWhere(
-                                (u) => u.label == unitLabel,
-                                orElse: () => TimeUnit.milliseconds,
-                              )
-                            : TimeUnit.milliseconds;
-                        executingTab.executionDelay = delay * unit.multiplier;
-                        executingTab.delayTimeUnit = unit.label;
-                      }
-                    }
-                  }
-
-                  final newScripts =
-                      rawScripts.where((s) => s.type != '全局设置').toList();
-
                   executingTab.scripts = newScripts;
-                  executingTab.scriptFilePath = newPath;
-                  executingTab.originalLoopCount = newLoopCount;
-                  executingTab.remainingLoopCount = newLoopCount;
-                  executingTab.currentLoopIndex = 1;
-                  if (executingTab == _currentTab) {
-                    _remainingLoopCount = newLoopCount;
-                  }
-
-                  i = -1; // 从新脚本列表开头重新开始
+                  i = -1; // Restart loop from beginning of new list
                   notifyListeners();
                 } else {
                   debugPrint('Replacement script file not found: $newPath');
@@ -714,7 +598,7 @@ class ScriptProvider extends ChangeNotifier {
                 debugPrint('Script replacement failed: $e');
               }
             }
-            // 处理子脚本调用（压栈保存当前状态，执行完子脚本后恢复）
+            // Handle Script Subroutine Call
             else if (script.status == ScriptStatus.callSubroutine &&
                 script.statusMessage != null) {
               try {
@@ -723,53 +607,41 @@ class ScriptProvider extends ChangeNotifier {
                 if (await file.exists()) {
                   final content = await file.readAsString();
                   final jsonList = jsonDecode(content) as List;
-                  final rawScripts =
+                  final newScripts =
                       jsonList.map((e) => Script.fromUserMap(e)).toList();
 
-                  // 将当前执行状态压入执行栈
+                  // Push current state to stack
                   executingTab.executionStack.add(ExecutionState(
                     scripts: List.from(executingTab.scripts),
                     currentScriptIndex: i,
-                    originalLoopCount: executingTab.originalLoopCount,
-                    remainingLoopCount: executingTab.remainingLoopCount,
+                    remainingLoopCount: _remainingLoopCount,
                     currentLoopIndex: executingTab.currentLoopIndex,
                     scriptFilePath: executingTab.scriptFilePath,
                   ));
 
-                  // 解析子脚本全局设置并过滤掉 '全局设置' 伪步骤
-                  int newLoopCount = 1;
-                  for (final s in rawScripts) {
-                    if (s.type == '全局设置') {
-                      newLoopCount = s.params['循环次数'] as int? ?? 1;
-                      if (s.params.containsKey('执行延迟')) {
-                        final delay = s.params['执行延迟'] as int? ?? 1000;
-                        final unitLabel = s.params['时间单位'] as String?;
-                        final unit = unitLabel != null
-                            ? TimeUnit.values.firstWhere(
-                                (u) => u.label == unitLabel,
-                                orElse: () => TimeUnit.milliseconds,
-                              )
-                            : TimeUnit.milliseconds;
-                        executingTab.executionDelay = delay * unit.multiplier;
-                        executingTab.delayTimeUnit = unit.label;
-                      }
-                    }
-                  }
-
-                  final newScripts =
-                      rawScripts.where((s) => s.type != '全局设置').toList();
-
-                  // 切换到子脚本列表并重置循环计数器
+                  // Switch to new scripts
                   executingTab.scripts = newScripts;
                   executingTab.scriptFilePath = newPath;
-                  executingTab.originalLoopCount = newLoopCount;
-                  executingTab.remainingLoopCount = newLoopCount;
-                  executingTab.currentLoopIndex = 1;
-                  if (executingTab == _currentTab) {
-                    _remainingLoopCount = newLoopCount;
+
+                  // Reset counters for new script set
+                  int newLoopCount = 1;
+                  try {
+                    final globalSettingScript = newScripts.firstWhere(
+                      (s) => s.type == '全局设置',
+                      orElse: () => Script(type: 'temp', params: {}),
+                    );
+                    if (globalSettingScript.type == '全局设置') {
+                      newLoopCount =
+                          globalSettingScript.params['循环次数'] as int? ?? 1;
+                    }
+                  } catch (e) {
+                    debugPrint('Error parsing global settings: $e');
                   }
 
-                  i = -1; // 从子脚本列表开头重新开始
+                  _remainingLoopCount = newLoopCount;
+                  executingTab.remainingLoopCount = newLoopCount;
+
+                  i = -1; // Restart loop from beginning of new list
                   notifyListeners();
                 } else {
                   debugPrint('Subroutine script file not found: $newPath');
@@ -778,16 +650,16 @@ class ScriptProvider extends ChangeNotifier {
                 debugPrint('Script subroutine call failed: $e');
               }
             }
-            // 处理脚本跳转
+            // Handle Jump Script
             else if (script.status == ScriptStatus.jump &&
                 script.statusMessage != null) {
               final targetIndex = int.tryParse(script.statusMessage!);
               if (targetIndex != null) {
-                // 用户输入为 1 基索引，转换为 0 基索引
+                // Adjust for 0-based index (User input is 1-based)
                 final adjustedIndex = targetIndex - 1;
                 if (adjustedIndex >= 0 &&
                     adjustedIndex < executingTab.scripts.length) {
-                  // 设为 adjustedIndex - 1，因为 for 循环末尾会执行 i++
+                  // Set i to adjustedIndex - 1 because the loop will increment it
                   i = adjustedIndex - 1;
                   notifyListeners();
                 } else {
@@ -796,58 +668,55 @@ class ScriptProvider extends ChangeNotifier {
               }
             }
           }
+
+          // Global delay between scripts is now handled inside execute (before execution)
+          // so we don't need it here.
         }
 
-        // 重置下一轮循环的起始脚本索引
+        // Reset startScriptIndex for next loop iteration
         startScriptIndex = 0;
 
         // 循环轮次递增
         executingTab.currentLoopIndex++;
 
-        // 仅在非无限循环模式下递减剩余循环次数（0 表示无限循环）
-        if (executingTab.isExecutingScript &&
-            executingTab.originalLoopCount > 0) {
-          executingTab.remainingLoopCount--;
-          if (executingTab == _currentTab) {
-            _remainingLoopCount = executingTab.remainingLoopCount;
-          }
+        // Only decrement if not in infinite loop mode (0 = infinite)
+        if (executingTab.isExecutingScript && _originalLoopCount > 0) {
+          _remainingLoopCount--;
+          executingTab.remainingLoopCount = _remainingLoopCount;
           notifyListeners();
         }
       }
 
-      // 当前脚本集合执行完毕，检查执行栈是否需要返回上层脚本
+      // Current script set finished. Check stack.
       if (executingTab.isExecutingScript &&
           executingTab.executionStack.isNotEmpty) {
         final state = executingTab.executionStack.removeLast();
         executingTab.scripts = state.scripts;
-        executingTab.originalLoopCount = state.originalLoopCount;
+        _remainingLoopCount = state.remainingLoopCount;
         executingTab.remainingLoopCount = state.remainingLoopCount;
-        if (executingTab == _currentTab) {
-          _remainingLoopCount = state.remainingLoopCount;
-        }
         if (state.currentLoopIndex != null) {
           executingTab.currentLoopIndex = state.currentLoopIndex!;
         }
         executingTab.scriptFilePath = state.scriptFilePath;
 
-        // 从子脚本调用处的下一条脚本继续执行
+        // Resume from next script
         startScriptIndex = state.currentScriptIndex + 1;
+
+        // Restore original loop count context if we changed it?
+        // We didn't change _originalLoopCount in this implementation,
+        // assuming subroutines don't use infinite loops for now.
 
         notifyListeners();
       } else {
-        break; // 全部脚本执行结束
+        break; // Really finished
       }
     }
 
-    // 清理执行状态
-    if (executingTab == _currentTab) {
-      _currentScriptIndex = 0;
-      _isPaused = false;
-    }
+    // Clear execution state
+    _currentScriptIndex = 0;
     executingTab.isExecutingScript = false;
-    executingTab.isPaused = false;
     executingTab.currentScriptIndex = 0;
-    executingTab.executionStack.clear();
+    executingTab.executionStack.clear(); // Clear stack
     notifyListeners();
 
     // 释放屏幕常亮
@@ -862,9 +731,7 @@ class ScriptProvider extends ChangeNotifier {
       targetTab.isExecutingScript = false;
       targetTab.isPaused = false;
     }
-    if (targetTab == _currentTab) {
-      _isPaused = false;
-    }
+    _isPaused = false;
     notifyListeners();
 
     // 释放屏幕常亮
@@ -873,25 +740,21 @@ class ScriptProvider extends ChangeNotifier {
     } catch (_) {}
   }
 
-  void pauseExecution([BrowserTab? targetTab]) {
-    final tab = targetTab ?? _currentTab;
-    if (tab != null) {
-      tab.isPaused = true;
+  void pauseExecution([BrowserTab? tab]) {
+    final targetTab = tab ?? _currentTab;
+    if (targetTab != null) {
+      targetTab.isPaused = true;
     }
-    if (tab == _currentTab) {
-      _isPaused = true;
-    }
+    _isPaused = true;
     notifyListeners();
   }
 
-  void resumeExecution([BrowserTab? targetTab]) {
-    final tab = targetTab ?? _currentTab;
-    if (tab != null) {
-      tab.isPaused = false;
+  void resumeExecution([BrowserTab? tab]) {
+    final targetTab = tab ?? _currentTab;
+    if (targetTab != null) {
+      targetTab.isPaused = false;
     }
-    if (tab == _currentTab) {
-      _isPaused = false;
-    }
+    _isPaused = false;
     notifyListeners();
   }
 
@@ -900,15 +763,12 @@ class ScriptProvider extends ChangeNotifier {
 
     final List<Map<String, dynamic>> jsonList = [];
 
-    // 导出全局设置（优先使用当前标签页生效的延迟、单位与循环次数）
-    final exportUnit = delayTimeUnit;
-    final exportDelay = executionDelay;
-    final exportLoop = originalLoopCount;
+    // Add global settings
     jsonList.add({
       '脚本类型': '全局设置',
-      '执行延迟': exportDelay ~/ exportUnit.multiplier,
-      '时间单位': exportUnit.label,
-      '循环次数': exportLoop,
+      '执行延迟': _executionDelay ~/ _delayTimeUnit.multiplier,
+      '时间单位': _delayTimeUnit.label,
+      '循环次数': _originalLoopCount,
     });
 
     for (var script in _currentTab!.scripts) {
@@ -970,25 +830,13 @@ class ScriptProvider extends ChangeNotifier {
         if (type == '全局设置') {
           final delay = item['执行延迟'] as int? ?? 1000;
           final unitLabel = item['时间单位'] as String?;
-          final unit = unitLabel != null
-              ? TimeUnit.values.firstWhere(
-                  (u) => u.label == unitLabel,
-                  orElse: () => TimeUnit.milliseconds,
-                )
-              : TimeUnit.milliseconds;
-          tab.delayTimeUnit = unit.label;
-          tab.executionDelay = delay * unit.multiplier;
+          tab.executionDelay = delay;
+          if (unitLabel != null) {
+            tab.delayTimeUnit = unitLabel;
+          }
           if (item.containsKey('循环次数')) {
             tab.originalLoopCount = item['循环次数'] as int? ?? 1;
             tab.remainingLoopCount = tab.originalLoopCount;
-          }
-          tab.hasCustomExecutionConfig = true;
-
-          if (tab == _currentTab) {
-            _delayTimeUnit = unit;
-            _executionDelay = tab.executionDelay;
-            _originalLoopCount = tab.originalLoopCount;
-            _remainingLoopCount = tab.remainingLoopCount;
           }
         } else {
           try {
@@ -1033,12 +881,6 @@ class ScriptProvider extends ChangeNotifier {
             _originalLoopCount = item['循环次数'] as int? ?? 1;
             _remainingLoopCount = _originalLoopCount;
           }
-
-          _currentTab!.delayTimeUnit = _delayTimeUnit.label;
-          _currentTab!.executionDelay = _executionDelay;
-          _currentTab!.originalLoopCount = _originalLoopCount;
-          _currentTab!.remainingLoopCount = _remainingLoopCount;
-          _currentTab!.hasCustomExecutionConfig = true;
         } else {
           try {
             _currentTab!.scripts.add(Script.fromUserMap(item));
@@ -1051,7 +893,7 @@ class ScriptProvider extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       debugPrint('Import script error: $e');
-      // JSON 解析失败时回退到旧版逐行格式解析
+      // Fallback to old line-by-line format if JSON decode fails
       _importScriptLegacy(content);
     }
   }
@@ -1074,7 +916,7 @@ class ScriptProvider extends ChangeNotifier {
         try {
           final script = Script.fromJson(line);
           if (script.type == '全局变量') {
-            // 兼容旧版全局设置逻辑
+            // Legacy global settings logic
             final delay = script.params['执行延迟'] as int;
             final unitLabel = script.params['时间单位'] as String;
             final loop = script.params['循环次数'] as int;
@@ -1084,12 +926,6 @@ class ScriptProvider extends ChangeNotifier {
             );
             _executionDelay = delay * _delayTimeUnit.multiplier;
             _originalLoopCount = loop;
-            _remainingLoopCount = loop;
-            _currentTab!.delayTimeUnit = _delayTimeUnit.label;
-            _currentTab!.executionDelay = _executionDelay;
-            _currentTab!.originalLoopCount = _originalLoopCount;
-            _currentTab!.remainingLoopCount = _remainingLoopCount;
-            _currentTab!.hasCustomExecutionConfig = true;
           } else {
             _currentTab!.scripts.add(script);
           }
@@ -1113,12 +949,12 @@ class ScriptProvider extends ChangeNotifier {
         if (window.flutter_inappwebview && window.flutter_inappwebview.callHandler) {
           window.flutter_inappwebview.callHandler('ScriptRunner', msg);
         } else if (window.ScriptRunner) {
-          // 兼容旧版 WebView 桥接方式
+          // Fallback for older versions or different configs
           window.ScriptRunner.postMessage(msg);
         }
       }
 
-      // 收集表单输入数据
+      // Helper to collect form data
       function collectFormData(form) {
         let formData = {};
         let inputs = form.querySelectorAll('input, textarea, select');
@@ -1135,19 +971,21 @@ class ScriptProvider extends ChangeNotifier {
           if (input.name) {
             formData[input.name] = input.value;
           } else if (input.id) {
-             // 若缺少 name 属性则回退使用 id
+             // Fallback to ID if name is missing
              formData[input.id] = input.value;
           }
         });
         return formData;
       }
 
-      // 1. 捕获表单提交事件
+      // 1. Capture Form Submit
       document.addEventListener('submit', function(e) {
         let form = e.target;
         let formData = collectFormData(form);
         
-        // 查找触发表单提交的按钮文字，若未找到则默认使用“提交”
+        // Try to find the submit button that triggered this
+        // Note: In 'submit' event we don't know which button was clicked easily,
+        // but we can default to '提交' or find the first submit button.
         let submitBtn = form.querySelector('button[type="submit"], input[type="submit"]');
         let buttonText = '提交';
         if (submitBtn) {
@@ -1161,19 +999,42 @@ class ScriptProvider extends ChangeNotifier {
         postMessage('点击提交按钮|' + JSON.stringify(data));
       }, true);
 
-      // 2. 捕获输入框回车提交事件
+      // 2. Capture Enter Key on Inputs
       document.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') {
           let target = e.target;
           if (target.tagName === 'INPUT') {
             let form = target.closest('form');
             if (form) {
+              // Let the submit event handle it if it fires? 
+              // Sometimes Enter doesn't fire submit if there's no submit button.
+              // We'll wait a bit to see if submit fires, otherwise record it manually?
+              // Actually, recording it as "Input Submit" is safer.
+              
+              // If we record here, we might duplicate with submit event.
+              // But submit event is better.
+              // However, some forms are AJAX and don't fire submit event but handle Enter key manually.
+              
+              // Let's check if there is a submit handler or button.
+              // To be safe, we can record it. The user can delete duplicates.
+              // Or better: check if default prevented?
+              
+              // Let's rely on 'submit' event for standard forms.
+              // For AJAX forms without submit event, we might need this.
+              // But distinguishing is hard.
+              // Let's assume if it's an input in a form, Enter usually submits.
+              
               setTimeout(function() {
+                 // If submit event didn't fire (we can't easily know), but we can try to capture data.
                  let formData = collectFormData(form);
                  let data = {
                    '按钮文本': 'Enter键提交',
                    '表单数据': formData
                  };
+                 // We add a flag or unique ID to deduplicate? 
+                 // For now, let's just record it. User can delete.
+                 // Actually, let's only record if it's NOT a standard submit?
+                 // No, let's just record.
                  postMessage('点击提交按钮|' + JSON.stringify(data));
               }, 100);
             }
@@ -1436,7 +1297,7 @@ class ScriptProvider extends ChangeNotifier {
         }
       }, true);
 
-      // 5. 捕获页面点击事件
+      // 5. Capture Clicks
       document.addEventListener('click', function(e) {
         // 过滤右侧侧边栏切换手柄区域 (防止手柄点击被网页穿透录制)
         var winW = window.innerWidth || (document.documentElement && document.documentElement.clientWidth) || 360;
@@ -1447,7 +1308,7 @@ class ScriptProvider extends ChangeNotifier {
 
         let target = e.target;
         
-        // 处理文本节点
+        // Handle text nodes
         if (target.nodeType === 3) {
           target = target.parentElement;
         }
@@ -1462,13 +1323,13 @@ class ScriptProvider extends ChangeNotifier {
           }
         }
 
-        // 优先级 1：图片元素
+        // Priority 1: Images
         if (target.tagName === 'IMG') {
           postMessage('点击图片|' + (target.src || ''));
           return;
         }
 
-        // 背景图片元素
+        // Background Images
         let isBgImage = false;
         try {
           let computedStyle = window.getComputedStyle(target);
@@ -1534,7 +1395,7 @@ class ScriptProvider extends ChangeNotifier {
           };
         }
 
-        // 优先级 2：链接与按钮交互元素 (a, button, role=button, input[type=button/submit])
+        // Priority 2: 链接与按钮交互元素 (a, button, role=button, input[type=button/submit])
         var linkElement = target.closest('a');
         if (linkElement) {
           var linkText = (linkElement.innerText || linkElement.textContent || '').trim();
@@ -1605,7 +1466,7 @@ class ScriptProvider extends ChangeNotifier {
           }
         }
 
-        // 优先级 3：无文本交互元素（SVG 图标、字体图标、纯图标按钮）生成 CSS 选择器
+        // Priority 3: Non-text elements (SVG icons, Icon buttons, font icons)
         function getCssSelector(el) {
           if (el.id) return '#' + el.id;
           let path = [];
@@ -1637,7 +1498,7 @@ class ScriptProvider extends ChangeNotifier {
           return path.join(' > ');
         }
 
-        // 仅针对真正无文本的可交互元素（如 SVG矢量图标、字体图标、纯图标按钮、或声明了 cursor: pointer 的交互组件）
+        // Priority 3: 仅针对真正无文本的可交互元素（如 SVG矢量图标、字体图标、纯图标按钮、或声明了 cursor: pointer 的交互组件）
         var clickableParent = target.closest('button, [role="button"], a, svg, i, [onclick]');
         if (!clickableParent) {
           try {

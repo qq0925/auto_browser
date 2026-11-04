@@ -77,11 +77,7 @@ class _DownloadConfirmDialogState extends State<DownloadConfirmDialog> {
   }
 
   void _confirmDownload() {
-    // 清理文件名中的非法字符
-    final fileName = _nameController.text
-        .trim()
-        .replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')
-        .trim();
+    final fileName = _nameController.text.trim();
     if (fileName.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('文件名不能为空')),

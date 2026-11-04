@@ -45,9 +45,6 @@ class _BrowserHomePageState extends State<BrowserHomePage>
     with WidgetsBindingObserver {
   final TextEditingController _urlController = TextEditingController();
   bool _isAppStarting = true;
-  bool _keepSplashInTree = true;
-  DateTime? _lastBackPressTime;
-  BrowserProvider? _browserProviderRef;
 
   @override
   void initState() {
@@ -59,7 +56,6 @@ class _BrowserHomePageState extends State<BrowserHomePage>
 
   @override
   void dispose() {
-    _browserProviderRef?.removeListener(_onProviderInitialized);
     WidgetsBinding.instance.removeObserver(this);
     _urlController.dispose();
     super.dispose();
@@ -106,7 +102,6 @@ class _BrowserHomePageState extends State<BrowserHomePage>
     if (browserProvider.isInitialized) {
       await _initTabs();
     } else {
-      _browserProviderRef = browserProvider;
       browserProvider.addListener(_onProviderInitialized);
     }
 
@@ -125,9 +120,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
   }
 
   void _onProviderInitialized() {
-    if (!mounted) return;
-    final browserProvider =
-        _browserProviderRef ?? context.read<BrowserProvider>();
+    final browserProvider = context.read<BrowserProvider>();
     if (browserProvider.isInitialized) {
       browserProvider.removeListener(_onProviderInitialized);
       _initTabs();
@@ -145,16 +138,13 @@ class _BrowserHomePageState extends State<BrowserHomePage>
     final scriptProvider = context.read<ScriptProvider>();
 
     // 全局设置智能网页加载等待回调（支持跨页 Token 与 URL 变更探测，防御 Stale DOM 旧页面误触）
-    scriptProvider.setWaitForPageLoadCallback(
-        ({String? preNavToken, String? preUrl, BrowserTab? targetTab}) async {
-      final tab = targetTab ?? browserProvider.currentTab;
-      if (tab == null) return;
+    scriptProvider.setWaitForPageLoadCallback(({preNavToken, preUrl}) async {
+      if (browserProvider.currentTab == null) return;
 
+      final tab = browserProvider.currentTab!;
       final controller = tab.controller;
-      if (controller == null) return;
-
       const int timeout = 30000;
-      final stopwatch = Stopwatch()..start();
+      int elapsed = 0;
 
       // 1. 导航启动探测阶段：
       // 当刚刚调用 loadUrl / reload / goBack，或点击了链接/提交表单时，
@@ -168,16 +158,16 @@ class _BrowserHomePageState extends State<BrowserHomePage>
       const int probeMax = 800;
       const int probeStep = 40;
 
-      while (stopwatch.elapsedMilliseconds < probeMax && mounted) {
+      while (elapsed < probeMax) {
         bool isStarting = tab.isLoading;
-        if (!isStarting) {
+        if (!isStarting && controller != null) {
           try {
             isStarting = await controller.isLoading();
           } catch (_) {}
         }
 
         // 探测 URL 变更
-        if (!isStarting && preUrl != null) {
+        if (!isStarting && preUrl != null && controller != null) {
           try {
             final curUrl = (await controller.getUrl())?.toString();
             if (curUrl != null && curUrl.isNotEmpty && curUrl != preUrl) {
@@ -187,7 +177,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
         }
 
         // 探测旧 DOM 销毁与卸载（Navigation Mark 改变或清空）
-        if (!isStarting && preNavToken != null) {
+        if (!isStarting && preNavToken != null && controller != null) {
           try {
             final token = await controller.evaluateJavascript(
               source: 'window.__auok_nav_mark',
@@ -205,29 +195,29 @@ class _BrowserHomePageState extends State<BrowserHomePage>
         }
 
         await Future.delayed(const Duration(milliseconds: probeStep));
+        elapsed += probeStep;
       }
 
       // 2. 加载中等待阶段：双重检测（Flutter Tab 状态 + WebView Native 状态）
-      while (stopwatch.elapsedMilliseconds < timeout && mounted) {
+      while (elapsed < timeout) {
         bool currentlyLoading = tab.isLoading;
-        if (!currentlyLoading) {
+        if (!currentlyLoading && controller != null) {
           try {
             currentlyLoading = await controller.isLoading();
           } catch (_) {}
         }
         if (!currentlyLoading) break;
         await Future.delayed(const Duration(milliseconds: 50));
+        elapsed += 50;
       }
 
       // 3. DOM 就绪阶段：快速微轮询等待 document.readyState == 'complete'
       // 严密防御：旧页面的 readyState == 'complete' 绝不能虚假放行！
-      if (stopwatch.elapsedMilliseconds < timeout && mounted) {
+      if (controller != null && elapsed < timeout) {
         int domCheckCount = 0;
         const maxDomChecks = 100; // 最多检查 5 秒 (100 * 50ms)
 
-        while (domCheckCount < maxDomChecks &&
-            stopwatch.elapsedMilliseconds < timeout &&
-            mounted) {
+        while (domCheckCount < maxDomChecks) {
           try {
             final readyState = await controller.evaluateJavascript(
               source: 'document.readyState',
@@ -417,10 +407,9 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                       itemCount: items.length,
                       itemBuilder: (ctx, i) {
                         final item = items[i];
-                        final title =
-                            (item.title != null && item.title!.isNotEmpty)
-                                ? item.title!
-                                : (item.url?.toString() ?? '无标题');
+                        final title = (item.title != null && item.title!.isNotEmpty)
+                            ? item.title!
+                            : (item.url?.toString() ?? '无标题');
                         final url = item.url?.toString() ?? '';
 
                         return ListTile(
@@ -467,16 +456,15 @@ class _BrowserHomePageState extends State<BrowserHomePage>
   @override
   Widget build(BuildContext context) {
     return Consumer3<BrowserProvider, ScriptProvider, DownloadProvider>(
-      builder:
-          (context, browserProvider, scriptProvider, downloadProvider, child) {
-        // 当标签页切换时同步更新 ScriptProvider 的当前标签页
+      builder: (context, browserProvider, scriptProvider, downloadProvider, child) {
+        // Update ScriptProvider's current tab when it changes
         if (scriptProvider.currentTab != browserProvider.currentTab) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             scriptProvider.setCurrentTab(browserProvider.currentTab);
           });
         }
 
-        // 必要时更新地址栏输入框内容
+        // Update URL controller if needed
         if (browserProvider.currentTab != null) {
           final currentUrl = browserProvider.currentTab!.url;
           final displayUrl = currentUrl.startsWith('file://') ? '' : currentUrl;
@@ -486,6 +474,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
           }
         }
 
+        DateTime? lastBackPressTime;
         final screenWidth = MediaQuery.of(context).size.width;
         // 脚本面板宽度优化：占屏幕约 40%，避免遮挡过多网页内容，方便查看与复制文本
         final panelWidth = (screenWidth * 0.40).clamp(155.0, 320.0);
@@ -494,817 +483,717 @@ class _BrowserHomePageState extends State<BrowserHomePage>
           children: [
             CallbackShortcuts(
               bindings: {
-                // Ctrl+R 或 F5: 刷新当前标签页
-                const SingleActivator(LogicalKeyboardKey.keyR, control: true):
-                    () {
-                  browserProvider.currentTab?.controller?.reload();
-                },
-                const SingleActivator(LogicalKeyboardKey.f5): () {
-                  browserProvider.currentTab?.controller?.reload();
-                },
-                // Ctrl+T: 新建标签页
-                const SingleActivator(LogicalKeyboardKey.keyT, control: true):
-                    () {
-                  _addNewTab();
-                },
-                // Ctrl+W: 关闭当前标签页
-                const SingleActivator(LogicalKeyboardKey.keyW, control: true):
-                    () {
-                  if (browserProvider.tabs.length > 1) {
-                    browserProvider.removeTab(browserProvider.currentIndex);
-                  }
-                },
-                // Alt+Left: 网页后退
-                const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true):
-                    () {
+            // Ctrl+R 或 F5: 刷新当前标签页
+            const SingleActivator(LogicalKeyboardKey.keyR, control: true): () {
+              browserProvider.currentTab?.controller?.reload();
+            },
+            const SingleActivator(LogicalKeyboardKey.f5): () {
+              browserProvider.currentTab?.controller?.reload();
+            },
+            // Ctrl+T: 新建标签页
+            const SingleActivator(LogicalKeyboardKey.keyT, control: true): () {
+              _addNewTab();
+            },
+            // Ctrl+W: 关闭当前标签页
+            const SingleActivator(LogicalKeyboardKey.keyW, control: true): () {
+              if (browserProvider.tabs.length > 1) {
+                browserProvider.removeTab(browserProvider.currentIndex);
+              }
+            },
+            // Alt+Left: 网页后退
+            const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true): () {
+              _handleGoBack(browserProvider, scriptProvider);
+            },
+            // Alt+Right: 网页前进
+            const SingleActivator(LogicalKeyboardKey.arrowRight, alt: true): () {
+              _handleGoForward(browserProvider, scriptProvider);
+            },
+          },
+          child: PopScope(
+            canPop: false,
+            onPopInvokedWithResult: (didPop, result) async {
+              if (didPop) return;
+
+              // 1. 如果脚本侧边栏处于展开状态，优先收起
+              if (browserProvider.isScriptPanelExpanded) {
+                browserProvider.toggleScriptPanel();
+                return;
+              }
+
+              // 2. 如果当前网页可以后退，执行后退
+              final currentTab = browserProvider.currentTab;
+              if (currentTab != null && currentTab.canGoBack) {
+                await _handleGoBack(browserProvider, scriptProvider);
+                return;
+              }
+
+              // 3. 双击退出防误触
+              final now = DateTime.now();
+              if (lastBackPressTime == null ||
+                  now.difference(lastBackPressTime!) >
+                      const Duration(seconds: 2)) {
+                lastBackPressTime = now;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(scriptProvider.isExecuting
+                        ? '脚本正在运行中，再次按下返回键将退出应用'
+                        : '再次按下返回键退出应用'),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+                return;
+              }
+
+              // 退出应用
+              SystemNavigator.pop();
+            },
+            child: Listener(
+              onPointerDown: (event) {
+                // 监听鼠标侧键：键 4 为后退，键 5 为前进
+                if (event.buttons == kBackMouseButton) {
                   _handleGoBack(browserProvider, scriptProvider);
-                },
-                // Alt+Right: 网页前进
-                const SingleActivator(LogicalKeyboardKey.arrowRight, alt: true):
-                    () {
+                } else if (event.buttons == kForwardMouseButton) {
                   _handleGoForward(browserProvider, scriptProvider);
-                },
+                }
               },
-              child: PopScope(
-                canPop: false,
-                onPopInvokedWithResult: (didPop, result) async {
-                  if (didPop) return;
-
-                  // 1. 如果脚本侧边栏处于展开状态，优先收起
-                  if (browserProvider.isScriptPanelExpanded) {
-                    browserProvider.toggleScriptPanel();
-                    return;
-                  }
-
-                  // 2. 如果当前网页可以后退，执行后退
-                  final currentTab = browserProvider.currentTab;
-                  if (currentTab != null && currentTab.canGoBack) {
-                    await _handleGoBack(browserProvider, scriptProvider);
-                    return;
-                  }
-
-                  // 3. 双击退出防误触
-                  final now = DateTime.now();
-                  if (_lastBackPressTime == null ||
-                      now.difference(_lastBackPressTime!) >
-                          const Duration(seconds: 2)) {
-                    _lastBackPressTime = now;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(scriptProvider.isExecuting
-                            ? '脚本正在运行中，再次按下返回键将退出应用'
-                            : '再次按下返回键退出应用'),
-                        duration: const Duration(seconds: 2),
+              child: Scaffold(
+                backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+          appBar: AppBar(
+            backgroundColor: Theme.of(context).appBarTheme.backgroundColor,
+            elevation: 0,
+            toolbarHeight: 48, // 紧凑型高屏占比工具栏
+            titleSpacing:
+                0, // Remove default spacing to control layout manually
+            title: Row(
+              children: [
+                const SizedBox(width: 8), // 紧凑型左侧间距
+                Expanded(
+                  child: Container(
+                    height: 36,
+                    margin: const EdgeInsets.symmetric(vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[700],
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: Colors.grey[600]!,
+                        width: 1,
                       ),
-                    );
-                    return;
-                  }
-
-                  // 退出应用
-                  SystemNavigator.pop();
-                },
-                child: Listener(
-                  onPointerDown: (event) {
-                    // 监听鼠标侧键：键 4 为后退，键 5 为前进
-                    if (event.buttons == kBackMouseButton) {
-                      _handleGoBack(browserProvider, scriptProvider);
-                    } else if (event.buttons == kForwardMouseButton) {
-                      _handleGoForward(browserProvider, scriptProvider);
-                    }
-                  },
-                  child: Scaffold(
-                    backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-                    appBar: AppBar(
-                      backgroundColor:
-                          Theme.of(context).appBarTheme.backgroundColor,
-                      elevation: 0,
-                      toolbarHeight: 48, // 紧凑型高屏占比工具栏
-                      titleSpacing: 0, // 移除默认间距以手动控制布局
-                      title: Row(
-                        children: [
-                          const SizedBox(width: 8), // 紧凑型左侧间距
-                          Expanded(
-                            child: Container(
-                              height: 36,
-                              margin: const EdgeInsets.symmetric(vertical: 4),
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.grey[700],
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(
-                                  color: Colors.grey[600]!,
-                                  width: 1,
-                                ),
-                              ),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  // 收藏书签按钮
-                                  IconButton(
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(
-                                        minWidth: 32, minHeight: 32),
-                                    icon: Icon(
-                                      browserProvider.currentTab != null &&
-                                              browserProvider.isBookmarked(
-                                                  browserProvider
-                                                      .currentTab!.url)
-                                          ? Icons.star
-                                          : Icons.star_border,
-                                      color: browserProvider.currentTab !=
-                                                  null &&
-                                              browserProvider.isBookmarked(
-                                                  browserProvider
-                                                      .currentTab!.url)
-                                          ? Colors.amber
-                                          : Colors.white,
-                                      size: 20,
-                                    ),
-                                    onPressed: browserProvider.currentTab !=
-                                                null &&
-                                            browserProvider.currentTab!.url !=
-                                                'about:blank' &&
-                                            !browserProvider.currentTab!.url
-                                                .endsWith('welcome.html') &&
-                                            !browserProvider.currentTab!.url
-                                                .startsWith('file://')
-                                        ? () {
-                                            browserProvider.toggleBookmark(
-                                              browserProvider.currentTab!.url,
-                                              browserProvider.currentTab!.title,
-                                            );
-                                            ScaffoldMessenger.of(context)
-                                                .showSnackBar(
-                                              SnackBar(
-                                                content: Text(browserProvider
-                                                        .isBookmarked(
-                                                            browserProvider
-                                                                .currentTab!
-                                                                .url)
-                                                    ? '已添加书签'
-                                                    : '已移除书签'),
-                                                duration:
-                                                    const Duration(seconds: 1),
-                                              ),
-                                            );
-                                          }
-                                        : null,
-                                  ),
-
-                                  // 竖向分割线
-                                  Container(
-                                    height: 18,
-                                    width: 1,
-                                    color: Colors.white38,
-                                    margin: const EdgeInsets.symmetric(
-                                        horizontal: 2),
-                                  ),
-
-                                  // 地址栏点击区域
-                                  Expanded(
-                                    child: GestureDetector(
-                                      behavior: HitTestBehavior.opaque,
-                                      onTap: () {
-                                        if (browserProvider.currentTab !=
-                                            null) {
-                                          Navigator.push(
-                                            context,
-                                            PageRouteBuilder(
-                                              pageBuilder: (context, animation,
-                                                      secondaryAnimation) =>
-                                                  UrlSearchOverlay(
-                                                initialUrl: browserProvider
-                                                                .currentTab!
-                                                                .url ==
-                                                            'about:blank' ||
-                                                        browserProvider
-                                                                .currentTab!
-                                                                .url ==
-                                                            'file:///welcome.html' ||
-                                                        browserProvider
-                                                            .currentTab!.url
-                                                            .endsWith(
-                                                                'welcome.html')
-                                                    ? ''
-                                                    : browserProvider
-                                                        .currentTab!.url,
-                                                onSubmitted: (value) async {
-                                                  if (value.trim().isNotEmpty) {
-                                                    String url = value.trim();
-                                                    final targetTab =
-                                                        browserProvider
-                                                            .currentTab;
-                                                    if (url == 'welcome.html') {
-                                                      final content =
-                                                          await WelcomeManager
-                                                              .getWelcomeContent();
-                                                      if (!mounted) return;
-                                                      await targetTab
-                                                          ?.controller
-                                                          ?.loadData(
-                                                              data: content,
-                                                              mimeType:
-                                                                  'text/html',
-                                                              encoding: 'utf-8',
-                                                              baseUrl: WebUri(
-                                                                  'file:///welcome.html'));
-                                                    } else if (url ==
-                                                            'guide.html' ||
-                                                        url == 'about:guide') {
-                                                      final content =
-                                                          await rootBundle
-                                                              .loadString(
-                                                                  'assets/guide.html');
-                                                      if (!mounted) return;
-                                                      await targetTab
-                                                          ?.controller
-                                                          ?.loadData(
-                                                              data: content,
-                                                              mimeType:
-                                                                  'text/html',
-                                                              encoding: 'utf-8',
-                                                              baseUrl: WebUri(
-                                                                  'file:///guide.html'));
-                                                    } else if (url ==
-                                                            'test_page.html' ||
-                                                        url == 'test.html' ||
-                                                        url == 'about:test') {
-                                                      final content =
-                                                          await rootBundle
-                                                              .loadString(
-                                                                  'assets/test_page.html');
-                                                      if (!mounted) return;
-                                                      await targetTab
-                                                          ?.controller
-                                                          ?.loadData(
-                                                              data: content,
-                                                              mimeType:
-                                                                  'text/html',
-                                                              encoding: 'utf-8',
-                                                              baseUrl: WebUri(
-                                                                  'file:///test_page.html'));
-                                                    } else {
-                                                      final isDomain = !url
-                                                              .contains(' ') &&
-                                                          RegExp(r'^[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+([/:?#].*)?$')
-                                                              .hasMatch(url);
-                                                      if (!url.startsWith(
-                                                              'http://') &&
-                                                          !url.startsWith(
-                                                              'https://') &&
-                                                          !url.startsWith(
-                                                              'file://')) {
-                                                        if (isDomain) {
-                                                          url = 'http://$url';
-                                                        } else {
-                                                          // 搜索引擎拼接逻辑（对查询词进行 URL 编码）
-                                                          final encodedQuery =
-                                                              Uri.encodeComponent(
-                                                                  url);
-                                                          final engine =
-                                                              browserProvider
-                                                                  .searchEngine;
-                                                          if (engine ==
-                                                              'Bing') {
-                                                            url =
-                                                                'https://www.bing.com/search?q=$encodedQuery';
-                                                          } else if (engine ==
-                                                              'Google') {
-                                                            url =
-                                                                'https://www.google.com/search?q=$encodedQuery';
-                                                          } else {
-                                                            // 默认使用百度搜索
-                                                            url =
-                                                                'https://www.baidu.com/s?wd=$encodedQuery';
-                                                          }
-                                                        }
-                                                      }
-
-                                                      // 仅对真实网址导航进行录制
-                                                      if (scriptProvider
-                                                              .isRecording &&
-                                                          (value
-                                                                  .trim()
-                                                                  .startsWith(
-                                                                      'http://') ||
-                                                              value
-                                                                  .trim()
-                                                                  .startsWith(
-                                                                      'https://') ||
-                                                              isDomain)) {
-                                                        scriptProvider
-                                                            .recordAction(
-                                                                '进入网址', url);
-                                                      }
-
-                                                      await targetTab
-                                                          ?.controller
-                                                          ?.loadUrl(
-                                                              urlRequest:
-                                                                  URLRequest(
-                                                                      url: WebUri(
-                                                                          url)));
-                                                    }
-                                                  }
-                                                },
-                                              ),
-                                            ),
-                                          );
-                                        }
-                                      },
-                                      child: Container(
-                                        color: Colors.transparent,
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 6),
-                                        alignment: Alignment.centerLeft,
-                                        child: Text(
-                                          (browserProvider.currentTab?.url ==
-                                                      'about:blank' ||
-                                                  browserProvider
-                                                          .currentTab?.url ==
-                                                      'file:///welcome.html' ||
-                                                  (browserProvider
-                                                          .currentTab?.url
-                                                          .endsWith(
-                                                              'welcome.html') ??
-                                                      false))
-                                              ? 'Auok浏览器'
-                                              : '${browserProvider.currentIndex + 1}. ${(browserProvider.currentTab?.title.isEmpty ?? true) ? '无标题' : browserProvider.currentTab!.title}',
-                                          style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 14.5),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-
-                                  // 刷新按钮
-                                  IconButton(
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(
-                                        minWidth: 32, minHeight: 32),
-                                    icon: const Icon(Icons.refresh,
-                                        color: Colors.white, size: 20),
-                                    onPressed: () async {
-                                      if (scriptProvider.isRecording) {
-                                        scriptProvider.recordAction('刷新网页');
-                                      }
-
-                                      final targetTab =
-                                          browserProvider.currentTab;
-                                      if (targetTab == null) return;
-
-                                      // 智能刷新：检查当前是否处于欢迎页
-                                      final currentUrl =
-                                          await targetTab.controller?.getUrl();
-                                      if (currentUrl == null ||
-                                          currentUrl.toString() ==
-                                              'about:blank' ||
-                                          currentUrl.toString() ==
-                                              'file:///welcome.html' ||
-                                          currentUrl
-                                              .toString()
-                                              .endsWith('welcome.html')) {
-                                        // 重新加载最新版本的欢迎页内容
-                                        WelcomeManager.getWelcomeContent()
-                                            .then((content) {
-                                          if (!mounted) return;
-                                          targetTab.controller?.loadData(
-                                              data: content,
-                                              mimeType: 'text/html',
-                                              encoding: 'utf-8',
-                                              baseUrl: WebUri(
-                                                  'file:///welcome.html'));
-                                        });
-                                      } else {
-                                        // 普通网页刷新
-                                        targetTab.controller?.reload();
-                                      }
-                                    },
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          // 快捷下载管理入口（带角标）
-                          Stack(
-                            alignment: Alignment.center,
-                            children: [
-                              IconButton(
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(
-                                    minWidth: 36, minHeight: 36),
-                                icon: const Icon(Icons.download_rounded,
-                                    color: Colors.white, size: 21),
-                                tooltip: '下载管理',
-                                onPressed: () =>
-                                    DownloadManagerDialog.show(context),
-                              ),
-                              if (downloadProvider.activeCount > 0)
-                                Positioned(
-                                  top: 2,
-                                  right: 2,
-                                  child: Container(
-                                    padding: const EdgeInsets.all(3),
-                                    decoration: const BoxDecoration(
-                                      color: Colors.redAccent,
-                                      shape: BoxShape.circle,
-                                    ),
-                                    constraints: const BoxConstraints(
-                                        minWidth: 15, minHeight: 15),
-                                    child: Text(
-                                      downloadProvider.activeCount > 99
-                                          ? '99+'
-                                          : '${downloadProvider.activeCount}',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 8.5,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                      textAlign: TextAlign.center,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                          // 顶部三点菜单区域
-                          SizedBox(
-                            width: 36,
-                            child: PopupMenuButton<String>(
-                              padding: EdgeInsets.zero,
-                              icon: const Icon(Icons.more_vert,
-                                  color: Colors.white, size: 21),
-                              onSelected: (value) {
-                                if (value == 'downloads') {
-                                  DownloadManagerDialog.show(context);
-                                } else if (value == 'page_info') {
-                                  if (browserProvider.currentTab != null) {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) => PageInfoDialog(
-                                          title:
-                                              browserProvider.currentTab!.title,
-                                          url: browserProvider.currentTab!.url,
-                                          controller: browserProvider
-                                              .currentTab!.controller,
-                                        ),
-                                      ),
-                                    );
-                                  }
-                                } else if (value == 'night_mode') {
-                                  browserProvider.toggleDarkMode(
-                                      !browserProvider.isDarkMode);
-                                } else if (value == 'about') {
-                                  // 获取应用版本信息
-                                  PackageInfo.fromPlatform().then((packageInfo) {
-                                    if (!context.mounted) return;
-                                    showDialog(
-                                      context: context,
-                                      barrierDismissible: true,
-                                      builder: (context) => GestureDetector(
-                                        onTap: () => Navigator.pop(context),
-                                        child: Dialog(
-                                          backgroundColor: Colors.transparent,
-                                          insetPadding:
-                                              const EdgeInsets.all(24),
-                                          child: GestureDetector(
-                                            onTap: () => Navigator.pop(context),
-                                            child: Container(
-                                              padding: const EdgeInsets.all(24),
-                                              decoration: BoxDecoration(
-                                                color: Colors.white,
-                                                borderRadius:
-                                                    BorderRadius.circular(16),
-                                              ),
-                                              child: Column(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  ClipRRect(
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                            12),
-                                                    child: Image.asset(
-                                                      'assets/app_icon.png',
-                                                      width: 72,
-                                                      height: 72,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(height: 16),
-                                                  const Text(
-                                                    'Auok浏览器',
-                                                    style: TextStyle(
-                                                      fontSize: 20,
-                                                      fontWeight:
-                                                          FontWeight.bold,
-                                                      color: Colors.black87,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(height: 8),
-                                                  Text(
-                                                    '版本 ${packageInfo.version}.${packageInfo.buildNumber}',
-                                                    style: const TextStyle(
-                                                      color: Colors.grey,
-                                                      fontSize: 14,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(height: 24),
-                                                  const Text(
-                                                    '支持自动化的跨平台浏览器\nBy Lin.',
-                                                    textAlign: TextAlign.center,
-                                                    style: TextStyle(
-                                                      color: Colors.black87,
-                                                      fontSize: 16,
-                                                      height: 1.5,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  });
-                                }
-                              },
-                              itemBuilder: (context) => [
-                                const PopupMenuItem(
-                                  value: 'downloads',
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.download_rounded,
-                                          color: Colors.black87, size: 20),
-                                      SizedBox(width: 12),
-                                      Text('下载管理'),
-                                    ],
-                                  ),
-                                ),
-                                const PopupMenuItem(
-                                  value: 'page_info',
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.info_outline,
-                                          color: Colors.black87, size: 20),
-                                      SizedBox(width: 12),
-                                      Text('页面属性'),
-                                    ],
-                                  ),
-                                ),
-                                PopupMenuItem(
-                                  value: 'night_mode',
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                          browserProvider.isDarkMode
-                                              ? Icons.light_mode
-                                              : Icons.dark_mode,
-                                          color: Theme.of(context)
-                                                  .iconTheme
-                                                  .color ??
-                                              Colors.black87,
-                                          size: 20),
-                                      const SizedBox(width: 12),
-                                      Text(browserProvider.isDarkMode
-                                          ? '日间模式'
-                                          : '夜间模式'),
-                                    ],
-                                  ),
-                                ),
-                                const PopupMenuItem(
-                                  value: 'about',
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.help_outline,
-                                          color: Colors.black87, size: 20),
-                                      SizedBox(width: 12),
-                                      Text('关于'),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                        ],
-                      ),
-                      bottom: PreferredSize(
-                        preferredSize: const Size.fromHeight(3.0),
-                        child: (browserProvider.currentTab != null &&
-                                browserProvider.currentTab!.progress < 1.0)
-                            ? LinearProgressIndicator(
-                                value: browserProvider.currentTab!.progress,
-                                backgroundColor: Colors.grey[800],
-                                valueColor: const AlwaysStoppedAnimation<Color>(
-                                    Colors.blue),
-                                minHeight: 3.0,
-                              )
-                            : Container(
-                                height: 3.0,
-                                color: Colors.transparent,
-                              ),
-                      ),
-                      actions: [],
                     ),
-                    body: Stack(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        // WebView 区域
-                        browserProvider.tabs.isEmpty
-                            ? const Center(child: CircularProgressIndicator())
-                            : IndexedStack(
-                                index: browserProvider.currentIndex,
-                                children: browserProvider.tabs
-                                    .asMap()
-                                    .entries
-                                    .map((entry) => BrowserView(
-                                          key: ValueKey(entry.value.id),
-                                          tab: entry.value,
-                                          isActive: entry.key ==
-                                              browserProvider.currentIndex,
-                                        ))
-                                    .toList(),
-                              ),
+                        // Bookmark button
+                        IconButton(
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                              minWidth: 32, minHeight: 32),
+                          icon: Icon(
+                            browserProvider.currentTab != null &&
+                                    browserProvider.isBookmarked(
+                                        browserProvider.currentTab!.url)
+                                ? Icons.star
+                                : Icons.star_border,
+                            color: browserProvider.currentTab != null &&
+                                    browserProvider.isBookmarked(
+                                        browserProvider.currentTab!.url)
+                                ? Colors.amber
+                                : Colors.white,
+                            size: 20,
+                          ),
+                          onPressed: browserProvider.currentTab != null &&
+                                  browserProvider.currentTab!.url !=
+                                      'about:blank' &&
+                                  !browserProvider.currentTab!.url
+                                      .endsWith('welcome.html') &&
+                                  !browserProvider.currentTab!.url
+                                      .startsWith('file://')
+                              ? () {
+                                  browserProvider.toggleBookmark(
+                                    browserProvider.currentTab!.url,
+                                    browserProvider.currentTab!.title,
+                                  );
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(browserProvider
+                                              .isBookmarked(browserProvider
+                                                  .currentTab!.url)
+                                          ? '已添加书签'
+                                          : '已移除书签'),
+                                      duration: const Duration(seconds: 1),
+                                    ),
+                                  );
+                                }
+                              : null,
+                        ),
 
-                        // 右侧脚本面板
-                        AnimatedPositioned(
-                          duration: const Duration(milliseconds: 300),
-                          curve: Curves.easeInOut,
-                          right: browserProvider.isScriptPanelExpanded
-                              ? 0
-                              : -panelWidth,
-                          top: 0,
-                          bottom: 0,
-                          child: SizedBox(
-                            width: panelWidth + 24,
-                            child: LayoutBuilder(
-                              builder: (context, constraints) {
-                                final arrowTop =
-                                    (constraints.maxHeight - 60) / 2;
-                                return Stack(
-                                  clipBehavior: Clip.none,
-                                  children: [
-                                    // 脚本面板
-                                    Positioned(
-                                      top: 0,
-                                      bottom: 0,
-                                      right: 0,
-                                      width: panelWidth,
-                                      child: Container(
-                                        width: panelWidth,
-                                        decoration: const BoxDecoration(
-                                          color: Colors.transparent,
-                                          borderRadius: BorderRadius.horizontal(
-                                              left: Radius.circular(12)),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: Colors.black26,
-                                              blurRadius: 10,
-                                              offset: Offset(-2, 0),
-                                            ),
-                                          ],
-                                        ),
-                                        child: RightScriptPanel(
-                                          onAddScript: () async {
-                                            final result =
-                                                await showDialog<Script>(
-                                              context: context,
-                                              builder: (context) =>
-                                                  const AddScriptDialog(),
-                                            );
-                                            if (result != null && mounted) {
-                                              scriptProvider.addScript(result);
-                                            }
-                                          },
-                                          onGlobalSettings: () {
-                                            showDialog(
-                                              context: context,
-                                              builder: (context) =>
-                                                  const GlobalSettingsDialog(),
-                                            );
-                                          },
-                                          onExecute: () {
-                                            if (scriptProvider.isExecuting) {
-                                              scriptProvider.stopExecution();
-                                            } else {
-                                              if (browserProvider.currentTab !=
-                                                      null &&
-                                                  browserProvider.currentTab!
-                                                          .controller !=
-                                                      null) {
-                                                scriptProvider.startExecution(
-                                                  browserProvider
-                                                      .currentTab!.controller!,
-                                                  browserProvider.currentIndex,
-                                                );
+                        // Vertical Divider
+                        Container(
+                          height: 18,
+                          width: 1,
+                          color: Colors.white38,
+                          margin: const EdgeInsets.symmetric(horizontal: 2),
+                        ),
+
+                        // URL GestureDetector
+                        Expanded(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () {
+                              if (browserProvider.currentTab != null) {
+                                Navigator.push(
+                                  context,
+                                  PageRouteBuilder(
+                                    pageBuilder: (context, animation,
+                                            secondaryAnimation) =>
+                                        UrlSearchOverlay(
+                                      initialUrl: browserProvider
+                                                      .currentTab!.url ==
+                                                  'about:blank' ||
+                                              browserProvider.currentTab!.url ==
+                                                  'file:///welcome.html' ||
+                                              browserProvider.currentTab!.url
+                                                  .endsWith('welcome.html')
+                                          ? ''
+                                          : browserProvider.currentTab!.url,
+                                      onSubmitted: (value) async {
+                                        if (value.trim().isNotEmpty) {
+                                          String url = value.trim();
+                                          if (url == 'welcome.html') {
+                                            await browserProvider
+                                                .currentTab!.controller
+                                                ?.loadData(
+                                                    data: 'assets/welcome.html',
+                                                    mimeType: 'text/html',
+                                                    encoding: 'utf-8');
+                                          } else if (url == 'guide.html' ||
+                                              url == 'about:guide') {
+                                            final content = await rootBundle
+                                                .loadString('assets/guide.html');
+                                            await browserProvider
+                                                .currentTab!.controller
+                                                ?.loadData(
+                                                    data: content,
+                                                    mimeType: 'text/html',
+                                                    encoding: 'utf-8',
+                                                    baseUrl: WebUri(
+                                                        'file:///guide.html'));
+                                          } else if (url == 'test_page.html' ||
+                                              url == 'test.html' ||
+                                              url == 'about:test') {
+                                            final content = await rootBundle
+                                                .loadString('assets/test_page.html');
+                                            await browserProvider
+                                                .currentTab!.controller
+                                                ?.loadData(
+                                                    data: content,
+                                                    mimeType: 'text/html',
+                                                    encoding: 'utf-8',
+                                                    baseUrl: WebUri(
+                                                        'file:///test_page.html'));
+                                          } else {
+                                            if (!url.startsWith('http://') &&
+                                                !url.startsWith('https://') &&
+                                                !url.startsWith('file://')) {
+                                              if (url.contains('.')) {
+                                                url = 'http://$url';
+                                              } else {
+                                                // Search Engine Logic
+                                                final engine = browserProvider
+                                                    .searchEngine;
+                                                if (engine == 'Bing') {
+                                                  url =
+                                                      'https://www.bing.com/search?q=$url';
+                                                } else if (engine == 'Google') {
+                                                  url =
+                                                      'https://www.google.com/search?q=$url';
+                                                } else {
+                                                  // Default to Baidu
+                                                  url =
+                                                      'https://www.baidu.com/s?wd=$url';
+                                                }
                                               }
                                             }
-                                          },
-                                          onLoad: () {
-                                            _showLoadScriptDialog(
-                                                context, scriptProvider);
-                                          },
-                                          onRecordScript: () {
-                                            if (browserProvider.currentTab !=
-                                                null) {
-                                              // 点击录制脚本时自动触发一次收纳脚本管理器的动作，避免遮挡网页
-                                              browserProvider
-                                                  .closeScriptPanel();
-                                              scriptProvider.startRecording();
+
+                                            // Record navigation for real URLs
+                                            if (scriptProvider.isRecording &&
+                                                (value.trim().startsWith(
+                                                        'http://') ||
+                                                    value.trim().startsWith(
+                                                        'https://') ||
+                                                    value
+                                                        .trim()
+                                                        .contains('.'))) {
+                                              scriptProvider.recordAction(
+                                                  '进入网址', url);
                                             }
-                                          },
-                                        ),
-                                      ),
+
+                                            await browserProvider
+                                                .currentTab!.controller
+                                                ?.loadUrl(
+                                                    urlRequest: URLRequest(
+                                                        url: WebUri(url)));
+                                          }
+                                        }
+                                      },
                                     ),
-                                    // 脚本面板切换按钮（紧贴在面板左侧边缘，严格仅在箭头 24x60 物理区域内响应触碰）
-                                    Positioned(
-                                      left: 0,
-                                      top: arrowTop,
-                                      width: 24,
-                                      height: 60,
-                                      child: GestureDetector(
-                                        behavior: HitTestBehavior.opaque,
-                                        onTap: () {
-                                          // 切换侧边栏时暂时屏蔽并撤销可能被穿透捕获的录制动作
-                                          scriptProvider
-                                              .cancelLastRecordingIfRecent();
-                                          browserProvider.toggleScriptPanel();
-                                        },
-                                        child: Container(
-                                          width: 24,
-                                          height: 60,
-                                          decoration: BoxDecoration(
-                                            color: Colors.grey[800],
-                                            borderRadius:
-                                                const BorderRadius.only(
-                                              topLeft: Radius.circular(12),
-                                              bottomLeft: Radius.circular(12),
-                                            ),
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: Colors.black
-                                                    .withValues(alpha: 0.3),
-                                                blurRadius: 4,
-                                                offset: const Offset(-2, 0),
-                                              ),
-                                            ],
-                                          ),
-                                          child: Icon(
-                                            browserProvider
-                                                    .isScriptPanelExpanded
-                                                ? Icons.chevron_right
-                                                : Icons.chevron_left,
-                                            color: Colors.white,
-                                            size: 20,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
+                                  ),
                                 );
-                              },
+                              }
+                            },
+                            child: Container(
+                              color: Colors.transparent,
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 6),
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                (browserProvider.currentTab?.url ==
+                                            'about:blank' ||
+                                        browserProvider.currentTab?.url ==
+                                            'file:///welcome.html' ||
+                                        (browserProvider.currentTab?.url
+                                                .endsWith('welcome.html') ??
+                                            false))
+                                    ? 'Auok浏览器'
+                                    : '${browserProvider.currentIndex + 1}. ${(browserProvider.currentTab?.title.isEmpty ?? true) ? '无标题' : browserProvider.currentTab!.title}',
+                                style: const TextStyle(
+                                    color: Colors.white, fontSize: 14.5),
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                           ),
                         ),
 
-                        // 脚本录制浮窗
-                        const ScriptRecordingOverlay(),
+                        // Refresh button
+                        IconButton(
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                              minWidth: 32, minHeight: 32),
+                          icon: const Icon(Icons.refresh,
+                              color: Colors.white, size: 20),
+                          onPressed: () async {
+                            if (scriptProvider.isRecording) {
+                              scriptProvider.recordAction('刷新网页');
+                            }
 
-                        // 脚本执行极简悬浮状态胶囊（侧边栏收起时显示）
-                        const FloatingCapsule(),
+                            // Smart refresh: check if on welcome page
+                            final currentUrl = await browserProvider
+                                .currentTab?.controller
+                                ?.getUrl();
+                            if (currentUrl == null ||
+                                currentUrl.toString() == 'about:blank' ||
+                                currentUrl.toString() ==
+                                    'file:///welcome.html') {
+                              // Reload welcome content with latest version
+                              WelcomeManager.getWelcomeContent()
+                                  .then((content) {
+                                browserProvider.currentTab?.controller
+                                    ?.loadData(
+                                        data: content,
+                                        mimeType: 'text/html',
+                                        encoding: 'utf-8',
+                                        baseUrl:
+                                            WebUri('file:///welcome.html'));
+                              });
+                            } else {
+                              // Normal page reload
+                              browserProvider.currentTab?.controller?.reload();
+                            }
+                          },
+                        ),
                       ],
                     ),
-                    bottomNavigationBar: _buildBottomBar(context,
-                        browserProvider, scriptProvider, downloadProvider),
+                  ),
+                ),
+                // 快捷下载管理入口（带角标）
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    IconButton(
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                          minWidth: 36, minHeight: 36),
+                      icon: const Icon(Icons.download_rounded,
+                          color: Colors.white, size: 21),
+                      tooltip: '下载管理',
+                      onPressed: () => DownloadManagerDialog.show(context),
+                    ),
+                    if (downloadProvider.activeCount > 0)
+                      Positioned(
+                        top: 2,
+                        right: 2,
+                        child: Container(
+                          padding: const EdgeInsets.all(3),
+                          decoration: const BoxDecoration(
+                            color: Colors.redAccent,
+                            shape: BoxShape.circle,
+                          ),
+                          constraints: const BoxConstraints(
+                              minWidth: 15, minHeight: 15),
+                          child: Text(
+                            downloadProvider.activeCount > 99
+                                ? '99+'
+                                : '${downloadProvider.activeCount}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 8.5,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                // Menu button area
+                SizedBox(
+                  width: 36,
+                  child: PopupMenuButton<String>(
+                    padding: EdgeInsets.zero,
+                    icon: const Icon(Icons.more_vert,
+                        color: Colors.white, size: 21),
+                    onSelected: (value) {
+                      if (value == 'downloads') {
+                        DownloadManagerDialog.show(context);
+                      } else if (value == 'page_info') {
+                        if (browserProvider.currentTab != null) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => PageInfoDialog(
+                                title: browserProvider.currentTab!.title,
+                                url: browserProvider.currentTab!.url,
+                                controller:
+                                    browserProvider.currentTab!.controller,
+                              ),
+                            ),
+                          );
+                        }
+                      } else if (value == 'night_mode') {
+                        browserProvider
+                            .toggleDarkMode(!browserProvider.isDarkMode);
+                      } else if (value == 'about') {
+                        // 获取应用版本信息
+                        PackageInfo.fromPlatform().then((packageInfo) {
+                          if (!context.mounted) return;
+                          showDialog(
+                            context: context,
+                            barrierDismissible: true,
+                            builder: (context) => GestureDetector(
+                              onTap: () => Navigator.pop(context),
+                              child: Dialog(
+                                backgroundColor: Colors.transparent,
+                                insetPadding: const EdgeInsets.all(24),
+                                child: GestureDetector(
+                                  onTap: () => Navigator.pop(context),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(24),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        ClipRRect(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          child: Image.asset(
+                                            'assets/app_icon.png',
+                                            width: 72,
+                                            height: 72,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 16),
+                                        const Text(
+                                          'Auok浏览器',
+                                          style: TextStyle(
+                                            fontSize: 20,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.black87,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          '版本 ${packageInfo.version}.${packageInfo.buildNumber}',
+                                          style: const TextStyle(
+                                            color: Colors.grey,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 24),
+                                        const Text(
+                                          '支持自动化的跨平台浏览器\nBy Lin.',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            color: Colors.black87,
+                                            fontSize: 16,
+                                            height: 1.5,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        });
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(
+                        value: 'downloads',
+                        child: Row(
+                          children: [
+                            Icon(Icons.download_rounded,
+                                color: Colors.black87, size: 20),
+                            SizedBox(width: 12),
+                            Text('下载管理'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'page_info',
+                        child: Row(
+                          children: [
+                            Icon(Icons.info_outline,
+                                color: Colors.black87, size: 20),
+                            SizedBox(width: 12),
+                            Text('页面属性'),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'night_mode',
+                        child: Row(
+                          children: [
+                            Icon(
+                                browserProvider.isDarkMode
+                                    ? Icons.light_mode
+                                    : Icons.dark_mode,
+                                color: Theme.of(context).iconTheme.color ??
+                                    Colors.black87,
+                                size: 20),
+                            const SizedBox(width: 12),
+                            Text(browserProvider.isDarkMode ? '日间模式' : '夜间模式'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'about',
+                        child: Row(
+                          children: [
+                            Icon(Icons.help_outline,
+                                color: Colors.black87, size: 20),
+                            SizedBox(width: 12),
+                            Text('关于'),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 4),
+              ],
+            ),
+            bottom: PreferredSize(
+              preferredSize: const Size.fromHeight(3.0),
+              child: (browserProvider.currentTab != null &&
+                      browserProvider.currentTab!.progress < 1.0)
+                  ? LinearProgressIndicator(
+                      value: browserProvider.currentTab!.progress,
+                      backgroundColor: Colors.grey[800],
+                      valueColor:
+                          const AlwaysStoppedAnimation<Color>(Colors.blue),
+                      minHeight: 3.0,
+                    )
+                  : Container(
+                      height: 3.0,
+                      color: Colors.transparent,
+                    ),
+            ),
+            actions: [],
+          ),
+          body: Stack(
+            children: [
+              // WebView 区域
+              browserProvider.tabs.isEmpty
+                  ? const Center(child: CircularProgressIndicator())
+                  : IndexedStack(
+                      index: browserProvider.currentIndex,
+                      children: browserProvider.tabs
+                          .asMap()
+                          .entries
+                          .map((entry) => BrowserView(
+                                key: ValueKey(entry.value.id),
+                                tab: entry.value,
+                                isActive:
+                                    entry.key == browserProvider.currentIndex,
+                              ))
+                          .toList(),
+                    ),
+
+              // 右侧脚本面板
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeInOut,
+                right: browserProvider.isScriptPanelExpanded
+                    ? 0
+                    : -panelWidth,
+                top: 0,
+                bottom: 0,
+                child: SizedBox(
+                  width: panelWidth + 24,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final arrowTop = (constraints.maxHeight - 60) / 2;
+                      return Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          // 脚本面板
+                          Positioned(
+                            top: 0,
+                            bottom: 0,
+                            right: 0,
+                            width: panelWidth,
+                            child: Container(
+                              width: panelWidth,
+                              decoration: const BoxDecoration(
+                                color: Colors.transparent,
+                                borderRadius: BorderRadius.horizontal(
+                                    left: Radius.circular(12)),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black26,
+                                    blurRadius: 10,
+                                    offset: Offset(-2, 0),
+                                  ),
+                                ],
+                              ),
+                              child: RightScriptPanel(
+                                onAddScript: () async {
+                                  final result = await showDialog<Script>(
+                                    context: context,
+                                    builder: (context) =>
+                                        const AddScriptDialog(),
+                                  );
+                                  if (result != null && mounted) {
+                                    scriptProvider.addScript(result);
+                                  }
+                                },
+                                onGlobalSettings: () {
+                                  showDialog(
+                                    context: context,
+                                    builder: (context) =>
+                                        const GlobalSettingsDialog(),
+                                  );
+                                },
+                                onExecute: () {
+                                  if (scriptProvider.isExecuting) {
+                                    scriptProvider.stopExecution();
+                                  } else {
+                                    if (browserProvider.currentTab != null &&
+                                        browserProvider.currentTab!.controller !=
+                                            null) {
+                                      scriptProvider.startExecution(
+                                        browserProvider
+                                            .currentTab!.controller!,
+                                        browserProvider.currentIndex,
+                                      );
+                                    }
+                                  }
+                                },
+                                onLoad: () {
+                                  _showLoadScriptDialog(
+                                      context, scriptProvider);
+                                },
+                                onRecordScript: () {
+                                  if (browserProvider.currentTab != null) {
+                                    // 点击录制脚本时自动触发一次收纳脚本管理器的动作，避免遮挡网页
+                                    browserProvider.closeScriptPanel();
+                                    scriptProvider.startRecording();
+                                  }
+                                },
+                              ),
+                            ),
+                          ),
+                          // 脚本面板切换按钮（紧贴在面板左侧边缘，严格仅在箭头 24x60 物理区域内响应触碰）
+                          Positioned(
+                            left: 0,
+                            top: arrowTop,
+                            width: 24,
+                            height: 60,
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () {
+                                // 切换侧边栏时暂时屏蔽并撤销可能被穿透捕获的录制动作
+                                scriptProvider.cancelLastRecordingIfRecent();
+                                browserProvider.toggleScriptPanel();
+                              },
+                              child: Container(
+                                width: 24,
+                                height: 60,
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[800],
+                                  borderRadius: const BorderRadius.only(
+                                    topLeft: Radius.circular(12),
+                                    bottomLeft: Radius.circular(12),
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.3),
+                                      blurRadius: 4,
+                                      offset: const Offset(-2, 0),
+                                    ),
+                                  ],
+                                ),
+                                child: Icon(
+                                  browserProvider.isScriptPanelExpanded
+                                      ? Icons.chevron_right
+                                      : Icons.chevron_left,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
                   ),
                 ),
               ),
-            ),
 
-            // 开屏启动 Loading 层（等待网络与初始化就绪并平滑淡出，淡出完成后移出渲染树释放动画资源）
-            if (_keepSplashInTree)
-              AnimatedOpacity(
-                opacity: _isAppStarting ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 450),
-                curve: Curves.easeInOutCubic,
-                onEnd: () {
-                  if (!_isAppStarting && mounted) {
-                    setState(() {
-                      _keepSplashInTree = false;
-                    });
-                  }
-                },
-                child: IgnorePointer(
-                  ignoring: !_isAppStarting,
-                  child: SplashScreenView(isStarting: _isAppStarting),
-                ),
-              ),
-          ],
-        );
-      },
-    );
-  }
+              // 脚本录制浮窗
+              const ScriptRecordingOverlay(),
+
+              // 脚本执行极简悬浮状态胶囊（侧边栏收起时显示）
+              const FloatingCapsule(),
+            ],
+          ),
+          bottomNavigationBar:
+              _buildBottomBar(context, browserProvider, scriptProvider, downloadProvider),
+        ),
+      ),
+    ),
+  ),
+
+    // 开屏启动 Loading 层（等待网络与初始化就绪并平滑淡出）
+    AnimatedOpacity(
+      opacity: _isAppStarting ? 1.0 : 0.0,
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.easeInOutCubic,
+      child: IgnorePointer(
+        ignoring: !_isAppStarting,
+        child: SplashScreenView(isStarting: _isAppStarting),
+      ),
+    ),
+  ],
+);
+  },
+);
+}
 
   Widget _buildBottomBar(
       BuildContext context,
@@ -1362,13 +1251,12 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                   showModalBottomSheet(
                     context: context,
                     backgroundColor: Colors.transparent,
-                    builder: (sheetContext) => BottomGridMenu(
+                    builder: (context) => BottomGridMenu(
                       isAutoRefreshActive:
                           browser.currentTab?.isAutoRefreshActive ?? false,
                       isExecuting: scriptProvider.isExecuting,
                       onBookmarksHistory: () {
-                        Navigator.pop(sheetContext);
-                        if (!mounted) return;
+                        Navigator.pop(context);
                         Navigator.push(
                           context,
                           MaterialPageRoute(
@@ -1378,36 +1266,26 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                         );
                       },
                       onAutoRefresh: () {
-                        Navigator.pop(sheetContext);
-                        if (!mounted) return;
-                        final currentTab = browser.currentTab;
-                        if (currentTab != null) {
-                          if (currentTab.isAutoRefreshActive) {
-                            currentTab.stopAutoRefresh();
-                            setState(() {});
+                        Navigator.pop(context);
+                        if (browser.currentTab != null) {
+                          if (browser.currentTab!.isAutoRefreshActive) {
+                            browser.currentTab!.stopAutoRefresh();
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(content: Text('已取消自动刷新')),
                             );
                           } else {
                             showDialog(
                               context: context,
-                              builder: (dialogContext) => AutoRefreshDialog(
+                              builder: (context) => AutoRefreshDialog(
                                 onConfirm: (interval, count) {
-                                  currentTab.startAutoRefresh(
-                                    interval,
-                                    count,
-                                    onStateChanged: () {
-                                      if (mounted) setState(() {});
-                                    },
+                                  browser.currentTab!
+                                      .startAutoRefresh(interval, count);
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                          '已开启自动刷新: $interval秒, ${count == 0 ? "无限" : count}次'),
+                                    ),
                                   );
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                            '已开启自动刷新: $interval秒, ${count == 0 ? "无限" : count}次'),
-                                      ),
-                                    );
-                                  }
                                 },
                               ),
                             );
@@ -1415,15 +1293,16 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                         }
                       },
                       onRecordScript: () async {
-                        Navigator.pop(sheetContext);
-                        if (!mounted) return;
+                        Navigator.pop(context);
                         if (browser.currentTab != null) {
                           // 点击录制脚本时自动收纳脚本管理器，展示完整网页供录制操作
                           browser.closeScriptPanel();
                           scriptProvider.startRecording();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('开始录制脚本...')),
-                          );
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('开始录制脚本...')),
+                            );
+                          }
                         } else {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text('请先打开一个网页')),
@@ -1431,41 +1310,35 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                         }
                       },
                       onCookieManager: () {
-                        Navigator.pop(sheetContext);
-                        if (!mounted) return;
-                        final currentTab = browser.currentTab;
-                        if (currentTab != null &&
-                            currentTab.url.isNotEmpty &&
-                            !currentTab.url.startsWith('file://')) {
+                        Navigator.pop(context);
+                        if (browser.currentTab != null &&
+                            browser.currentTab!.url.isNotEmpty &&
+                            !browser.currentTab!.url.startsWith('file://')) {
                           showDialog(
                             context: context,
-                            builder: (dialogContext) => CookieManagerDialog(
-                              currentUrl: currentTab.url,
+                            builder: (context) => CookieManagerDialog(
+                              currentUrl: browser.currentTab!.url,
                               onReloadRequired: () {
-                                currentTab.controller?.reload();
+                                browser.currentTab!.controller?.reload();
                               },
                             ),
                           );
                         } else {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                                content: Text('请先打开目标网页后再管理 Cookie/账号')),
+                            const SnackBar(content: Text('请先打开目标网页后再管理 Cookie/账号')),
                           );
                         }
                       },
                       activeDownloadCount: downloadProvider.activeCount,
                       onDownloads: () {
-                        Navigator.pop(sheetContext);
-                        if (!mounted) return;
+                        Navigator.pop(context);
                         DownloadManagerDialog.show(context);
                       },
                       onSettings: () {
-                        Navigator.pop(sheetContext);
-                        if (!mounted) return;
+                        Navigator.pop(context);
                         showDialog(
                           context: context,
-                          builder: (dialogContext) =>
-                              const BrowserSettingsDialog(),
+                          builder: (context) => const BrowserSettingsDialog(),
                         );
                       },
                     ),
@@ -1488,10 +1361,8 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                         browser.currentTab!.url != 'file:///welcome.html' &&
                         browser.currentTab!.title != '欢迎使用')
                     ? () {
-                        final targetTab = browser.currentTab;
                         WelcomeManager.getWelcomeContent().then((content) {
-                          if (!mounted) return;
-                          targetTab?.controller?.loadData(
+                          browser.currentTab!.controller?.loadData(
                               data: content,
                               mimeType: 'text/html',
                               encoding: 'utf-8',
@@ -1503,10 +1374,8 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                   'AU',
                   style: TextStyle(
                       color: (browser.currentTab != null &&
-                              !browser.currentTab!.url
-                                  .endsWith('welcome.html') &&
-                              browser.currentTab!.url !=
-                                  'file:///welcome.html' &&
+                              !browser.currentTab!.url.endsWith('welcome.html') &&
+                              browser.currentTab!.url != 'file:///welcome.html' &&
                               browser.currentTab!.title != '欢迎使用')
                           ? Colors.white
                           : Colors.white38,
@@ -1523,7 +1392,9 @@ class _BrowserHomePageState extends State<BrowserHomePage>
   /// 绘制带有当前标签数量的双层叠放标签图标（参考移动端多标签按钮设计）
   Widget _buildTabCountIcon({required int count, required Color bgColor}) {
     final displayText = count > 99 ? '99+' : '$count';
-    final fontSize = count > 99 ? 7.5 : (count >= 10 ? 9.0 : 10.5);
+    final fontSize = count > 99
+        ? 7.5
+        : (count >= 10 ? 9.0 : 10.5);
 
     return SizedBox(
       width: 22,
@@ -1574,9 +1445,9 @@ class _BrowserHomePageState extends State<BrowserHomePage>
     );
   }
 
-  void _showTabsList(BuildContext rootContext, BrowserProvider browser) {
+  void _showTabsList(BuildContext context, BrowserProvider browser) {
     showModalBottomSheet(
-      context: rootContext,
+      context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (bottomSheetContext) =>
@@ -1627,11 +1498,10 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                             borderRadius: BorderRadius.circular(8),
                             onTap: () {
                               currentBrowser.setCurrentIndex(index);
-                              Navigator.pop(bottomSheetContext);
+                              Navigator.pop(context);
                             },
                             onLongPress: () {
-                              _showEditTabDialog(
-                                  rootContext, currentBrowser, index);
+                              _showEditTabDialog(context, currentBrowser, index);
                             },
                             child: Padding(
                               padding: const EdgeInsets.symmetric(
@@ -1706,7 +1576,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                                     behavior: HitTestBehavior.opaque,
                                     onTap: () {
                                       if (!canClose) {
-                                        ScaffoldMessenger.of(rootContext)
+                                        ScaffoldMessenger.of(context)
                                             .showSnackBar(
                                           const SnackBar(
                                             content:
@@ -1719,7 +1589,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
 
                                       if (currentBrowser.tabs.length <= 1) {
                                         currentBrowser.removeTab(index);
-                                        Navigator.pop(bottomSheetContext);
+                                        Navigator.pop(context);
                                         _addNewTab();
                                       } else {
                                         currentBrowser.removeTab(index);
@@ -1757,7 +1627,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                     children: [
                       Expanded(
                         child: TextButton(
-                          onPressed: () => Navigator.pop(bottomSheetContext),
+                          onPressed: () => Navigator.pop(context),
                           child: const Text(
                             '取消',
                             style: TextStyle(color: Colors.white, fontSize: 16),
@@ -1772,7 +1642,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                       Expanded(
                         child: TextButton(
                           onPressed: () async {
-                            Navigator.pop(bottomSheetContext);
+                            Navigator.pop(context);
                             await _addNewTab();
                           },
                           child: const Text(
@@ -1792,8 +1662,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                           cardColor: const Color(0xFF2C2C2C),
                         ),
                         child: PopupMenuButton<String>(
-                          icon:
-                              const Icon(Icons.more_vert, color: Colors.white),
+                          icon: const Icon(Icons.more_vert, color: Colors.white),
                           color: const Color(0xFF2C2C2C),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(8),
@@ -1802,7 +1671,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                           offset: const Offset(0, -360),
                           onSelected: (action) {
                             _handleTabsMenuAction(
-                              rootContext,
+                              context,
                               bottomSheetContext,
                               currentBrowser,
                               scriptProvider,
@@ -1816,8 +1685,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                             _buildTabsMenuItem('refresh_multi', '刷新多个窗口'),
                             _buildTabsMenuItem('close_multi', '关闭多个窗口'),
                             _buildTabsMenuItem('load_script_multi', '读取脚本到多个窗口'),
-                            _buildTabsMenuItem(
-                                'open_bookmarks_multi', '从书签打开多个窗口'),
+                            _buildTabsMenuItem('open_bookmarks_multi', '从书签打开多个窗口'),
                           ],
                         ),
                       ),
@@ -2093,8 +1961,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
           }
           if (rootContext.mounted) {
             ScaffoldMessenger.of(rootContext).showSnackBar(
-              SnackBar(
-                  content: Text('已从书签打开 ${selectedBookmarks.length} 个新窗口')),
+              SnackBar(content: Text('已从书签打开 ${selectedBookmarks.length} 个新窗口')),
             );
           }
         }
@@ -2245,8 +2112,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogCtx, null),
-                child:
-                    const Text('取消', style: TextStyle(color: Colors.white54)),
+                child: const Text('取消', style: TextStyle(color: Colors.white54)),
               ),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
@@ -2331,15 +2197,13 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                     contentPadding: const EdgeInsets.symmetric(horizontal: 8),
                     title: Text(
                       b.title ?? '未命名书签',
-                      style:
-                          const TextStyle(color: Colors.white, fontSize: 14),
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                     subtitle: Text(
                       b.url ?? '',
-                      style:
-                          const TextStyle(color: Colors.white54, fontSize: 11),
+                      style: const TextStyle(color: Colors.white54, fontSize: 11),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -2359,8 +2223,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogCtx, null),
-                child:
-                    const Text('取消', style: TextStyle(color: Colors.white54)),
+                child: const Text('取消', style: TextStyle(color: Colors.white54)),
               ),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
@@ -2439,8 +2302,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
           ),
           TextButton(
             onPressed: () async {
-              FilePickerResult? pickResult =
-                  await FilePicker.platform.pickFiles(
+              FilePickerResult? pickResult = await FilePicker.platform.pickFiles(
                 dialogTitle: '选择脚本文件',
                 type: FileType.any,
               );

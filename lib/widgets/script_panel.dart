@@ -109,7 +109,7 @@ class ScriptPanel extends StatelessWidget {
       ),
       child: Column(
         children: [
-          // 顶部操作栏
+          // Header
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: const BoxDecoration(
@@ -128,7 +128,7 @@ class ScriptPanel extends StatelessWidget {
                             : CupertinoColors.black)),
                 Row(
                   children: [
-                    // 录制控制按钮
+                    // Recording control
                     CupertinoButton(
                       padding: EdgeInsets.zero,
                       child: Icon(
@@ -149,34 +149,18 @@ class ScriptPanel extends StatelessWidget {
                         }
                       },
                     ),
-                    if (scriptProvider.isExecuting) ...[
+                    if (scriptProvider.isExecuting)
                       CupertinoButton(
                         padding: EdgeInsets.zero,
                         child: Icon(
-                          scriptProvider.isPaused
-                              ? CupertinoIcons.play
-                              : CupertinoIcons.pause,
+                          CupertinoIcons.pause,
                           color: isDark
                               ? CupertinoColors.white
                               : CupertinoColors.black,
                         ),
-                        onPressed: () {
-                          if (scriptProvider.isPaused) {
-                            scriptProvider.resumeExecution();
-                          } else {
-                            scriptProvider.pauseExecution();
-                          }
-                        },
-                      ),
-                      CupertinoButton(
-                        padding: EdgeInsets.zero,
-                        child: const Icon(
-                          CupertinoIcons.stop,
-                          color: CupertinoColors.systemRed,
-                        ),
-                        onPressed: () => scriptProvider.stopExecution(),
-                      ),
-                    ] else
+                        onPressed: () => scriptProvider.pauseExecution(),
+                      )
+                    else
                       CupertinoButton(
                         padding: EdgeInsets.zero,
                         child: Icon(
@@ -194,7 +178,7 @@ class ScriptPanel extends StatelessWidget {
                           }
                         },
                       ),
-                    // 导入与导出按钮
+                    // Import/Export buttons
                     CupertinoButton(
                       padding: EdgeInsets.zero,
                       child: Icon(
@@ -243,7 +227,7 @@ class ScriptPanel extends StatelessWidget {
             ),
           ),
 
-          // 脚本列表
+          // Script List
           Expanded(
             child: ListView.builder(
               itemCount: scriptProvider.scripts.length,

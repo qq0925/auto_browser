@@ -35,7 +35,7 @@ class CookieService {
       return await _cookieManager.setCookie(
         url: uri,
         name: name,
-        value: value.toString(),
+        value: value,
         domain: domain,
         path: path,
         expiresDate: expiresDate,
@@ -48,19 +48,10 @@ class CookieService {
     }
   }
 
-  /// 清除指定 URL 下的 Cookie（包含父级域名 Cookie）
+  /// 清除指定 URL 下的 Cookie
   static Future<bool> clearCookiesForUrl(String urlString) async {
     try {
       final uri = WebUri(urlString);
-      final existing = await _cookieManager.getCookies(url: uri);
-      for (final c in existing) {
-        await _cookieManager.deleteCookie(
-          url: uri,
-          name: c.name,
-          domain: c.domain,
-          path: c.path ?? '/',
-        );
-      }
       return await _cookieManager.deleteCookies(url: uri);
     } catch (e) {
       debugPrint('清除 Cookie 失败: $e');
@@ -116,24 +107,6 @@ class CookieService {
     }
   }
 
-  /// 规范化域名（去除前导点号与 www. 前缀）
-  static String _normalizeDomain(String raw) {
-    var d = raw.trim().toLowerCase();
-    if (d.startsWith('http://') || d.startsWith('https://')) {
-      final uri = Uri.tryParse(d);
-      if (uri != null && uri.host.isNotEmpty) {
-        d = uri.host.toLowerCase();
-      }
-    }
-    while (d.startsWith('.')) {
-      d = d.substring(1);
-    }
-    if (d.startsWith('www.')) {
-      d = d.substring(4);
-    }
-    return d;
-  }
-
   /// 获取所有已保存的账号存档（可按 domain 过滤）
   static Future<List<Map<String, dynamic>>> getSavedProfiles({String? domain}) async {
     try {
@@ -144,17 +117,10 @@ class CookieService {
       final profiles = jsonDecode(profilesJson) as Map<String, dynamic>;
       final list = profiles.values.cast<Map<String, dynamic>>().toList();
 
-      if (domain != null && domain.trim().isNotEmpty) {
-        final normHost = _normalizeDomain(domain);
-        if (normHost.isEmpty) return list;
+      if (domain != null && domain.isNotEmpty) {
         return list.where((p) {
-          final pDomain = (p['domain'] as String? ?? '').trim();
-          if (pDomain.isEmpty) return false;
-          final normPDomain = _normalizeDomain(pDomain);
-          if (normPDomain.isEmpty) return false;
-          return normHost == normPDomain ||
-              normHost.endsWith('.$normPDomain') ||
-              normPDomain.endsWith('.$normHost');
+          final pDomain = p['domain'] as String? ?? '';
+          return pDomain.contains(domain) || domain.contains(pDomain);
         }).toList();
       }
 
@@ -197,47 +163,20 @@ class CookieService {
 
       final uri = WebUri(urlString);
 
-      // 先清除当前站点的旧 Cookie（包含父级域名 Cookie）
-      final existing = await _cookieManager.getCookies(url: uri);
-      for (final c in existing) {
-        await _cookieManager.deleteCookie(
-          url: uri,
-          name: c.name,
-          domain: c.domain,
-          path: c.path ?? '/',
-        );
-      }
+      // 先清除当前站点的旧 Cookie
       await _cookieManager.deleteCookies(url: uri);
 
       // 写入新存档的 Cookie
       final cookieList = profileData['cookies'] as List<dynamic>? ?? [];
       for (final item in cookieList) {
         if (item is Map<String, dynamic>) {
-          final rawExpires = item['expiresDate'];
-          int? expiresDate;
-          if (rawExpires is int) {
-            if (rawExpires <= 0) {
-              expiresDate = null;
-            } else if (rawExpires > 0 && rawExpires < 10000000000) {
-              expiresDate = rawExpires * 1000;
-            } else {
-              expiresDate = rawExpires;
-            }
-            if (expiresDate != null &&
-                expiresDate < DateTime.now().millisecondsSinceEpoch) {
-              expiresDate = DateTime.now()
-                  .add(const Duration(days: 30))
-                  .millisecondsSinceEpoch;
-            }
-          }
-
           await _cookieManager.setCookie(
             url: uri,
             name: item['name'] as String,
-            value: item['value']?.toString() ?? '',
+            value: item['value'],
             domain: item['domain'] as String?,
             path: item['path'] as String? ?? '/',
-            expiresDate: expiresDate,
+            expiresDate: item['expiresDate'] as int?,
             isSecure: item['isSecure'] as bool?,
             isHttpOnly: item['isHttpOnly'] as bool?,
           );

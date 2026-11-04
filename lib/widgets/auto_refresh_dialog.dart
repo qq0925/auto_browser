@@ -15,7 +15,7 @@ class _AutoRefreshDialogState extends State<AutoRefreshDialog> {
       TextEditingController(text: '1');
   final TextEditingController _countController =
       TextEditingController(text: '0');
-  String _unit = '秒'; // 默认时间单位
+  String _unit = '秒'; // Default unit
 
   @override
   void dispose() {
@@ -27,7 +27,7 @@ class _AutoRefreshDialogState extends State<AutoRefreshDialog> {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      backgroundColor: const Color(0xFF333333), // 深色背景
+      backgroundColor: const Color(0xFF333333), // Dark background
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
       child: Container(
         padding: const EdgeInsets.all(16),
@@ -45,7 +45,7 @@ class _AutoRefreshDialogState extends State<AutoRefreshDialog> {
             ),
             const SizedBox(height: 20),
 
-            // 刷新间隔行
+            // Interval Row
             Row(
               children: [
                 const Text('刷新间隔',
@@ -61,7 +61,6 @@ class _AutoRefreshDialogState extends State<AutoRefreshDialog> {
                     ),
                     child: TextField(
                       controller: _intervalController,
-                      style: const TextStyle(color: Colors.black87),
                       keyboardType: TextInputType.number,
                       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                       textAlign: TextAlign.center,
@@ -73,7 +72,7 @@ class _AutoRefreshDialogState extends State<AutoRefreshDialog> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                // 时间单位选择按钮
+                // Unit Button
                 Container(
                   height: 36,
                   decoration: BoxDecoration(
@@ -110,7 +109,7 @@ class _AutoRefreshDialogState extends State<AutoRefreshDialog> {
             ),
             const SizedBox(height: 16),
 
-            // 刷新次数行
+            // Count Row
             Row(
               children: [
                 const Text('刷新次数',
@@ -125,7 +124,6 @@ class _AutoRefreshDialogState extends State<AutoRefreshDialog> {
                     ),
                     child: TextField(
                       controller: _countController,
-                      style: const TextStyle(color: Colors.black87),
                       keyboardType: TextInputType.number,
                       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                       textAlign: TextAlign.center,
@@ -147,7 +145,7 @@ class _AutoRefreshDialogState extends State<AutoRefreshDialog> {
             ),
             const SizedBox(height: 24),
 
-            // 底部按钮行
+            // Buttons
             Row(
               children: [
                 Expanded(
@@ -168,15 +166,24 @@ class _AutoRefreshDialogState extends State<AutoRefreshDialog> {
                           int.tryParse(_intervalController.text) ?? 1;
                       final count = int.tryParse(_countController.text) ?? 0;
 
-                      // 根据所选单位转换为秒数，并保证最小刷新间隔为 1 秒
+                      // Convert to seconds for the callback as per current BrowserTab implementation
+                      // If BrowserTab only supports seconds, we might lose precision for ms.
+                      // But for now, let's just pass the raw interval and handle unit conversion here if possible
+                      // or assume the callback handles it.
+                      // Since I defined startAutoRefresh(int intervalSeconds, int count), I should convert to seconds.
+                      // If unit is ms, intervalSeconds might be 0.
+
+                      // Let's modify the callback to accept Duration instead?
+                      // Or just convert to seconds (rounding up/down?)
+
                       int intervalSeconds = interval;
                       if (_unit == '毫秒') {
                         intervalSeconds = (interval / 1000).round();
+                        if (intervalSeconds < 1) {
+                          intervalSeconds = 1; // Minimum 1s for now
+                        }
                       } else if (_unit == '分钟') {
                         intervalSeconds = interval * 60;
-                      }
-                      if (intervalSeconds < 1) {
-                        intervalSeconds = 1;
                       }
 
                       widget.onConfirm(intervalSeconds, count);

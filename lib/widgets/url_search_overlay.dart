@@ -25,9 +25,8 @@ class _UrlSearchOverlayState extends State<UrlSearchOverlay> {
     super.initState();
     _controller = TextEditingController(text: widget.initialUrl);
 
-    // 自动聚焦并全选所有文本
+    // Auto focus and select all text
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
       _focusNode.requestFocus();
       _controller.selection = TextSelection(
         baseOffset: 0,
@@ -122,7 +121,7 @@ class _UrlSearchOverlayState extends State<UrlSearchOverlay> {
               contentPadding: EdgeInsets.symmetric(vertical: 14),
             ),
             onSubmitted: (value) {
-              // 搜索逻辑由主页统一处理，此处直接回传
+              // Logic is handled in home_screen, just pass back
               widget.onSubmitted(value);
               Navigator.pop(context);
             },
@@ -137,7 +136,7 @@ class _UrlSearchOverlayState extends State<UrlSearchOverlay> {
               '取消',
               style: TextStyle(
                 color: Colors.white,
-                fontSize: 16, // 字体稍大便于点击
+                fontSize: 16, // Slightly larger than default
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -146,7 +145,7 @@ class _UrlSearchOverlayState extends State<UrlSearchOverlay> {
       ),
       body: Container(
         color: backgroundColor,
-        // 后续可在此处扩展搜索历史或建议
+        // Future: Add search history or suggestions here
       ),
     );
   }

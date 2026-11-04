@@ -10,37 +10,31 @@ class MenuPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: browserProvider,
-      builder: (context, _) {
-        final isDark = browserProvider.isDarkMode;
+    final isDark = browserProvider.isDarkMode;
 
-        return CupertinoPageScaffold(
-          navigationBar: CupertinoNavigationBar(
-            middle: Text(
-              '菜单',
-              style: TextStyle(
-                color: isDark ? CupertinoColors.white : CupertinoColors.black,
-              ),
-            ),
+    return CupertinoPageScaffold(
+      navigationBar: CupertinoNavigationBar(
+        middle: Text(
+          '菜单',
+          style: TextStyle(
+            color: isDark ? CupertinoColors.white : CupertinoColors.black,
           ),
-          child: Material(
-            color: isDark ? CupertinoColors.black : CupertinoColors.white,
-            child: SafeArea(
-              child: ListView(
-                children: [
-                  _buildSection(
-                      context, '书签', browserProvider.bookmarks, isDark,
-                      isBookmark: true),
-                  const Divider(),
-                  _buildSection(context, '历史', browserProvider.history, isDark,
-                      isBookmark: false),
-                ],
-              ),
-            ),
+        ),
+      ),
+      child: Material(
+        color: isDark ? CupertinoColors.black : CupertinoColors.white,
+        child: SafeArea(
+          child: ListView(
+            children: [
+              _buildSection(context, '书签', browserProvider.bookmarks, isDark,
+                  isBookmark: true),
+              const Divider(),
+              _buildSection(context, '历史', browserProvider.history, isDark,
+                  isBookmark: false),
+            ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
@@ -100,7 +94,7 @@ class MenuPage extends StatelessWidget {
                 ),
               ),
               onTap: () {
-                // 跳转到目标网址
+                // Navigate to URL
                 Navigator.pop(context, url);
               },
               trailing: isBookmark

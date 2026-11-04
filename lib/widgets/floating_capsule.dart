@@ -22,7 +22,7 @@ class _FloatingCapsuleState extends State<FloatingCapsule>
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),
-    );
+    )..repeat(reverse: true);
 
     _pulseAnimation = Tween<double>(begin: 0.85, end: 1.0).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
@@ -41,9 +41,6 @@ class _FloatingCapsuleState extends State<FloatingCapsule>
       builder: (context, browser, scriptProvider, child) {
         // 仅在“脚本正在运行”且“右侧面板收起”时显示
         if (!scriptProvider.isExecuting || browser.isScriptPanelExpanded) {
-          if (_pulseController.isAnimating) {
-            _pulseController.stop();
-          }
           return const SizedBox.shrink();
         }
 
@@ -52,17 +49,6 @@ class _FloatingCapsuleState extends State<FloatingCapsule>
         final currentIndex = scriptProvider.currentScriptIndex;
         final remainingLoops = scriptProvider.remainingLoopCount;
         final isPaused = scriptProvider.isPaused;
-
-        // 根据暂停状态动态控制呼吸动画控制器
-        if (isPaused) {
-          if (_pulseController.isAnimating) {
-            _pulseController.stop();
-          }
-        } else {
-          if (!_pulseController.isAnimating) {
-            _pulseController.repeat(reverse: true);
-          }
-        }
 
         String stepName = '自动化执行中';
         if (currentTab != null &&
@@ -116,9 +102,7 @@ class _FloatingCapsuleState extends State<FloatingCapsule>
                           ? const AlwaysStoppedAnimation(1.0)
                           : _pulseAnimation,
                       child: Icon(
-                        isPaused
-                            ? Icons.pause_circle_filled
-                            : Icons.play_circle_fill,
+                        isPaused ? Icons.pause_circle_filled : Icons.play_circle_fill,
                         color: isPaused ? Colors.amber : Colors.greenAccent,
                         size: 18,
                       ),
