@@ -309,33 +309,101 @@ class _BrowserViewState extends State<BrowserView> {
                   id: 5,
                   title: "在新标签页打开",
                   action: () async {
-                    // 在异步操作前获取 provider
                     final browserProvider = context.read<BrowserProvider>();
-                    // 获取选中的链接
                     try {
-                      final linkUrl =
+                      final rawResult =
                           await widget.tab.controller?.evaluateJavascript(
                         source: """
                           (function() {
-                            var selection = window.getSelection();
-                            if (selection.rangeCount > 0) {
-                              var range = selection.getRangeAt(0);
-                              var container = range.commonAncestorContainer;
-                              while (container && container.nodeName !== 'A') {
-                                container = container.parentNode;
+                            try {
+                              // 1. 尝试从选区或活动元素提取最近的超链接 A.href
+                              var sel = window.getSelection();
+                              var selText = sel ? sel.toString().trim() : '';
+
+                              if (sel && sel.rangeCount > 0) {
+                                var range = sel.getRangeAt(0);
+                                var node = range.commonAncestorContainer;
+                                while (node && node !== document.body && node.nodeName !== 'A') {
+                                  node = node.parentNode;
+                                }
+                                if (node && node.nodeName === 'A' && node.href) {
+                                  return JSON.stringify({ type: 'url', value: node.href });
+                                }
+                                // 检查选区碎片内是否包含 <a>
+                                if (range.cloneContents) {
+                                  var fragment = range.cloneContents();
+                                  var aInFrag = fragment.querySelector ? fragment.querySelector('a') : null;
+                                  if (aInFrag && aInFrag.href) {
+                                    return JSON.stringify({ type: 'url', value: aInFrag.href });
+                                  }
+                                }
                               }
-                              if (container && container.nodeName === 'A') {
-                                return container.href;
+
+                              // 2. 尝试从当前焦点元素或点击锚点读取 A.href
+                              var active = document.activeElement;
+                              var closestA = active ? (active.closest ? active.closest('a') : null) : null;
+                              if (closestA && closestA.href) {
+                                return JSON.stringify({ type: 'url', value: closestA.href });
                               }
-                            }
+
+                              // 3. 若无 <a> 标签，检查选中的文字本身是否是 URL 网址或域名
+                              if (selText) {
+                                var lower = selText.toLowerCase();
+                                var isHttpUrl = lower.indexOf('http://') === 0 ||
+                                    lower.indexOf('https://') === 0 ||
+                                    lower.indexOf('file://') === 0 ||
+                                    lower.indexOf('about:') === 0;
+                                var isDomainUrl = lower.indexOf('.') !== -1 &&
+                                    lower.indexOf(' ') === -1 &&
+                                    lower.length >= 4;
+                                if (isHttpUrl) {
+                                  return JSON.stringify({ type: 'url', value: selText });
+                                } else if (isDomainUrl) {
+                                  return JSON.stringify({ type: 'url', value: 'https://' + selText });
+                                } else {
+                                  // 4. 普通关键词，作为搜索词在新标签页打开
+                                  return JSON.stringify({ type: 'search', value: selText });
+                                }
+                              }
+                            } catch(e) {}
                             return null;
                           })();
                         """,
                       );
-                      if (linkUrl != null &&
-                          linkUrl.toString().isNotEmpty &&
-                          linkUrl.toString() != 'null') {
-                        browserProvider.addTab(initialUrl: linkUrl.toString());
+
+                      if (rawResult != null &&
+                          rawResult.toString().isNotEmpty &&
+                          rawResult.toString() != 'null') {
+                        String targetUrl = '';
+                        try {
+                          final parsed = jsonDecode(rawResult.toString());
+                          if (parsed is Map) {
+                            final type = parsed['type']?.toString();
+                            final val = parsed['value']?.toString() ?? '';
+                            if (type == 'url' && val.isNotEmpty) {
+                              targetUrl = val;
+                            } else if (type == 'search' && val.isNotEmpty) {
+                              final engine = browserProvider.searchEngine;
+                              if (engine == 'Bing') {
+                                targetUrl =
+                                    'https://www.bing.com/search?q=${Uri.encodeComponent(val)}';
+                              } else if (engine == 'Google') {
+                                targetUrl =
+                                    'https://www.google.com/search?q=${Uri.encodeComponent(val)}';
+                              } else {
+                                targetUrl =
+                                    'https://www.baidu.com/s?wd=${Uri.encodeComponent(val)}';
+                              }
+                            }
+                          }
+                        } catch (_) {
+                          final str = rawResult.toString().trim();
+                          if (str.startsWith('http')) targetUrl = str;
+                        }
+
+                        if (targetUrl.isNotEmpty) {
+                          browserProvider.addTab(initialUrl: targetUrl);
+                        }
                       }
                     } catch (_) {}
                   },
@@ -389,7 +457,7 @@ class _BrowserViewState extends State<BrowserView> {
               useHybridComposition: true,
               useOnDownloadStart: true,
               allowsLinkPreview: false, // 禁用 iOS 链接预览
-              allowsBackForwardNavigationGestures: true, // 开启平滑滑动前进后退手势
+              allowsBackForwardNavigationGestures: !Platform.isWindows, // 仅在移动端开启滑动前进后退手势，Windows PC 端禁用以避免触控板/鼠标误触后退
               forceDark: browserProvider.isDarkMode
                   ? ForceDark.ON
                   : ForceDark.OFF,

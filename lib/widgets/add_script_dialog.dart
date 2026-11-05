@@ -1,2508 +1,2508 @@
-import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
-import '../providers/script_provider.dart';
-import '../providers/browser_provider.dart';
-import '../models/script.dart';
-import 'package:file_picker/file_picker.dart';
-import 'dart:io';
-
-/// Cached theme values to avoid repeated context.read() calls during rebuilds.
-/// This significantly improves performance on Android when editing scripts.
-class _DialogTheme {
-  final bool isDarkMode;
-  final Color backgroundColor;
-  final Color headerColor;
-  final Color textColor;
-  final Color labelColor;
-  final Color inputFillColor;
-  final Color borderColor;
-  final Color iconColor;
-  final Color hintColor;
-  final Color tileColor;
-  final Color dropdownColor;
-
-  _DialogTheme({required this.isDarkMode})
-      : backgroundColor = isDarkMode ? const Color(0xFF1A2332) : Colors.white,
-        headerColor =
-            isDarkMode ? const Color(0xFF0D1B2A) : const Color(0xFFF5F5F5),
-        textColor = isDarkMode ? Colors.white : Colors.black87,
-        labelColor = isDarkMode ? Colors.white70 : Colors.black54,
-        inputFillColor = isDarkMode
-            ? Colors.white.withValues(alpha: 0.05)
-            : Colors.grey.shade100,
-        borderColor = isDarkMode ? Colors.white24 : Colors.grey.shade300,
-        iconColor = isDarkMode ? Colors.white : Colors.black54,
-        hintColor = isDarkMode ? Colors.white38 : Colors.black38,
-        tileColor = isDarkMode ? Colors.white10 : Colors.grey.shade100,
-        dropdownColor = isDarkMode ? const Color(0xFF2C2C2C) : Colors.white;
-}
-
-class _ScriptTypeMeta {
-  final String category;
-  final IconData icon;
-  final String keywords;
-
-  const _ScriptTypeMeta(this.category, this.icon, this.keywords);
-}
-
-class _FormDataItem {
-  final TextEditingController keyController;
-  final TextEditingController valueController;
-
-  _FormDataItem(String key, String value)
-      : keyController = TextEditingController(text: key),
-        valueController = TextEditingController(text: value);
-
-  void dispose() {
-    keyController.dispose();
-    valueController.dispose();
-  }
-}
-
-class AddScriptDialog extends StatefulWidget {
-  final Script? script;
-  final int? index;
-  final bool isNested;
-
-  const AddScriptDialog(
-      {super.key, this.script, this.index, this.isNested = false});
-
-  @override
-  State<AddScriptDialog> createState() => _AddScriptDialogState();
-}
-
-class _AddScriptDialogState extends State<AddScriptDialog> {
-  // Script types list (focused on implemented types)
-  static const List<String> scriptTypes = [
-    '点击文字',
-    '输入框提交',
-    '进入网址',
-    '间隔时间',
-    '自定义JS',
-    '点击图片',
-    '刷新网页',
-    '网页后退',
-    '网页前进',
-    '脚本替换',
-    '脚本停止',
-    '脚本暂停',
-    '执行本地脚本集',
-    '控制脚本开关',
-    '通知栏提醒',
-    '逻辑脚本-出现文字',
-    '逻辑脚本-时间对比',
-    '逻辑脚本-数值对比',
-    '延时脚本',
-    '数值对比-点击文字',
-    '新建窗口并执行脚本',
-    '跳转脚本',
-    '设置Cookie',
-    '清除Cookie',
-    '提取文字',
-  ];
-
-  static final Map<String, _ScriptTypeMeta> _scriptTypeMetas = {
-    '点击文字': _ScriptTypeMeta('页面动作', Icons.touch_app_outlined, 'djwz,click,text,wenzi'),
-    '输入框提交': _ScriptTypeMeta('页面动作', Icons.input_rounded, 'srktj,input,submit,shurukuang'),
-    '进入网址': _ScriptTypeMeta('网页导航', Icons.link_rounded, 'jrwz,url,goto,navigate,wangzhi'),
-    '间隔时间': _ScriptTypeMeta('脚本控制', Icons.timer_outlined, 'jgsj,sleep,interval,wait,shijian'),
-    '自定义JS': _ScriptTypeMeta('脚本控制', Icons.code_rounded, 'zdjs,javascript,js,code'),
-    '点击图片': _ScriptTypeMeta('页面动作', Icons.image_outlined, 'djtp,image,click,tupian'),
-    '刷新网页': _ScriptTypeMeta('网页导航', Icons.refresh_rounded, 'sxwy,reload,refresh,shuaxin'),
-    '网页后退': _ScriptTypeMeta('网页导航', Icons.arrow_back_rounded, 'wyht,back,houtui'),
-    '网页前进': _ScriptTypeMeta('网页导航', Icons.arrow_forward_rounded, 'wyqj,forward,qianjin'),
-    '脚本替换': _ScriptTypeMeta('脚本控制', Icons.swap_horiz_rounded, 'jbth,replace,tihuan'),
-    '脚本停止': _ScriptTypeMeta('脚本控制', Icons.stop_circle_outlined, 'jbtz,stop,tingzhi'),
-    '脚本暂停': _ScriptTypeMeta('脚本控制', Icons.pause_circle_outline, 'jbzt,pause,zanting'),
-    '执行本地脚本集': _ScriptTypeMeta('脚本控制', Icons.folder_special_outlined, 'zxbdfb,subroutine,batch,bendi'),
-    '控制脚本开关': _ScriptTypeMeta('脚本控制', Icons.toggle_on_outlined, 'kzjb,toggle,switch,kaiguan'),
-    '通知栏提醒': _ScriptTypeMeta('辅助工具', Icons.notifications_active_outlined, 'tzltx,notify,notification,tongzhi'),
-    '逻辑脚本-出现文字': _ScriptTypeMeta('逻辑判断', Icons.rule_rounded, 'cxwz,text,if,waittext,chuxian'),
-    '逻辑脚本-时间对比': _ScriptTypeMeta('逻辑判断', Icons.schedule_rounded, 'sjdb,time,compare,shijian'),
-    '逻辑脚本-数值对比': _ScriptTypeMeta('逻辑判断', Icons.analytics_outlined, 'szdb,number,compare,shuzhi'),
-    '延时脚本': _ScriptTypeMeta('脚本控制', Icons.hourglass_empty_rounded, 'ysjb,delay,yanshi'),
-    '数值对比-点击文字': _ScriptTypeMeta('逻辑判断', Icons.ads_click_rounded, 'szdbdj,compare,click,shuzhi'),
-    '新建窗口并执行脚本': _ScriptTypeMeta('网页导航', Icons.open_in_new_rounded, 'xjck,newtab,window,chuangkou'),
-    '跳转脚本': _ScriptTypeMeta('脚本控制', Icons.redo_rounded, 'tzjb,jump,goto,tiaozhuan'),
-    '设置Cookie': _ScriptTypeMeta('数据管理', Icons.cookie_outlined, 'szcookie,setcookie,shezhi'),
-    '清除Cookie': _ScriptTypeMeta('数据管理', Icons.remove_circle_outline, 'qccookie,clearcookie,qingchu'),
-    '提取文字': _ScriptTypeMeta('数据管理', Icons.text_snippet_outlined, 'tqwz,extract,scrape,tiqu'),
-  };
-
-  Future<void> _openScriptTypeSelector() async {
-    final selected = await showDialog<String>(
-      context: context,
-      barrierDismissible: true,
-      builder: (ctx) => _ScriptTypePopupMenuDialog(
-        currentType: _selectedScriptType,
-        scriptTypes: scriptTypes,
-        isDarkMode: _theme.isDarkMode,
-      ),
-    );
-
-    if (selected != null && selected != _selectedScriptType && mounted) {
-      setState(() {
-        _selectedScriptType = selected;
-      });
-    }
-  }
-
-  final TextEditingController _delayController = TextEditingController();
-  final TextEditingController _appearTextController = TextEditingController();
-  final TextEditingController _clickTextController = TextEditingController();
-  final TextEditingController _afterSearchController = TextEditingController();
-  final TextEditingController _beforeSearchController = TextEditingController();
-  final TextEditingController _multipleSelectionController =
-      TextEditingController();
-
-  // 提取文字 fields
-  final TextEditingController _extractSelectorController =
-      TextEditingController();
-  final TextEditingController _extractAttributeController =
-      TextEditingController(text: 'text');
-  final TextEditingController _extractVarNameController =
-      TextEditingController();
-
-  // Cookie fields
-  final TextEditingController _cookieProfileNameController =
-      TextEditingController();
-  final TextEditingController _cookieNameController = TextEditingController();
-  final TextEditingController _cookieValueController = TextEditingController();
-  bool _cookieAutoReload = true;
-  bool _cookieClearAll = false;
-
-  // 间隔时间 fields
-  final TextEditingController _intervalHoursController =
-      TextEditingController();
-  final TextEditingController _intervalMinutesController =
-      TextEditingController();
-  final TextEditingController _intervalSecondsController =
-      TextEditingController();
-
-  // 输入框提交 fields
-  final TextEditingController _submitButtonTextController =
-      TextEditingController();
-
-  // Dynamic form fields managed by persistent controllers
-  final List<_FormDataItem> _formItems = [];
-
-  // 进入网址 field
-  final TextEditingController _urlController = TextEditingController();
-
-  // Generic/Other fields
-  final TextEditingController _operationController = TextEditingController();
-  final TextEditingController _scriptSetController = TextEditingController();
-  final TextEditingController _targetScriptIndicesController =
-      TextEditingController(); // For Control Script Switch
-
-  String _compareMethod = '>';
-  String _switchAction = '禁用'; // For Control Script Switch: 禁用, 启用, 反相
-  // bool _switchState = true; // Removed in favor of _switchAction
-  String _delayTimeUnit = '毫秒'; // Time unit for delay field
-  String? _jsFilePath; // Path to selected JS file
-  String? _targetScriptPath; // Path to target script set for replacement
-  String? _trueScriptPath; // Path to script set for True condition
-  String? _falseScriptPath; // Path to script set for False condition
-
-  // Nested scripts state
-  // Missing definitions
-  String _selectedScriptType = scriptTypes[0];
-  bool _exactMatch = true;
-  bool _enableRegex = false;
-  bool _enableNotification = false;
-
-  // New Window fields
-  final TextEditingController _windowNameController = TextEditingController();
-  String _windowUa = 'Mobile';
-  bool _executeImmediately = false;
-
-  // Other missing controllers
-  final TextEditingController _customJsController = TextEditingController();
-  final TextEditingController _scriptNameController = TextEditingController();
-  final TextEditingController _targetValueController = TextEditingController();
-  final TextEditingController _compareValueController = TextEditingController();
-  final TextEditingController _jumpLabelController = TextEditingController();
-  final TextEditingController _variableNameController = TextEditingController();
-  final TextEditingController _notificationContentController =
-      TextEditingController();
-  final TextEditingController _repeatCountController = TextEditingController();
-
-  // 高级配置分层折叠与超时时间
-  bool _isAdvancedExpanded = false;
-  final TextEditingController _timeoutSecondsController =
-      TextEditingController(text: '30');
-
-  Script? _beforeScript;
-  Script? _afterScript;
-
-  // Cached theme for performance - avoids repeated context.read() calls
-  late _DialogTheme _theme;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final isDarkMode = context.read<BrowserProvider>().isDarkMode;
-    _theme = _DialogTheme(isDarkMode: isDarkMode);
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.script != null) {
-      _selectedScriptType = widget.script!.type;
-      final params = widget.script!.params;
-
-      _delayController.text = (params['执行延迟'] ?? '').toString();
-      _repeatCountController.text = (params['重复次数'] ?? 1).toString();
-      _appearTextController.text = params['出现文字'] ?? '';
-      _clickTextController.text = params['点击文本'] ?? params['图片地址'] ?? '';
-      _afterSearchController.text = params['在此之后'] ?? '';
-      _beforeSearchController.text = params['在此之前'] ?? '';
-      _multipleSelectionController.text = (params['多个筛选'] ?? 1).toString();
-      _exactMatch = params['完全匹配'] ??
-          (_selectedScriptType == '点击文字' ? true : false);
-      _enableRegex = params['启用正则'] ?? false;
-      _enableNotification = params['执行完成提醒'] ?? false;
-
-      _windowNameController.text = params['窗口名称'] ?? '';
-      _windowUa = params['窗口UA'] ?? 'Mobile';
-      _executeImmediately = params['立即执行'] ?? false;
-
-      _intervalHoursController.text = (params['时间间隔-小时'] ?? '').toString();
-      _intervalMinutesController.text = (params['时间间隔-分钟'] ?? '').toString();
-      _intervalSecondsController.text = (params['时间间隔-秒'] ?? '').toString();
-
-      _urlController.text = params['网址'] ?? '';
-      _customJsController.text = params['代码'] ?? params['js内容'] ?? '';
-      _jsFilePath = params['jsFilePath'];
-      if (_selectedScriptType == '间隔时间') {
-        _targetScriptPath = params['间隔时间后执行脚本'];
-      } else {
-        _targetScriptPath = params['脚本集'];
-      }
-      _submitButtonTextController.text = params['提交按钮文字'] ?? '';
-
-      if (_selectedScriptType == '跳转脚本') {
-        _targetScriptIndicesController.text = params['跳转的脚本序号'] ?? '';
-      } else {
-        _targetScriptIndicesController.text = params['脚本序号'] ?? '';
-      }
-      _switchAction = params['开关动作'] ?? '禁用';
-
-      _trueScriptPath = params['出现时执行'];
-      _falseScriptPath = params['未出现时执行'];
-
-      // Load formData map
-      final loadedFormData = params['表单数据'];
-      if (loadedFormData is Map) {
-        loadedFormData.forEach((key, value) {
-          _formItems.add(_FormDataItem(key.toString(), value.toString()));
-        });
-      }
-
-      _scriptNameController.text = params['脚本名称'] ?? '';
-      _targetValueController.text = params['目标值'] ?? '';
-      _compareValueController.text = params['对比值'] ?? '';
-      _jumpLabelController.text = params['跳转标签'] ?? '';
-
-      _variableNameController.text = params['变量名'] ?? '';
-      _operationController.text = params['运算方式'] ?? '';
-      _scriptSetController.text = params['脚本集名称'] ?? '';
-      _compareMethod = params['对比方式'] ?? '>';
-
-      _notificationContentController.text = params['提醒内容'] ?? '';
-
-      _cookieProfileNameController.text = params['账号存档名称'] ?? '';
-      _cookieNameController.text = params['Cookie名称'] ?? '';
-      _cookieValueController.text = params['Cookie值'] ?? '';
-      _cookieAutoReload = params['设置后刷新页面'] ?? params['清除后刷新页面'] ?? true;
-      _cookieClearAll = params['清除全部站点'] ?? false;
-
-      _extractSelectorController.text = params['CSS选择器'] ?? '';
-      _extractAttributeController.text = params['属性'] ?? 'text';
-      _extractVarNameController.text = params['变量名'] ?? '';
-
-      if (params['执行每个脚本前执行'] != null) {
-        _beforeScript =
-            Script.fromUserMap(Map<String, dynamic>.from(params['执行每个脚本前执行']));
-      }
-      if (params['执行每个脚本后执行'] != null) {
-        _afterScript =
-            Script.fromUserMap(Map<String, dynamic>.from(params['执行每个脚本后执行']));
-      }
-
-      if (params['超时时间'] != null) {
-        _timeoutSecondsController.text = params['超时时间'].toString();
-        if (params['超时时间'] != 30) {
-          _isAdvancedExpanded = true;
-        }
-      }
-      if (_beforeScript != null || _afterScript != null) {
-        _isAdvancedExpanded = true;
-      }
-    } else {
-      _selectedScriptType = scriptTypes[0];
-    }
-  }
-
-  @override
-  void dispose() {
-    _repeatCountController.dispose();
-    _timeoutSecondsController.dispose();
-    _customJsController.dispose();
-
-    _delayController.dispose();
-    _appearTextController.dispose();
-    _clickTextController.dispose();
-    _afterSearchController.dispose();
-    _beforeSearchController.dispose();
-    _multipleSelectionController.dispose();
-    _extractSelectorController.dispose();
-    _extractAttributeController.dispose();
-    _extractVarNameController.dispose();
-    _cookieProfileNameController.dispose();
-    _cookieNameController.dispose();
-    _cookieValueController.dispose();
-    _intervalHoursController.dispose();
-    _intervalMinutesController.dispose();
-    _intervalSecondsController.dispose();
-    _submitButtonTextController.dispose();
-    for (var item in _formItems) {
-      item.dispose();
-    }
-    _urlController.dispose();
-    _scriptNameController.dispose();
-    _targetValueController.dispose();
-    _compareValueController.dispose();
-    _jumpLabelController.dispose();
-    _variableNameController.dispose();
-    _operationController.dispose();
-    _scriptSetController.dispose();
-    _targetScriptIndicesController.dispose();
-    _windowNameController.dispose();
-    _notificationContentController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDarkMode =
-        context.select<BrowserProvider, bool>((p) => p.isDarkMode);
-
-    // Theme Colors
-    final backgroundColor = isDarkMode ? const Color(0xFF1A2332) : Colors.white;
-    final headerColor =
-        isDarkMode ? const Color(0xFF0D1B2A) : const Color(0xFFF5F5F5);
-    final textColor = isDarkMode ? Colors.white : Colors.black87;
-    final labelColor = isDarkMode ? Colors.white70 : Colors.black54;
-    final inputFillColor = isDarkMode
-        ? Colors.white.withValues(alpha: 0.05)
-        : Colors.grey.shade100;
-    final borderColor = isDarkMode ? Colors.white24 : Colors.grey.shade300;
-    final iconColor = isDarkMode ? Colors.white : Colors.black54;
-
-    return Dialog(
-      backgroundColor: backgroundColor,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Container(
-        width: 500,
-        constraints: const BoxConstraints(maxHeight: 700),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Header
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: headerColor,
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(12),
-                  topRight: Radius.circular(12),
-                ),
-                border: Border(bottom: BorderSide(color: borderColor)),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    widget.script != null ? '编辑脚本' : '添加脚本',
-                    style: TextStyle(
-                      color: textColor,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.close, color: iconColor, size: 20),
-                    onPressed: () => Navigator.pop(context),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                    splashRadius: 20,
-                  ),
-                ],
-              ),
-            ),
-
-            // Content
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Script Type Row
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Script Type
-                        Expanded(
-                          flex: 2,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _buildLabel('脚本类型', color: labelColor),
-                              const SizedBox(height: 6),
-                              InkWell(
-                                onTap: _openScriptTypeSelector,
-                                borderRadius: BorderRadius.circular(8),
-                                child: Container(
-                                  height: 48,
-                                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                                  decoration: BoxDecoration(
-                                    color: inputFillColor,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: borderColor),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        _scriptTypeMetas[_selectedScriptType]?.icon ??
-                                            Icons.code_rounded,
-                                        size: 18,
-                                        color: Colors.blueAccent,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          _selectedScriptType,
-                                          style: TextStyle(
-                                            fontSize: 14,
-                                            color: textColor,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      Icon(Icons.arrow_drop_down, color: iconColor),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        // Repeat Count (not visible for 全局设置)
-                        if (_selectedScriptType != '全局设置')
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _buildLabel('循环次数'),
-                                const SizedBox(height: 4),
-                                _buildTextField(_repeatCountController, '1'),
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    if (_selectedScriptType != '全局设置')
-                      // Execution Delay (Common for all types)
-                      _buildDelayFieldWithUnit('执行延迟'),
-
-                    if (_selectedScriptType != '全局设置')
-                      const SizedBox(height: 16),
-
-                    // Dynamic fields based on script type
-                    ..._buildDynamicFields(),
-
-                    const SizedBox(height: 16),
-
-                    // 高级配置分层折叠（包含超时设置与前置/后置嵌套脚本）
-                    if (_selectedScriptType != '全局设置') ...[
-                      const SizedBox(height: 8),
-                      _buildAdvancedSection(),
-                      const SizedBox(height: 8),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-
-            // Bottom button
-            Container(
-              padding: const EdgeInsets.all(16),
-              child: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _handleSubmit,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF5E81AC),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                  child: const Text(
-                    '确认',
-                    style: TextStyle(color: Colors.white, fontSize: 14),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  List<Widget> _buildDynamicFields() {
-    switch (_selectedScriptType) {
-      case '全局设置':
-        return [
-          // Global settings might need its own delay field if it was special,
-          // but user said "All types have these fields".
-          // However, '全局设置' is usually a meta-script.
-          // Let's keep it empty here as delay is now common.
-          // Wait, if '全局设置' is selected, the common block above excludes it.
-          // So we need to add delay here for '全局设置' OR enable common block for it.
-          // The user said "These types of scripts..." referring to the list.
-          // '全局设置' is NOT in the list the user provided.
-          // The user provided list: '点击文字', '输入框提交', ..., '网页前进'.
-          // So '全局设置' is likely a special internal type or legacy.
-          // I will assume '全局设置' stays as is or I should check if it's in the list.
-          // It is NOT in the user's list.
-          // So I will leave '全局设置' handling alone?
-          // Actually, the common block has `if (_selectedScriptType != '全局设置')`.
-          // So for '全局设置', delay is NOT added by common block.
-          // I should keep it here for '全局设置'.
-          _buildDelayFieldWithUnit('执行延迟', required: true),
-        ];
-      case '点击文字':
-        return [
-          _buildFieldRow('出现文字', _appearTextController, ''),
-          _buildFieldRow('点击文本', _clickTextController, '', required: true),
-          _buildFieldRow('在...之后搜索', _afterSearchController, ''),
-          _buildFieldRow('在...之前搜索', _beforeSearchController, ''),
-          _buildFieldRow('多个筛选', _multipleSelectionController, '1',
-              hint: '1:第一个, -1:最后一个, 0:随机'),
-          _buildCheckboxRow('完全匹配', _exactMatch, (value) {
-            setState(() => _exactMatch = value ?? false);
-          }),
-        ];
-      case '点击图片':
-        return [
-          _buildFieldRow('图片关键词/地址', _clickTextController, ''),
-          _buildFieldRow('多个筛选', _multipleSelectionController, '1',
-              hint: '1:第一个, -1:最后一个, 0:随机'),
-          _buildFieldRow('在...之后搜索', _afterSearchController, ''),
-          _buildFieldRow('在...之前搜索', _beforeSearchController, ''),
-        ];
-      case '间隔时间':
-        return [
-          _buildFieldRow('时间间隔-小时', _intervalHoursController, ''),
-          _buildFieldRow('时间间隔-分钟', _intervalMinutesController, ''),
-          _buildFieldRow('时间间隔-秒', _intervalSecondsController, ''),
-          _buildScriptPathSelector('间隔时间后执行脚本(添加脚本)', _targetScriptPath,
-              (path) {
-            setState(() => _targetScriptPath = path);
-          }),
-        ];
-      case '自定义JS':
-        return _buildCustomJsFields();
-      case '进入网址':
-      case '新建标签页并执行脚本':
-        return [
-          _buildFieldRow('网址', _urlController, '', required: true),
-        ];
-      case '输入框提交':
-        return [
-          _buildFieldRow('提交按钮文字', _submitButtonTextController, ''),
-          _buildFieldRow('多个筛选', _multipleSelectionController, '1',
-              hint: '0:随机, >0:第几个, <0:倒数第几个'),
-          _buildCheckboxRow('启用正则', _enableRegex, (value) {
-            setState(() => _enableRegex = value ?? false);
-          }),
-          if (_enableRegex)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12.0),
-              child: Text(
-                '*勾起代表输入内容为正则表达式，提交时会生成匹配的一个随机字符串\n例如：输入 [0-9]{6} 代表6位随机数字\n输入 [a-z]{3} 代表3位随机小写字母\n输入 ab[a-zA-Z]{2}[0-9]{3} 代表ab跟上2个字母和3个数字',
-                style: TextStyle(
-                  color: Colors.grey[400],
-                  fontSize: 12,
-                ),
-              ),
-            ),
-          _buildFormDataFields(),
-        ];
-      case '脚本替换':
-      case '执行本地脚本集':
-        return [
-          _buildScriptPathField(),
-        ];
-      case '脚本停止':
-      case '脚本暂停':
-        return [
-          _buildCheckboxRow('执行完成提醒', _enableNotification, (value) {
-            setState(() => _enableNotification = value ?? false);
-          }),
-        ];
-      case '刷新网页':
-      case '网页后退':
-      case '网页前进':
-      case '重置限制次数':
-      case '延时脚本':
-        return [];
-      case '逻辑脚本-出现文字':
-        return [
-          _buildFieldRow('出现文字', _appearTextController, '', required: true),
-          _buildFieldRow('在...之后搜索', _afterSearchController, ''),
-          _buildFieldRow('在...之前搜索', _beforeSearchController, ''),
-          _buildScriptPathSelector('出现文字,则执行', _trueScriptPath, (path) {
-            setState(() => _trueScriptPath = path);
-          }),
-          _buildScriptPathSelector('未出现文字,则执行', _falseScriptPath, (path) {
-            setState(() => _falseScriptPath = path);
-          }),
-        ];
-      case '逻辑脚本-时间对比':
-        return [
-          _buildFieldRow('时间(HH:mm:ss)', _targetValueController, '',
-              required: true),
-          _buildScriptPathSelector('时间后执行脚本', _trueScriptPath, (path) {
-            setState(() => _trueScriptPath = path);
-          }),
-          _buildScriptPathSelector('时间前执行脚本', _falseScriptPath, (path) {
-            setState(() => _falseScriptPath = path);
-          }),
-        ];
-      case '逻辑脚本-数值对比':
-        return [
-          _buildFieldRow('目标值', _targetValueController, '', required: true),
-          _buildDropdownRow('对比方式', _compareMethod, ['>', '<', '=', '>=', '<='],
-              (val) {
-            if (val != null) setState(() => _compareMethod = val);
-          }),
-          _buildFieldRow('多个筛选', _multipleSelectionController, '1',
-              hint: '1:第一个, -1:最后一个, 0:随机'),
-          _buildFieldRow('在...之后搜索', _afterSearchController, ''),
-          _buildFieldRow('在...之前搜索', _beforeSearchController, ''),
-          _buildScriptPathSelector('满足执行脚本', _trueScriptPath, (path) {
-            setState(() => _trueScriptPath = path);
-          }),
-          _buildScriptPathSelector('不满足执行脚本', _falseScriptPath, (path) {
-            setState(() => _falseScriptPath = path);
-          }),
-        ];
-      case '新建窗口并执行脚本':
-        return [
-          _buildFieldRow('窗口名称', _windowNameController, ''),
-          _buildDropdownRow('窗口UA', _windowUa, ['Mobile', 'Tablet', 'Desktop'],
-              (val) {
-            if (val != null) setState(() => _windowUa = val);
-          }),
-          _buildFieldRow('网址', _urlController, ''),
-          _buildScriptPathSelector('脚本集', _targetScriptPath, (path) {
-            setState(() => _targetScriptPath = path);
-          }),
-          _buildCheckboxRow('立即执行', _executeImmediately, (val) {
-            setState(() => _executeImmediately = val ?? false);
-          }),
-        ];
-      case '跳转脚本':
-        return [
-          _buildFieldRow(
-              '跳转至序号', _targetScriptIndicesController, '请输入要跳转到的脚本序号'),
-        ];
-      case '数值对比-点击文字':
-        return [
-          _buildFieldRow('点击文本', _clickTextController, '', required: true),
-          _buildFieldRow('目标值', _targetValueController, '', required: true),
-          _buildDropdownRow('对比方式', _compareMethod, ['>', '<', '=', '>=', '<='],
-              (val) {
-            if (val != null) setState(() => _compareMethod = val);
-          }),
-          _buildFieldRow('多个筛选', _multipleSelectionController, '1',
-              hint: '1:第一个, -1:最后一个, 0:随机'),
-          _buildFieldRow('在...之后搜索', _afterSearchController, ''),
-          _buildFieldRow('在...之前搜索', _beforeSearchController, ''),
-        ];
-
-      case '控制脚本开关':
-        return [
-          _buildFieldRow(
-              '脚本序号', _targetScriptIndicesController, '例如: 1 3 5 (空格隔开)',
-              required: true),
-          _buildDropdownRow('更改为', _switchAction, ['禁用', '启用', '反相'], (val) {
-            if (val != null) setState(() => _switchAction = val);
-          }),
-        ];
-
-      case '通知栏提醒':
-        return [
-          _buildFieldRow('提醒内容', _notificationContentController, '',
-              required: true),
-        ];
-
-      case '设置Cookie':
-        return [
-          _buildFieldRow(
-              '账号存档名称', _cookieProfileNameController, '选填，如：主账号 / 小号1 (优先应用存档)'),
-          _buildFieldRow('Cookie名称', _cookieNameController, '单项设置：名称 (如: token)'),
-          _buildFieldRow('Cookie值', _cookieValueController, '单项设置：对应值'),
-          _buildCheckboxRow('设置后刷新页面', _cookieAutoReload, (val) {
-            setState(() => _cookieAutoReload = val ?? true);
-          }),
-        ];
-
-      case '清除Cookie':
-        return [
-          _buildCheckboxRow('清除全部站点 Cookie', _cookieClearAll, (val) {
-            setState(() => _cookieClearAll = val ?? false);
-          }),
-          _buildCheckboxRow('清除后刷新页面', _cookieAutoReload, (val) {
-            setState(() => _cookieAutoReload = val ?? true);
-          }),
-        ];
-
-      case '提取文字':
-        return [
-          _buildFieldRow(
-              'CSS选择器', _extractSelectorController, '例如: .price 或 #order-id',
-              required: true),
-          _buildFieldRow('提取属性', _extractAttributeController,
-              'text: 文本, html: HTML, 或属性名如 href, src'),
-          _buildFieldRow('保存至变量', _extractVarNameController,
-              '例如: orderId，后续步骤可用 \${orderId} 动态引用'),
-        ];
-
-      default:
-        return [];
-    }
-  }
-
-  Widget _buildLabel(String text, {Color? color}) {
-    return Text(
-      text,
-      style: TextStyle(
-        color: color ?? _theme.labelColor,
-        fontSize: 13,
-      ),
-    );
-  }
-
-  Widget _buildTextField(TextEditingController controller, String placeholder) {
-    return TextField(
-      controller: controller,
-      style: TextStyle(fontSize: 14, color: _theme.textColor),
-      decoration: InputDecoration(
-        hintText: placeholder,
-        hintStyle: TextStyle(color: _theme.hintColor, fontSize: 14),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        filled: true,
-        fillColor: _theme.inputFillColor,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: BorderSide(color: _theme.borderColor),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: BorderSide(color: _theme.borderColor),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Colors.blue),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFieldRow(
-      String label, TextEditingController controller, String placeholder,
-      {bool required = false, String? hint}) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 120,
-            child: Row(
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(color: _theme.textColor, fontSize: 13),
-                ),
-                if (required)
-                  const Text(
-                    '*',
-                    style: TextStyle(color: Colors.red, fontSize: 13),
-                  ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: _buildTextField(controller, hint ?? placeholder),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCheckboxRow(
-      String label, bool value, ValueChanged<bool?> onChanged) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 120,
-            child: Text(
-              label,
-              style: TextStyle(color: _theme.textColor, fontSize: 13),
-            ),
-          ),
-          SizedBox(
-            height: 24,
-            width: 24,
-            child: Checkbox(
-              value: value,
-              onChanged: onChanged,
-              activeColor: Colors.blue,
-              side: BorderSide(color: _theme.borderColor, width: 1.5),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(4)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDropdownRow(String label, String value, List<String> items,
-      ValueChanged<String?> onChanged) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 120,
-            child: Text(
-              label,
-              style: TextStyle(color: _theme.textColor, fontSize: 13),
-            ),
-          ),
-          Expanded(
-            child: DropdownButtonFormField<String>(
-              value: value,
-              isExpanded: true,
-              decoration: InputDecoration(
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                filled: true,
-                fillColor: _theme.inputFillColor,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(color: _theme.borderColor),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(color: _theme.borderColor),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Colors.blue),
-                ),
-              ),
-              dropdownColor: _theme.dropdownColor,
-              style: TextStyle(fontSize: 14, color: _theme.textColor),
-              icon: Icon(Icons.arrow_drop_down, color: _theme.iconColor),
-              items: items.map((String item) {
-                return DropdownMenuItem<String>(
-                  value: item,
-                  child: Text(
-                    item,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                );
-              }).toList(),
-              onChanged: onChanged,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDelayFieldWithUnit(String label, {bool required = false}) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 120,
-            child: Row(
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(color: _theme.textColor, fontSize: 13),
-                ),
-                if (required)
-                  const Text(
-                    '*',
-                    style: TextStyle(color: Colors.red, fontSize: 13),
-                  ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Row(
-              children: [
-                Expanded(
-                  child: _buildTextField(_delayController, '0'),
-                ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: 84,
-                  child: DropdownButtonFormField<String>(
-                    value: _delayTimeUnit,
-                    isExpanded: true,
-                    decoration: InputDecoration(
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 12),
-                      filled: true,
-                      fillColor: _theme.inputFillColor,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: _theme.borderColor),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: _theme.borderColor),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(color: Colors.blue),
-                      ),
-                    ),
-                    dropdownColor: _theme.dropdownColor,
-                    style: TextStyle(fontSize: 13, color: _theme.textColor),
-                    icon: Icon(Icons.arrow_drop_down, color: _theme.iconColor, size: 20),
-                    items: ['毫秒', '秒', '分钟'].map((String unit) {
-                      return DropdownMenuItem<String>(
-                        value: unit,
-                        child: Text(
-                          unit,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      );
-                    }).toList(),
-                    onChanged: (String? newValue) {
-                      if (newValue != null) {
-                        setState(() {
-                          _delayTimeUnit = newValue;
-                        });
-                      }
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildScriptPathSelector(
-      String label, String? currentPath, ValueChanged<String?> onPathSelected) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Text(
-            label,
-            style: TextStyle(color: _theme.textColor, fontSize: 13),
-          ),
-        ),
-        Row(
-          children: [
-            Expanded(
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                decoration: BoxDecoration(
-                  color: _theme.inputFillColor,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: _theme.borderColor),
-                ),
-                child: Text(
-                  currentPath != null
-                      ? currentPath.split(Platform.pathSeparator).last
-                      : '未选择文件',
-                  style: TextStyle(
-                    color: currentPath != null
-                        ? _theme.textColor
-                        : _theme.hintColor,
-                    fontSize: 13,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            IconButton(
-              onPressed: () async {
-                FilePickerResult? result = await FilePicker.platform.pickFiles(
-                  type: FileType.custom,
-                  allowedExtensions: ['json'],
-                );
-
-                if (result != null) {
-                  onPathSelected(result.files.single.path);
-                }
-              },
-              icon: Icon(Icons.folder_open, color: _theme.iconColor),
-              tooltip: '选择脚本集文件',
-            ),
-            if (currentPath != null)
-              IconButton(
-                onPressed: () => onPathSelected(null),
-                icon: const Icon(Icons.close, color: Colors.red),
-                tooltip: '清除选择',
-              ),
-          ],
-        ),
-        const SizedBox(height: 16),
-      ],
-    );
-  }
-
-  /// 构建自定义JS专用配置字段：同时支持大文本框直接编写/粘贴与本地文件选择
-  List<Widget> _buildCustomJsFields() {
-    final isDark = _theme.isDarkMode;
-    return [
-      // 1. 顶部文件状态与工具栏
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        margin: const EdgeInsets.only(bottom: 12),
-        decoration: BoxDecoration(
-          color: _theme.tileColor,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: _theme.borderColor),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              _jsFilePath != null ? Icons.description_rounded : Icons.code_rounded,
-              size: 18,
-              color: _jsFilePath != null ? Colors.green : Colors.blueAccent,
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    _jsFilePath != null
-                        ? '已关联: ${_jsFilePath!.split(Platform.pathSeparator).last}'
-                        : '直接编写或选择本地 .js 文件',
-                    style: TextStyle(
-                      color: _jsFilePath != null
-                          ? (_theme.isDarkMode ? Colors.greenAccent : Colors.green.shade700)
-                          : _theme.textColor,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (_jsFilePath != null)
-                    Text(
-                      _jsFilePath!,
-                      style: TextStyle(
-                        color: _theme.hintColor,
-                        fontSize: 11,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            // 选择JS文件按钮
-            ElevatedButton.icon(
-              onPressed: () async {
-                FilePickerResult? result = await FilePicker.platform.pickFiles(
-                  type: FileType.any,
-                );
-
-                if (result != null && result.files.single.path != null) {
-                  final path = result.files.single.path!;
-                  if (!path.toLowerCase().endsWith('.js')) {
-                    if (!mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('请选择 .js 格式的文件'),
-                        backgroundColor: Colors.orange,
-                      ),
-                    );
-                    return;
-                  }
-                  File file = File(path);
-                  String content = await file.readAsString();
-                  setState(() {
-                    _jsFilePath = path;
-                    _customJsController.text = content;
-                  });
-                }
-              },
-              icon: const Icon(Icons.folder_open_rounded, size: 15),
-              label: const Text('选择文件', style: TextStyle(fontSize: 12)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF5E81AC),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                elevation: 0,
-              ),
-            ),
-            if (_jsFilePath != null || _customJsController.text.isNotEmpty) ...[
-              const SizedBox(width: 6),
-              // 清空内容与文件关联
-              IconButton(
-                icon: const Icon(Icons.clear_all_rounded, size: 18),
-                tooltip: '清空代码与关联',
-                color: Colors.redAccent.shade200,
-                onPressed: () {
-                  setState(() {
-                    _jsFilePath = null;
-                    _customJsController.clear();
-                  });
-                },
-              ),
-            ],
-          ],
-        ),
-      ),
-
-      // 2. 代码大文本框标题栏与快捷粘贴
-      Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Expanded(
-              child: Row(
-                children: [
-                  Text(
-                    'JavaScript 脚本代码',
-                    style: TextStyle(
-                      color: _theme.textColor,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      '(支持直接编写与粘贴)',
-                      style: TextStyle(
-                        color: _theme.hintColor,
-                        fontSize: 11,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            InkWell(
-              onTap: () async {
-                final data = await Clipboard.getData(Clipboard.kTextPlain);
-                if (data?.text != null && data!.text!.isNotEmpty) {
-                  setState(() {
-                    _customJsController.text = data.text!;
-                  });
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('已从剪贴板粘贴代码'),
-                        duration: Duration(seconds: 1),
-                      ),
-                    );
-                  }
-                }
-              },
-              borderRadius: BorderRadius.circular(4),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.paste_rounded, size: 14, color: Colors.blueAccent),
-                    const SizedBox(width: 4),
-                    Text(
-                      '粘贴剪贴板',
-                      style: TextStyle(fontSize: 12, color: Colors.blueAccent),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-
-      // 3. 代码编辑器大文本框
-      Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: isDark ? Colors.blueAccent.withAlpha(80) : Colors.blueGrey.shade200,
-          ),
-        ),
-        child: TextField(
-          controller: _customJsController,
-          maxLines: 12,
-          minLines: 7,
-          style: TextStyle(
-            fontFamily: 'Consolas',
-            fontSize: 12.5,
-            color: isDark ? const Color(0xFFE2E8F0) : const Color(0xFF1E293B),
-            height: 1.45,
-          ),
-          decoration: InputDecoration(
-            hintText: '// 在此直接编写或粘贴 JavaScript 代码\n'
-                '// 示例 1: 普通网页点击\n'
-                '// document.querySelector("#myBtn")?.click();\n\n'
-                '// 示例 2: 白鹭引擎 (Egret) 游戏虚拟点击\n'
-                '// window.clickVirtual && window.clickVirtual("商城");\n\n'
-                '// 示例 3: 异步流程\n'
-                '// await new Promise(r => setTimeout(r, 1000));',
-            hintStyle: TextStyle(
-              fontFamily: 'Consolas',
-              fontSize: 12,
-              color: isDark ? Colors.white30 : Colors.black26,
-              height: 1.45,
-            ),
-            contentPadding: const EdgeInsets.all(12),
-            border: InputBorder.none,
-          ),
-        ),
-      ),
-
-      // 4. 常用代码片段快捷 Chip 列表
-      Padding(
-        padding: const EdgeInsets.only(bottom: 12),
-        child: Wrap(
-          spacing: 6,
-          runSpacing: 6,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            Text(
-              '常用模板:',
-              style: TextStyle(fontSize: 11, color: _theme.hintColor),
-            ),
-            _buildSnippetChip(
-              '🎮 游戏虚拟点击',
-              '// 触发白鹭 Canvas 游戏虚拟点击 (自动模糊匹配并返回执行结果)\nreturn window.clickVirtual("商城");',
-            ),
-            _buildSnippetChip(
-              '👇 游戏触屏下滑',
-              '// 模拟手指在白鹭 Canvas 游戏内向下划动 (400像素)\nawait window.swipeVirtual("向下", 400);',
-            ),
-            _buildSnippetChip(
-              '⏱️ 异步延时',
-              '// 等待 1000 毫秒\nawait new Promise(r => setTimeout(r, 1000));',
-            ),
-            _buildSnippetChip(
-              '📜 页面置底滚动',
-              'window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });',
-            ),
-            _buildSnippetChip(
-              '🔍 游戏节点扫描',
-              'console.log("[Auok] 自动化节点扫描:", window.scanEgretElements ? window.scanEgretElements() : "无引擎");',
-            ),
-          ],
-        ),
-      ),
-    ];
-  }
-
-  Widget _buildSnippetChip(String label, String codeSnippet) {
-    final isDark = _theme.isDarkMode;
-    return InkWell(
-      onTap: () {
-        final current = _customJsController.text;
-        if (current.trim().isEmpty) {
-          setState(() {
-            _customJsController.text = codeSnippet;
-          });
-        } else {
-          setState(() {
-            _customJsController.text = '$current\n\n$codeSnippet';
-          });
-        }
-      },
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white10 : Colors.grey.shade200,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isDark ? Colors.white12 : Colors.grey.shade300,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 11,
-            color: isDark ? Colors.lightBlueAccent.shade100 : Colors.blue.shade700,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildScriptPathField() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Text(
-            '目标脚本集',
-            style: TextStyle(color: _theme.textColor, fontSize: 13),
-          ),
-        ),
-        Row(
-          children: [
-            Expanded(
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                decoration: BoxDecoration(
-                  color: _theme.inputFillColor,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: _theme.borderColor),
-                ),
-                child: Text(
-                  _targetScriptPath != null
-                      ? _targetScriptPath!.split(Platform.pathSeparator).last
-                      : '未选择文件',
-                  style: TextStyle(
-                    color: _targetScriptPath != null
-                        ? _theme.textColor
-                        : _theme.hintColor,
-                    fontSize: 13,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            IconButton(
-              onPressed: () async {
-                FilePickerResult? result = await FilePicker.platform.pickFiles(
-                  type: FileType.custom,
-                  allowedExtensions: ['json'],
-                );
-
-                if (result != null) {
-                  setState(() {
-                    _targetScriptPath = result.files.single.path;
-                  });
-                }
-              },
-              icon: Icon(Icons.folder_open, color: _theme.iconColor),
-              tooltip: '选择脚本集文件',
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildFormDataFields() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Text(
-            '表单字段',
-            style: TextStyle(color: _theme.textColor, fontSize: 13),
-          ),
-        ),
-        ..._formItems.asMap().entries.map((entry) {
-          final index = entry.key;
-          final item = entry.value;
-
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Row(
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: TextField(
-                    controller: item.keyController,
-                    decoration: InputDecoration(
-                      hintText: '字段名 (name/id)',
-                      hintStyle:
-                          TextStyle(color: _theme.hintColor, fontSize: 13),
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 8),
-                      filled: true,
-                      fillColor: _theme.inputFillColor,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: _theme.borderColor),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: _theme.borderColor),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(color: Colors.blue),
-                      ),
-                      isDense: true,
-                    ),
-                    style: TextStyle(fontSize: 13, color: _theme.textColor),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  flex: 3,
-                  child: TextField(
-                    controller: item.valueController,
-                    decoration: InputDecoration(
-                      hintText: '字段值',
-                      hintStyle:
-                          TextStyle(color: _theme.hintColor, fontSize: 13),
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 8),
-                      filled: true,
-                      fillColor: _theme.inputFillColor,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: _theme.borderColor),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: _theme.borderColor),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(color: Colors.blue),
-                      ),
-                      isDense: true,
-                    ),
-                    style: TextStyle(fontSize: 13, color: _theme.textColor),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: const Icon(Icons.delete, color: Colors.red, size: 20),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  onPressed: () {
-                    setState(() {
-                      _formItems[index].dispose();
-                      _formItems.removeAt(index);
-                    });
-                  },
-                ),
-              ],
-            ),
-          );
-        }),
-        TextButton.icon(
-          onPressed: () {
-            setState(() {
-              _formItems
-                  .add(_FormDataItem('field${_formItems.length + 1}', ''));
-            });
-          },
-          icon: Icon(Icons.add, color: _theme.iconColor, size: 18),
-          label: Text('添加字段',
-              style: TextStyle(color: _theme.iconColor, fontSize: 13)),
-          style: TextButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildAdvancedSection() {
-    return Container(
-      decoration: BoxDecoration(
-        color: _theme.isDarkMode
-            ? Colors.white.withValues(alpha: 0.03)
-            : Colors.black.withValues(alpha: 0.02),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: _isAdvancedExpanded
-              ? Colors.blueAccent.withValues(alpha: 0.4)
-              : _theme.borderColor,
-          width: 1,
-        ),
-      ),
-      child: Column(
-        children: [
-          InkWell(
-            borderRadius: BorderRadius.circular(10),
-            onTap: () {
-              setState(() {
-                _isAdvancedExpanded = !_isAdvancedExpanded;
-              });
-            },
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.tune,
-                    size: 18,
-                    color: _isAdvancedExpanded
-                        ? Colors.blueAccent
-                        : (_theme.isDarkMode ? Colors.white70 : Colors.black54),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '高级配置 (选填)',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
-                      color: _isAdvancedExpanded
-                          ? Colors.blueAccent
-                          : (_theme.isDarkMode ? Colors.white : Colors.black87),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  if (_beforeScript != null ||
-                      _afterScript != null ||
-                      _timeoutSecondsController.text != '30')
-                    Container(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.blueAccent.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: const Text(
-                        '已自定义',
-                        style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.blueAccent,
-                            fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  const Spacer(),
-                  Icon(
-                    _isAdvancedExpanded
-                        ? Icons.keyboard_arrow_up
-                        : Icons.keyboard_arrow_down,
-                    size: 20,
-                    color: _theme.iconColor,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (_isAdvancedExpanded) ...[
-            const Divider(height: 1),
-            Padding(
-              padding: const EdgeInsets.all(14.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildFieldRow(
-                    '超时时间 (秒)',
-                    _timeoutSecondsController,
-                    '30',
-                    hint: '脚本单步执行超过此时间未完成时视为超时',
-                  ),
-                  const SizedBox(height: 12),
-                  _buildNestedScriptTile('执行每个脚本前执行 (前置脚本)', 'beforeScript'),
-                  const SizedBox(height: 10),
-                  _buildNestedScriptTile('执行每个脚本后执行 (后置脚本)', 'afterScript'),
-                ],
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNestedScriptTile(String label, String type) {
-    final script = type == 'beforeScript' ? _beforeScript : _afterScript;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: _theme.tileColor,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _theme.borderColor),
-      ),
-      child: ListTile(
-        title: Text(
-          label,
-          style: TextStyle(color: _theme.textColor, fontSize: 13),
-        ),
-        subtitle: Text(
-          script != null ? '${script.type} (已配置)' : '未配置',
-          style: TextStyle(
-            color: script != null
-                ? Colors.blueAccent
-                : (_theme.isDarkMode ? Colors.grey : Colors.grey.shade600),
-            fontSize: 12,
-          ),
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (script != null)
-              IconButton(
-                icon:
-                    const Icon(Icons.close, color: Colors.redAccent, size: 18),
-                onPressed: () {
-                  setState(() {
-                    if (type == 'beforeScript') {
-                      _beforeScript = null;
-                    } else {
-                      _afterScript = null;
-                    }
-                  });
-                },
-              ),
-            IconButton(
-              icon: Icon(script != null ? Icons.edit : Icons.add,
-                  color: _theme.iconColor, size: 18),
-              onPressed: () async {
-                final result = await showDialog<Script>(
-                  context: context,
-                  builder: (context) => AddScriptDialog(
-                    script: script,
-                    isNested: true, // Pass a flag to indicate nested mode
-                  ),
-                );
-
-                if (result != null) {
-                  setState(() {
-                    if (type == 'beforeScript') {
-                      _beforeScript = result;
-                    } else {
-                      _afterScript = result;
-                    }
-                  });
-                }
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // Helper method to convert delay to milliseconds based on selected unit
-  int _convertDelayToMilliseconds() {
-    final value = int.tryParse(_delayController.text) ?? 0;
-    switch (_delayTimeUnit) {
-      case '秒':
-        return value * 1000;
-      case '分':
-        return value * 60000;
-      default: // '毫秒'
-        return value;
-    }
-  }
-
-  void _handleSubmit() {
-    final scriptProvider = context.read<ScriptProvider>();
-
-    // Build params based on script type
-    final params = <String, dynamic>{};
-
-    if (_selectedScriptType != '全局设置') {
-      params['重复次数'] = int.tryParse(_repeatCountController.text) ?? 1;
-    }
-
-    // Add type-specific params based on JSON structure
-    switch (_selectedScriptType) {
-      case '全局设置':
-        if (_delayController.text.isEmpty) return;
-        params['执行延迟'] = _convertDelayToMilliseconds();
-        break;
-
-      case '点击文字':
-        if (_clickTextController.text.isEmpty) return;
-        params['点击文本'] = _clickTextController.text;
-        params['出现文字'] = _appearTextController.text;
-        if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = _convertDelayToMilliseconds();
-        }
-        if (_intervalHoursController.text.isNotEmpty) {
-          params['时间间隔-小时'] = int.tryParse(_intervalHoursController.text) ?? 0;
-        }
-        if (_intervalMinutesController.text.isNotEmpty) {
-          params['时间间隔-分钟'] =
-              int.tryParse(_intervalMinutesController.text) ?? 0;
-        }
-        if (_intervalSecondsController.text.isNotEmpty) {
-          params['时间间隔-秒'] = int.tryParse(_intervalSecondsController.text) ?? 0;
-        }
-        params['在此之后'] = _afterSearchController.text;
-        params['在此之前'] = _beforeSearchController.text;
-        params['多个筛选'] = int.tryParse(_multipleSelectionController.text) ?? 1;
-        params['完全匹配'] = _exactMatch;
-        break;
-
-      case '点击图片':
-        if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = _convertDelayToMilliseconds();
-        }
-        params['图片地址'] = _clickTextController.text;
-        params['多个筛选'] = int.tryParse(_multipleSelectionController.text) ?? 1;
-        params['在此之后'] = _afterSearchController.text;
-        params['在此之前'] = _beforeSearchController.text;
-        break;
-
-      case '间隔时间':
-        if (_intervalHoursController.text.isNotEmpty) {
-          params['时间间隔-小时'] = int.tryParse(_intervalHoursController.text) ?? 0;
-        }
-        if (_intervalMinutesController.text.isNotEmpty) {
-          params['时间间隔-分钟'] =
-              int.tryParse(_intervalMinutesController.text) ?? 0;
-        }
-        if (_intervalSecondsController.text.isNotEmpty) {
-          params['时间间隔-秒'] = int.tryParse(_intervalSecondsController.text) ?? 0;
-        }
-        if (_targetScriptPath != null) {
-          params['间隔时间后执行脚本'] = _targetScriptPath;
-        }
-        break;
-
-      case '自定义JS':
-        final jsCode = _customJsController.text.trim();
-        if (jsCode.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('请输入 JS 代码或选择 JS 文件'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-          return;
-        }
-        if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = _convertDelayToMilliseconds();
-        }
-        params['代码'] = _customJsController.text;
-        params['js内容'] = _customJsController.text;
-        if (_jsFilePath != null && _jsFilePath!.isNotEmpty) {
-          params['jsFilePath'] = _jsFilePath;
-        } else {
-          params.remove('jsFilePath');
-        }
-        break;
-
-      case '进入网址':
-      case '新建标签页并执行脚本':
-        if (_urlController.text.isEmpty) return;
-        if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = _convertDelayToMilliseconds();
-        }
-        params['网址'] = _urlController.text;
-        break;
-
-      case '输入框提交':
-        if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = _convertDelayToMilliseconds();
-        }
-        if (_submitButtonTextController.text.isNotEmpty) {
-          params['提交按钮文字'] = _submitButtonTextController.text;
-        }
-        params['多个筛选'] = int.tryParse(_multipleSelectionController.text) ?? 1;
-        params['启用正则'] = _enableRegex;
-        // Reconstruct formData from _formItems
-        if (_formItems.isNotEmpty) {
-          final formDataMap = <String, String>{};
-          for (var item in _formItems) {
-            if (item.keyController.text.isNotEmpty) {
-              formDataMap[item.keyController.text] = item.valueController.text;
-            }
-          }
-          if (formDataMap.isNotEmpty) {
-            params['表单数据'] = Map<String, dynamic>.from(formDataMap);
-          }
-        }
-        break;
-
-      case '脚本替换':
-      case '执行本地脚本集':
-        if (_targetScriptPath == null) return;
-        if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = _convertDelayToMilliseconds();
-        }
-        params['脚本集'] = _targetScriptPath;
-        break;
-
-      case '脚本停止':
-      case '脚本暂停':
-        if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = _convertDelayToMilliseconds();
-        }
-        params['执行完成提醒'] = _enableNotification;
-        break;
-
-      case '延时脚本':
-        if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = _convertDelayToMilliseconds();
-        }
-        break;
-
-      case '控制脚本开关':
-        if (_targetScriptIndicesController.text.isEmpty) return;
-        if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = _convertDelayToMilliseconds();
-        }
-        params['脚本序号'] = _targetScriptIndicesController.text;
-        params['开关动作'] = _switchAction;
-        break;
-
-      case '逻辑脚本-出现文字':
-        if (_appearTextController.text.isEmpty) return;
-        if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = _convertDelayToMilliseconds();
-        }
-        params['出现文字'] = _appearTextController.text;
-        params['在此之后'] = _afterSearchController.text;
-        params['在此之前'] = _beforeSearchController.text;
-        if (_trueScriptPath != null) {
-          params['出现时执行'] = _trueScriptPath;
-        }
-        if (_falseScriptPath != null) {
-          params['未出现时执行'] = _falseScriptPath;
-        }
-        break;
-
-      case '逻辑脚本-时间对比':
-        if (_targetValueController.text.isEmpty) return;
-        if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = _convertDelayToMilliseconds();
-        }
-        params['目标值'] = _targetValueController.text;
-        if (_trueScriptPath != null) {
-          params['出现时执行'] =
-              _trueScriptPath; // Reuse key for simplicity or use specific key
-        }
-        if (_falseScriptPath != null) {
-          params['未出现时执行'] = _falseScriptPath;
-        }
-        break;
-
-      case '逻辑脚本-数值对比':
-        if (_targetValueController.text.isEmpty) return;
-        if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = _convertDelayToMilliseconds();
-        }
-        params['目标值'] = _targetValueController.text;
-        params['对比方式'] = _compareMethod;
-        params['多个筛选'] = int.tryParse(_multipleSelectionController.text) ?? 1;
-        params['在此之后'] = _afterSearchController.text;
-        params['在此之前'] = _beforeSearchController.text;
-        if (_trueScriptPath != null) {
-          params['出现时执行'] = _trueScriptPath;
-        }
-        if (_falseScriptPath != null) {
-          params['未出现时执行'] = _falseScriptPath;
-        }
-        break;
-
-      case '新建窗口并执行脚本':
-        if (_urlController.text.isEmpty) return;
-        params['窗口名称'] = _windowNameController.text;
-        params['窗口UA'] = _windowUa;
-        params['网址'] = _urlController.text;
-        if (_targetScriptPath != null) {
-          params['脚本集'] = _targetScriptPath;
-        }
-        params['立即执行'] = _executeImmediately;
-        break;
-
-      case '跳转脚本':
-        if (_targetScriptIndicesController.text.isEmpty) return;
-        params['跳转的脚本序号'] = _targetScriptIndicesController.text;
-        break;
-
-      case '数值对比-点击文字':
-        if (_clickTextController.text.isEmpty) return;
-        if (_targetValueController.text.isEmpty) return;
-        if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = _convertDelayToMilliseconds();
-        }
-        params['点击文本'] = _clickTextController.text;
-        params['目标值'] = _targetValueController.text;
-        params['对比方式'] = _compareMethod;
-        params['多个筛选'] = int.tryParse(_multipleSelectionController.text) ?? 1;
-        params['在此之后'] = _afterSearchController.text;
-        params['在此之前'] = _beforeSearchController.text;
-        break;
-
-      case '通知栏提醒':
-        if (_notificationContentController.text.isEmpty) return;
-        if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = _convertDelayToMilliseconds();
-        }
-        params['提醒内容'] = _notificationContentController.text;
-        break;
-
-      case '设置Cookie':
-        if (_cookieProfileNameController.text.isNotEmpty) {
-          params['账号存档名称'] = _cookieProfileNameController.text;
-        }
-        if (_cookieNameController.text.isNotEmpty) {
-          params['Cookie名称'] = _cookieNameController.text;
-          params['Cookie值'] = _cookieValueController.text;
-        }
-        params['设置后刷新页面'] = _cookieAutoReload;
-        if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = _convertDelayToMilliseconds();
-        }
-        break;
-
-      case '清除Cookie':
-        params['清除全部站点'] = _cookieClearAll;
-        params['清除后刷新页面'] = _cookieAutoReload;
-        if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = _convertDelayToMilliseconds();
-        }
-        break;
-
-      case '提取文字':
-        if (_extractSelectorController.text.isEmpty) return;
-        params['CSS选择器'] = _extractSelectorController.text.trim();
-        params['属性'] = _extractAttributeController.text.isEmpty
-            ? 'text'
-            : _extractAttributeController.text.trim();
-        if (_extractVarNameController.text.isNotEmpty) {
-          params['变量名'] = _extractVarNameController.text.trim();
-        }
-        if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = _convertDelayToMilliseconds();
-        }
-        break;
-
-      default:
-        // For other types, just save delay if present
-        if (_delayController.text.isNotEmpty) {
-          params['执行延迟'] = _convertDelayToMilliseconds();
-        }
-        break;
-    }
-
-    // Save nested scripts
-    if (_beforeScript != null) {
-      params['执行每个脚本前执行'] = _beforeScript!.toUserMap();
-    }
-    if (_afterScript != null) {
-      params['执行每个脚本后执行'] = _afterScript!.toUserMap();
-    }
-
-    final timeout = int.tryParse(_timeoutSecondsController.text);
-    if (timeout != null && timeout > 0) {
-      params['超时时间'] = timeout;
-    }
-
-    final newScript = Script(
-      type: _selectedScriptType,
-      params: params,
-      isEnabled: true,
-    );
-
-    if (widget.isNested) {
-      Navigator.pop(context, newScript);
-      return;
-    }
-
-    if (widget.script != null && widget.index != null) {
-      // Update existing script
-      scriptProvider.updateScript(widget.index!, newScript);
-      Navigator.pop(context);
-    } else {
-      // Return new script for external handling (insertScript or addScript)
-      Navigator.pop(context, newScript);
-    }
-  }
-}
-
-/// 脚本类型快速模糊搜索与选择对话框
-class _ScriptTypeSearchDialog extends StatefulWidget {
-  final String currentType;
-  final List<String> scriptTypes;
-  final Map<String, _ScriptTypeMeta> metas;
-  final bool isDarkMode;
-
-  const _ScriptTypeSearchDialog({
-    required this.currentType,
-    required this.scriptTypes,
-    required this.metas,
-    required this.isDarkMode,
-  });
-
-  @override
-  State<_ScriptTypeSearchDialog> createState() =>
-      _ScriptTypeSearchDialogState();
-}
-
-class _ScriptTypeSearchDialogState extends State<_ScriptTypeSearchDialog> {
-  final TextEditingController _searchController = TextEditingController();
-  String _selectedCategory = '全部';
-
-  late List<String> _filteredTypes;
-
-  final List<String> _categories = [
-    '全部',
-    '页面动作',
-    '脚本控制',
-    '逻辑判断',
-    '网页导航',
-    '数据管理',
-    '辅助工具',
-  ];
-
-  @override
-  void initState() {
-    super.initState();
-    _filteredTypes = List.from(widget.scriptTypes);
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  void _filter() {
-    final query = _searchController.text.trim().toLowerCase();
-    setState(() {
-      _filteredTypes = widget.scriptTypes.where((type) {
-        final meta = widget.metas[type];
-
-        // 检查分类过滤
-        if (_selectedCategory != '全部') {
-          if (meta?.category != _selectedCategory) {
-            return false;
-          }
-        }
-
-        // 检查关键词模糊匹配
-        if (query.isEmpty) return true;
-
-        if (type.toLowerCase().contains(query)) return true;
-        if (meta != null) {
-          if (meta.category.toLowerCase().contains(query)) return true;
-          if (meta.keywords.toLowerCase().contains(query)) return true;
-        }
-        return false;
-      }).toList();
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = widget.isDarkMode;
-    final bgColor = isDark ? const Color(0xFF242424) : Colors.white;
-    final cardBg = isDark ? const Color(0xFF2E2E2E) : const Color(0xFFF7F8FA);
-    final borderColor = isDark ? Colors.white12 : Colors.grey.shade300;
-    final textColor = isDark ? Colors.white : Colors.black87;
-
-    final dialogWidth = MediaQuery.of(context).size.width >= 560
-        ? 480.0
-        : MediaQuery.of(context).size.width * 0.92;
-
-    return Dialog(
-      backgroundColor: bgColor,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-      child: SizedBox(
-        width: dialogWidth,
-        height: 520,
-        child: Column(
-          children: [
-            // 顶部标题栏
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
-              child: Row(
-                children: [
-                  const Icon(Icons.manage_search_rounded,
-                      color: Colors.blueAccent, size: 24),
-                  const SizedBox(width: 8),
-                  Text(
-                    '选择脚本类型',
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                      color: textColor,
-                    ),
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    icon: Icon(Icons.close_rounded,
-                        color: isDark ? Colors.white54 : Colors.black54),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
-              ),
-            ),
-
-            // 搜索输入框
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              child: TextField(
-                controller: _searchController,
-                autofocus: true,
-                style: TextStyle(fontSize: 14, color: textColor),
-                decoration: InputDecoration(
-                  hintText: '输入关键词搜索 (如: 点击、文字、cookie、js)...',
-                  hintStyle: TextStyle(
-                    fontSize: 13,
-                    color: isDark ? Colors.white38 : Colors.black38,
-                  ),
-                  prefixIcon: const Icon(Icons.search_rounded, size: 20),
-                  suffixIcon: _searchController.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear_rounded, size: 18),
-                          onPressed: () {
-                            _searchController.clear();
-                            _filter();
-                          },
-                        )
-                      : null,
-                  isDense: true,
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  filled: true,
-                  fillColor: isDark ? Colors.white10 : Colors.grey.shade100,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-                onChanged: (_) => _filter(),
-                onSubmitted: (_) {
-                  if (_filteredTypes.isNotEmpty) {
-                    Navigator.pop(context, _filteredTypes.first);
-                  }
-                },
-              ),
-            ),
-
-            // 分类快捷标签栏
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                children: _categories.map((cat) {
-                  final isSelected = _selectedCategory == cat;
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: ChoiceChip(
-                      label: Text(cat),
-                      labelStyle: TextStyle(
-                        fontSize: 12,
-                        color: isSelected
-                            ? Colors.white
-                            : (isDark ? Colors.white70 : Colors.black87),
-                        fontWeight:
-                            isSelected ? FontWeight.bold : FontWeight.normal,
-                      ),
-                      selected: isSelected,
-                      selectedColor: Colors.blueAccent,
-                      backgroundColor:
-                          isDark ? Colors.white12 : Colors.grey.shade200,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        side: BorderSide.none,
-                      ),
-                      onSelected: (selected) {
-                        if (selected) {
-                          setState(() {
-                            _selectedCategory = cat;
-                          });
-                          _filter();
-                        }
-                      },
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-
-            const Divider(height: 1),
-
-            // 过滤结果列表
-            Expanded(
-              child: _filteredTypes.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.search_off_rounded,
-                            size: 40,
-                            color: isDark ? Colors.white24 : Colors.black26,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            '未找到匹配的脚本类型',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: isDark ? Colors.white38 : Colors.black38,
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  : ListView.builder(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
-                      itemCount: _filteredTypes.length,
-                      itemBuilder: (context, index) {
-                        final type = _filteredTypes[index];
-                        final meta = widget.metas[type];
-                        final isCurrent = type == widget.currentType;
-
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 6),
-                          decoration: BoxDecoration(
-                            color: isCurrent
-                                ? Colors.blueAccent.withAlpha(isDark ? 50 : 25)
-                                : cardBg,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: isCurrent
-                                  ? Colors.blueAccent
-                                  : borderColor,
-                            ),
-                          ),
-                          child: ListTile(
-                            dense: true,
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 2),
-                            leading: Icon(
-                              meta?.icon ?? Icons.code_rounded,
-                              size: 20,
-                              color: isCurrent
-                                  ? Colors.blueAccent
-                                  : (isDark ? Colors.white70 : Colors.black87),
-                            ),
-                            title: Text(
-                              type,
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: isCurrent
-                                    ? FontWeight.bold
-                                    : FontWeight.w500,
-                                color: isCurrent ? Colors.blueAccent : textColor,
-                              ),
-                            ),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (meta != null)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 8, vertical: 3),
-                                    decoration: BoxDecoration(
-                                      color: isDark
-                                          ? Colors.white12
-                                          : Colors.grey.shade200,
-                                      borderRadius: BorderRadius.circular(6),
-                                    ),
-                                    child: Text(
-                                      meta.category,
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: isDark
-                                            ? Colors.white60
-                                            : Colors.black54,
-                                      ),
-                                    ),
-                                  ),
-                                if (isCurrent) ...[
-                                  const SizedBox(width: 8),
-                                  const Icon(Icons.check_circle_rounded,
-                                      size: 18, color: Colors.blueAccent),
-                                ],
-                              ],
-                            ),
-                            onTap: () {
-                              Navigator.pop(context, type);
-                            },
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// 参考用户截图形式的脚本类型快捷选择弹窗
-class _ScriptTypePopupMenuDialog extends StatelessWidget {
-  final String currentType;
-  final List<String> scriptTypes;
-  final bool isDarkMode;
-
-  const _ScriptTypePopupMenuDialog({
-    required this.currentType,
-    required this.scriptTypes,
-    required this.isDarkMode,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    // 按照用户截图顺序优化排列，常用与自动化操作置顶
-    final displayOrder = [
-      '点击文字',
-      '输入框提交',
-      '刷新网页',
-      '进入网址',
-      '执行本地脚本集',
-      '脚本替换',
-      '执行插件',
-      '逻辑脚本-出现文字',
-      '逻辑脚本-时间对比',
-      '逻辑脚本-数值对比',
-      '验证码图片识别',
-      '数值对比',
-      '数值对比-点击文字',
-      '网页文字替换',
-      '提取文字',
-      '设置Cookie',
-      '清除Cookie',
-      '自定义JS',
-      '间隔时间',
-      '延时脚本',
-      '网页后退',
-      '网页前进',
-      '脚本暂停',
-      '脚本停止',
-      '控制脚本开关',
-      '通知栏提醒',
-      '新建窗口并执行脚本',
-      '跳转脚本',
-    ];
-
-    final allTypes = <String>[];
-    for (var t in displayOrder) {
-      if (scriptTypes.contains(t) && !allTypes.contains(t)) {
-        allTypes.add(t);
-      }
-    }
-    for (var t in scriptTypes) {
-      if (!allTypes.contains(t)) {
-        allTypes.add(t);
-      }
-    }
-
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      elevation: 0,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 36),
-      child: Center(
-        child: Container(
-          width: 250,
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.70,
-          ),
-          decoration: BoxDecoration(
-            color: const Color(0xFF2E2E2E),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: Colors.white24, width: 0.8),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.6),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: ListView.separated(
-              shrinkWrap: true,
-              padding: EdgeInsets.zero,
-              itemCount: allTypes.length,
-              separatorBuilder: (context, index) => Container(
-                height: 1,
-                color: Colors.white.withValues(alpha: 0.08),
-              ),
-              itemBuilder: (context, index) {
-                final type = allTypes[index];
-                final isSelected = type == currentType;
-
-                return Material(
-                  color: isSelected
-                      ? const Color(0xFF424242)
-                      : Colors.transparent,
-                  child: InkWell(
-                    onTap: () => Navigator.pop(context, type),
-                    child: Container(
-                      height: 44,
-                      alignment: Alignment.center,
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      child: Text(
-                        type,
-                        style: TextStyle(
-                          color: isSelected ? Colors.lightBlueAccent : Colors.white,
-                          fontSize: 15,
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w400,
-                          letterSpacing: 0.5,
-                        ),
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import '../providers/script_provider.dart';
+import '../providers/browser_provider.dart';
+import '../models/script.dart';
+import 'package:file_picker/file_picker.dart';
+import 'dart:io';
+
+/// Cached theme values to avoid repeated context.read() calls during rebuilds.
+/// This significantly improves performance on Android when editing scripts.
+class _DialogTheme {
+  final bool isDarkMode;
+  final Color backgroundColor;
+  final Color headerColor;
+  final Color textColor;
+  final Color labelColor;
+  final Color inputFillColor;
+  final Color borderColor;
+  final Color iconColor;
+  final Color hintColor;
+  final Color tileColor;
+  final Color dropdownColor;
+
+  _DialogTheme({required this.isDarkMode})
+      : backgroundColor = isDarkMode ? const Color(0xFF1A2332) : Colors.white,
+        headerColor =
+            isDarkMode ? const Color(0xFF0D1B2A) : const Color(0xFFF5F5F5),
+        textColor = isDarkMode ? Colors.white : Colors.black87,
+        labelColor = isDarkMode ? Colors.white70 : Colors.black54,
+        inputFillColor = isDarkMode
+            ? Colors.white.withValues(alpha: 0.05)
+            : Colors.grey.shade100,
+        borderColor = isDarkMode ? Colors.white24 : Colors.grey.shade300,
+        iconColor = isDarkMode ? Colors.white : Colors.black54,
+        hintColor = isDarkMode ? Colors.white38 : Colors.black38,
+        tileColor = isDarkMode ? Colors.white10 : Colors.grey.shade100,
+        dropdownColor = isDarkMode ? const Color(0xFF2C2C2C) : Colors.white;
+}
+
+class _ScriptTypeMeta {
+  final String category;
+  final IconData icon;
+  final String keywords;
+
+  const _ScriptTypeMeta(this.category, this.icon, this.keywords);
+}
+
+class _FormDataItem {
+  final TextEditingController keyController;
+  final TextEditingController valueController;
+
+  _FormDataItem(String key, String value)
+      : keyController = TextEditingController(text: key),
+        valueController = TextEditingController(text: value);
+
+  void dispose() {
+    keyController.dispose();
+    valueController.dispose();
+  }
+}
+
+class AddScriptDialog extends StatefulWidget {
+  final Script? script;
+  final int? index;
+  final bool isNested;
+
+  const AddScriptDialog(
+      {super.key, this.script, this.index, this.isNested = false});
+
+  @override
+  State<AddScriptDialog> createState() => _AddScriptDialogState();
+}
+
+class _AddScriptDialogState extends State<AddScriptDialog> {
+  // Script types list (focused on implemented types)
+  static const List<String> scriptTypes = [
+    '点击文字',
+    '输入框提交',
+    '进入网址',
+    '间隔时间',
+    '自定义JS',
+    '点击图片',
+    '刷新网页',
+    '网页后退',
+    '网页前进',
+    '脚本替换',
+    '脚本停止',
+    '脚本暂停',
+    '执行本地脚本集',
+    '控制脚本开关',
+    '通知栏提醒',
+    '逻辑脚本-出现文字',
+    '逻辑脚本-时间对比',
+    '逻辑脚本-数值对比',
+    '延时脚本',
+    '数值对比-点击文字',
+    '新建窗口并执行脚本',
+    '跳转脚本',
+    '设置Cookie',
+    '清除Cookie',
+    '提取文字',
+  ];
+
+  static final Map<String, _ScriptTypeMeta> _scriptTypeMetas = {
+    '点击文字': _ScriptTypeMeta('页面动作', Icons.touch_app_outlined, 'djwz,click,text,wenzi'),
+    '输入框提交': _ScriptTypeMeta('页面动作', Icons.input_rounded, 'srktj,input,submit,shurukuang'),
+    '进入网址': _ScriptTypeMeta('网页导航', Icons.link_rounded, 'jrwz,url,goto,navigate,wangzhi'),
+    '间隔时间': _ScriptTypeMeta('脚本控制', Icons.timer_outlined, 'jgsj,sleep,interval,wait,shijian'),
+    '自定义JS': _ScriptTypeMeta('脚本控制', Icons.code_rounded, 'zdjs,javascript,js,code'),
+    '点击图片': _ScriptTypeMeta('页面动作', Icons.image_outlined, 'djtp,image,click,tupian'),
+    '刷新网页': _ScriptTypeMeta('网页导航', Icons.refresh_rounded, 'sxwy,reload,refresh,shuaxin'),
+    '网页后退': _ScriptTypeMeta('网页导航', Icons.arrow_back_rounded, 'wyht,back,houtui'),
+    '网页前进': _ScriptTypeMeta('网页导航', Icons.arrow_forward_rounded, 'wyqj,forward,qianjin'),
+    '脚本替换': _ScriptTypeMeta('脚本控制', Icons.swap_horiz_rounded, 'jbth,replace,tihuan'),
+    '脚本停止': _ScriptTypeMeta('脚本控制', Icons.stop_circle_outlined, 'jbtz,stop,tingzhi'),
+    '脚本暂停': _ScriptTypeMeta('脚本控制', Icons.pause_circle_outline, 'jbzt,pause,zanting'),
+    '执行本地脚本集': _ScriptTypeMeta('脚本控制', Icons.folder_special_outlined, 'zxbdfb,subroutine,batch,bendi'),
+    '控制脚本开关': _ScriptTypeMeta('脚本控制', Icons.toggle_on_outlined, 'kzjb,toggle,switch,kaiguan'),
+    '通知栏提醒': _ScriptTypeMeta('辅助工具', Icons.notifications_active_outlined, 'tzltx,notify,notification,tongzhi'),
+    '逻辑脚本-出现文字': _ScriptTypeMeta('逻辑判断', Icons.rule_rounded, 'cxwz,text,if,waittext,chuxian'),
+    '逻辑脚本-时间对比': _ScriptTypeMeta('逻辑判断', Icons.schedule_rounded, 'sjdb,time,compare,shijian'),
+    '逻辑脚本-数值对比': _ScriptTypeMeta('逻辑判断', Icons.analytics_outlined, 'szdb,number,compare,shuzhi'),
+    '延时脚本': _ScriptTypeMeta('脚本控制', Icons.hourglass_empty_rounded, 'ysjb,delay,yanshi'),
+    '数值对比-点击文字': _ScriptTypeMeta('逻辑判断', Icons.ads_click_rounded, 'szdbdj,compare,click,shuzhi'),
+    '新建窗口并执行脚本': _ScriptTypeMeta('网页导航', Icons.open_in_new_rounded, 'xjck,newtab,window,chuangkou'),
+    '跳转脚本': _ScriptTypeMeta('脚本控制', Icons.redo_rounded, 'tzjb,jump,goto,tiaozhuan'),
+    '设置Cookie': _ScriptTypeMeta('数据管理', Icons.cookie_outlined, 'szcookie,setcookie,shezhi'),
+    '清除Cookie': _ScriptTypeMeta('数据管理', Icons.remove_circle_outline, 'qccookie,clearcookie,qingchu'),
+    '提取文字': _ScriptTypeMeta('数据管理', Icons.text_snippet_outlined, 'tqwz,extract,scrape,tiqu'),
+  };
+
+  Future<void> _openScriptTypeSelector() async {
+    final selected = await showDialog<String>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => _ScriptTypePopupMenuDialog(
+        currentType: _selectedScriptType,
+        scriptTypes: scriptTypes,
+        isDarkMode: _theme.isDarkMode,
+      ),
+    );
+
+    if (selected != null && selected != _selectedScriptType && mounted) {
+      setState(() {
+        _selectedScriptType = selected;
+      });
+    }
+  }
+
+  final TextEditingController _delayController = TextEditingController();
+  final TextEditingController _appearTextController = TextEditingController();
+  final TextEditingController _clickTextController = TextEditingController();
+  final TextEditingController _afterSearchController = TextEditingController();
+  final TextEditingController _beforeSearchController = TextEditingController();
+  final TextEditingController _multipleSelectionController =
+      TextEditingController();
+
+  // 提取文字 fields
+  final TextEditingController _extractSelectorController =
+      TextEditingController();
+  final TextEditingController _extractAttributeController =
+      TextEditingController(text: 'text');
+  final TextEditingController _extractVarNameController =
+      TextEditingController();
+
+  // Cookie fields
+  final TextEditingController _cookieProfileNameController =
+      TextEditingController();
+  final TextEditingController _cookieNameController = TextEditingController();
+  final TextEditingController _cookieValueController = TextEditingController();
+  bool _cookieAutoReload = true;
+  bool _cookieClearAll = false;
+
+  // 间隔时间 fields
+  final TextEditingController _intervalHoursController =
+      TextEditingController();
+  final TextEditingController _intervalMinutesController =
+      TextEditingController();
+  final TextEditingController _intervalSecondsController =
+      TextEditingController();
+
+  // 输入框提交 fields
+  final TextEditingController _submitButtonTextController =
+      TextEditingController();
+
+  // Dynamic form fields managed by persistent controllers
+  final List<_FormDataItem> _formItems = [];
+
+  // 进入网址 field
+  final TextEditingController _urlController = TextEditingController();
+
+  // Generic/Other fields
+  final TextEditingController _operationController = TextEditingController();
+  final TextEditingController _scriptSetController = TextEditingController();
+  final TextEditingController _targetScriptIndicesController =
+      TextEditingController(); // For Control Script Switch
+
+  String _compareMethod = '>';
+  String _switchAction = '禁用'; // For Control Script Switch: 禁用, 启用, 反相
+  // bool _switchState = true; // Removed in favor of _switchAction
+  String _delayTimeUnit = '毫秒'; // Time unit for delay field
+  String? _jsFilePath; // Path to selected JS file
+  String? _targetScriptPath; // Path to target script set for replacement
+  String? _trueScriptPath; // Path to script set for True condition
+  String? _falseScriptPath; // Path to script set for False condition
+
+  // Nested scripts state
+  // Missing definitions
+  String _selectedScriptType = scriptTypes[0];
+  bool _exactMatch = true;
+  bool _enableRegex = false;
+  bool _enableNotification = false;
+
+  // New Window fields
+  final TextEditingController _windowNameController = TextEditingController();
+  String _windowUa = 'Mobile';
+  bool _executeImmediately = false;
+
+  // Other missing controllers
+  final TextEditingController _customJsController = TextEditingController();
+  final TextEditingController _scriptNameController = TextEditingController();
+  final TextEditingController _targetValueController = TextEditingController();
+  final TextEditingController _compareValueController = TextEditingController();
+  final TextEditingController _jumpLabelController = TextEditingController();
+  final TextEditingController _variableNameController = TextEditingController();
+  final TextEditingController _notificationContentController =
+      TextEditingController();
+  final TextEditingController _repeatCountController = TextEditingController();
+
+  // 高级配置分层折叠与超时时间
+  bool _isAdvancedExpanded = false;
+  final TextEditingController _timeoutSecondsController =
+      TextEditingController(text: '30');
+
+  Script? _beforeScript;
+  Script? _afterScript;
+
+  // Cached theme for performance - avoids repeated context.read() calls
+  late _DialogTheme _theme;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final isDarkMode = context.read<BrowserProvider>().isDarkMode;
+    _theme = _DialogTheme(isDarkMode: isDarkMode);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.script != null) {
+      _selectedScriptType = widget.script!.type;
+      final params = widget.script!.params;
+
+      _delayController.text = (params['执行延迟'] ?? '').toString();
+      _repeatCountController.text = (params['重复次数'] ?? 1).toString();
+      _appearTextController.text = params['出现文字'] ?? '';
+      _clickTextController.text = params['点击文本'] ?? params['图片地址'] ?? '';
+      _afterSearchController.text = params['在此之后'] ?? '';
+      _beforeSearchController.text = params['在此之前'] ?? '';
+      _multipleSelectionController.text = (params['多个筛选'] ?? 1).toString();
+      _exactMatch = params['完全匹配'] ??
+          (_selectedScriptType == '点击文字' ? true : false);
+      _enableRegex = params['启用正则'] ?? false;
+      _enableNotification = params['执行完成提醒'] ?? false;
+
+      _windowNameController.text = params['窗口名称'] ?? '';
+      _windowUa = params['窗口UA'] ?? 'Mobile';
+      _executeImmediately = params['立即执行'] ?? false;
+
+      _intervalHoursController.text = (params['时间间隔-小时'] ?? '').toString();
+      _intervalMinutesController.text = (params['时间间隔-分钟'] ?? '').toString();
+      _intervalSecondsController.text = (params['时间间隔-秒'] ?? '').toString();
+
+      _urlController.text = params['网址'] ?? '';
+      _customJsController.text = params['代码'] ?? params['js内容'] ?? '';
+      _jsFilePath = params['jsFilePath'];
+      if (_selectedScriptType == '间隔时间') {
+        _targetScriptPath = params['间隔时间后执行脚本'];
+      } else {
+        _targetScriptPath = params['脚本集'];
+      }
+      _submitButtonTextController.text = params['提交按钮文字'] ?? '';
+
+      if (_selectedScriptType == '跳转脚本') {
+        _targetScriptIndicesController.text = params['跳转的脚本序号'] ?? '';
+      } else {
+        _targetScriptIndicesController.text = params['脚本序号'] ?? '';
+      }
+      _switchAction = params['开关动作'] ?? '禁用';
+
+      _trueScriptPath = params['出现时执行'];
+      _falseScriptPath = params['未出现时执行'];
+
+      // Load formData map
+      final loadedFormData = params['表单数据'];
+      if (loadedFormData is Map) {
+        loadedFormData.forEach((key, value) {
+          _formItems.add(_FormDataItem(key.toString(), value.toString()));
+        });
+      }
+
+      _scriptNameController.text = params['脚本名称'] ?? '';
+      _targetValueController.text = params['目标值'] ?? '';
+      _compareValueController.text = params['对比值'] ?? '';
+      _jumpLabelController.text = params['跳转标签'] ?? '';
+
+      _variableNameController.text = params['变量名'] ?? '';
+      _operationController.text = params['运算方式'] ?? '';
+      _scriptSetController.text = params['脚本集名称'] ?? '';
+      _compareMethod = params['对比方式'] ?? '>';
+
+      _notificationContentController.text = params['提醒内容'] ?? '';
+
+      _cookieProfileNameController.text = params['账号存档名称'] ?? '';
+      _cookieNameController.text = params['Cookie名称'] ?? '';
+      _cookieValueController.text = params['Cookie值'] ?? '';
+      _cookieAutoReload = params['设置后刷新页面'] ?? params['清除后刷新页面'] ?? true;
+      _cookieClearAll = params['清除全部站点'] ?? false;
+
+      _extractSelectorController.text = params['CSS选择器'] ?? '';
+      _extractAttributeController.text = params['属性'] ?? 'text';
+      _extractVarNameController.text = params['变量名'] ?? '';
+
+      if (params['执行每个脚本前执行'] != null) {
+        _beforeScript =
+            Script.fromUserMap(Map<String, dynamic>.from(params['执行每个脚本前执行']));
+      }
+      if (params['执行每个脚本后执行'] != null) {
+        _afterScript =
+            Script.fromUserMap(Map<String, dynamic>.from(params['执行每个脚本后执行']));
+      }
+
+      if (params['超时时间'] != null) {
+        _timeoutSecondsController.text = params['超时时间'].toString();
+        if (params['超时时间'] != 30) {
+          _isAdvancedExpanded = true;
+        }
+      }
+      if (_beforeScript != null || _afterScript != null) {
+        _isAdvancedExpanded = true;
+      }
+    } else {
+      _selectedScriptType = scriptTypes[0];
+    }
+  }
+
+  @override
+  void dispose() {
+    _repeatCountController.dispose();
+    _timeoutSecondsController.dispose();
+    _customJsController.dispose();
+
+    _delayController.dispose();
+    _appearTextController.dispose();
+    _clickTextController.dispose();
+    _afterSearchController.dispose();
+    _beforeSearchController.dispose();
+    _multipleSelectionController.dispose();
+    _extractSelectorController.dispose();
+    _extractAttributeController.dispose();
+    _extractVarNameController.dispose();
+    _cookieProfileNameController.dispose();
+    _cookieNameController.dispose();
+    _cookieValueController.dispose();
+    _intervalHoursController.dispose();
+    _intervalMinutesController.dispose();
+    _intervalSecondsController.dispose();
+    _submitButtonTextController.dispose();
+    for (var item in _formItems) {
+      item.dispose();
+    }
+    _urlController.dispose();
+    _scriptNameController.dispose();
+    _targetValueController.dispose();
+    _compareValueController.dispose();
+    _jumpLabelController.dispose();
+    _variableNameController.dispose();
+    _operationController.dispose();
+    _scriptSetController.dispose();
+    _targetScriptIndicesController.dispose();
+    _windowNameController.dispose();
+    _notificationContentController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDarkMode =
+        context.select<BrowserProvider, bool>((p) => p.isDarkMode);
+
+    // Theme Colors
+    final backgroundColor = isDarkMode ? const Color(0xFF1A2332) : Colors.white;
+    final headerColor =
+        isDarkMode ? const Color(0xFF0D1B2A) : const Color(0xFFF5F5F5);
+    final textColor = isDarkMode ? Colors.white : Colors.black87;
+    final labelColor = isDarkMode ? Colors.white70 : Colors.black54;
+    final inputFillColor = isDarkMode
+        ? Colors.white.withValues(alpha: 0.05)
+        : Colors.grey.shade100;
+    final borderColor = isDarkMode ? Colors.white24 : Colors.grey.shade300;
+    final iconColor = isDarkMode ? Colors.white : Colors.black54;
+
+    return Dialog(
+      backgroundColor: backgroundColor,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Container(
+        width: 500,
+        constraints: const BoxConstraints(maxHeight: 700),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: headerColor,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(12),
+                  topRight: Radius.circular(12),
+                ),
+                border: Border(bottom: BorderSide(color: borderColor)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    widget.script != null ? '编辑脚本' : '添加脚本',
+                    style: TextStyle(
+                      color: textColor,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.close, color: iconColor, size: 20),
+                    onPressed: () => Navigator.pop(context),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    splashRadius: 20,
+                  ),
+                ],
+              ),
+            ),
+
+            // Content
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Script Type Row
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Script Type
+                        Expanded(
+                          flex: 2,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildLabel('脚本类型', color: labelColor),
+                              const SizedBox(height: 6),
+                              InkWell(
+                                onTap: _openScriptTypeSelector,
+                                borderRadius: BorderRadius.circular(8),
+                                child: Container(
+                                  height: 48,
+                                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                                  decoration: BoxDecoration(
+                                    color: inputFillColor,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: borderColor),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        _scriptTypeMetas[_selectedScriptType]?.icon ??
+                                            Icons.code_rounded,
+                                        size: 18,
+                                        color: Colors.blueAccent,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          _selectedScriptType,
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            color: textColor,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      Icon(Icons.arrow_drop_down, color: iconColor),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        // Repeat Count (not visible for 全局设置)
+                        if (_selectedScriptType != '全局设置')
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _buildLabel('循环次数'),
+                                const SizedBox(height: 4),
+                                _buildTextField(_repeatCountController, '1'),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    if (_selectedScriptType != '全局设置')
+                      // Execution Delay (Common for all types)
+                      _buildDelayFieldWithUnit('执行延迟'),
+
+                    if (_selectedScriptType != '全局设置')
+                      const SizedBox(height: 16),
+
+                    // Dynamic fields based on script type
+                    ..._buildDynamicFields(),
+
+                    const SizedBox(height: 16),
+
+                    // 高级配置分层折叠（包含超时设置与前置/后置嵌套脚本）
+                    if (_selectedScriptType != '全局设置') ...[
+                      const SizedBox(height: 8),
+                      _buildAdvancedSection(),
+                      const SizedBox(height: 8),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+
+            // Bottom button
+            Container(
+              padding: const EdgeInsets.all(16),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _handleSubmit,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF5E81AC),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  child: const Text(
+                    '确认',
+                    style: TextStyle(color: Colors.white, fontSize: 14),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildDynamicFields() {
+    switch (_selectedScriptType) {
+      case '全局设置':
+        return [
+          // Global settings might need its own delay field if it was special,
+          // but user said "All types have these fields".
+          // However, '全局设置' is usually a meta-script.
+          // Let's keep it empty here as delay is now common.
+          // Wait, if '全局设置' is selected, the common block above excludes it.
+          // So we need to add delay here for '全局设置' OR enable common block for it.
+          // The user said "These types of scripts..." referring to the list.
+          // '全局设置' is NOT in the list the user provided.
+          // The user provided list: '点击文字', '输入框提交', ..., '网页前进'.
+          // So '全局设置' is likely a special internal type or legacy.
+          // I will assume '全局设置' stays as is or I should check if it's in the list.
+          // It is NOT in the user's list.
+          // So I will leave '全局设置' handling alone?
+          // Actually, the common block has `if (_selectedScriptType != '全局设置')`.
+          // So for '全局设置', delay is NOT added by common block.
+          // I should keep it here for '全局设置'.
+          _buildDelayFieldWithUnit('执行延迟', required: true),
+        ];
+      case '点击文字':
+        return [
+          _buildFieldRow('出现文字', _appearTextController, ''),
+          _buildFieldRow('点击文本', _clickTextController, '', required: true),
+          _buildFieldRow('在...之后搜索', _afterSearchController, ''),
+          _buildFieldRow('在...之前搜索', _beforeSearchController, ''),
+          _buildFieldRow('多个筛选', _multipleSelectionController, '1',
+              hint: '1:第一个, -1:最后一个, 0:随机'),
+          _buildCheckboxRow('完全匹配', _exactMatch, (value) {
+            setState(() => _exactMatch = value ?? false);
+          }),
+        ];
+      case '点击图片':
+        return [
+          _buildFieldRow('图片关键词/地址', _clickTextController, ''),
+          _buildFieldRow('多个筛选', _multipleSelectionController, '1',
+              hint: '1:第一个, -1:最后一个, 0:随机'),
+          _buildFieldRow('在...之后搜索', _afterSearchController, ''),
+          _buildFieldRow('在...之前搜索', _beforeSearchController, ''),
+        ];
+      case '间隔时间':
+        return [
+          _buildFieldRow('时间间隔-小时', _intervalHoursController, ''),
+          _buildFieldRow('时间间隔-分钟', _intervalMinutesController, ''),
+          _buildFieldRow('时间间隔-秒', _intervalSecondsController, ''),
+          _buildScriptPathSelector('间隔时间后执行脚本(添加脚本)', _targetScriptPath,
+              (path) {
+            setState(() => _targetScriptPath = path);
+          }),
+        ];
+      case '自定义JS':
+        return _buildCustomJsFields();
+      case '进入网址':
+      case '新建标签页并执行脚本':
+        return [
+          _buildFieldRow('网址', _urlController, '', required: true),
+        ];
+      case '输入框提交':
+        return [
+          _buildFieldRow('提交按钮文字', _submitButtonTextController, ''),
+          _buildFieldRow('多个筛选', _multipleSelectionController, '1',
+              hint: '0:随机, >0:第几个, <0:倒数第几个'),
+          _buildCheckboxRow('启用正则', _enableRegex, (value) {
+            setState(() => _enableRegex = value ?? false);
+          }),
+          if (_enableRegex)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12.0),
+              child: Text(
+                '*勾起代表输入内容为正则表达式，提交时会生成匹配的一个随机字符串\n例如：输入 [0-9]{6} 代表6位随机数字\n输入 [a-z]{3} 代表3位随机小写字母\n输入 ab[a-zA-Z]{2}[0-9]{3} 代表ab跟上2个字母和3个数字',
+                style: TextStyle(
+                  color: Colors.grey[400],
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          _buildFormDataFields(),
+        ];
+      case '脚本替换':
+      case '执行本地脚本集':
+        return [
+          _buildScriptPathField(),
+        ];
+      case '脚本停止':
+      case '脚本暂停':
+        return [
+          _buildCheckboxRow('执行完成提醒', _enableNotification, (value) {
+            setState(() => _enableNotification = value ?? false);
+          }),
+        ];
+      case '刷新网页':
+      case '网页后退':
+      case '网页前进':
+      case '重置限制次数':
+      case '延时脚本':
+        return [];
+      case '逻辑脚本-出现文字':
+        return [
+          _buildFieldRow('出现文字', _appearTextController, '', required: true),
+          _buildFieldRow('在...之后搜索', _afterSearchController, ''),
+          _buildFieldRow('在...之前搜索', _beforeSearchController, ''),
+          _buildScriptPathSelector('出现文字,则执行', _trueScriptPath, (path) {
+            setState(() => _trueScriptPath = path);
+          }),
+          _buildScriptPathSelector('未出现文字,则执行', _falseScriptPath, (path) {
+            setState(() => _falseScriptPath = path);
+          }),
+        ];
+      case '逻辑脚本-时间对比':
+        return [
+          _buildFieldRow('时间(HH:mm:ss)', _targetValueController, '',
+              required: true),
+          _buildScriptPathSelector('时间后执行脚本', _trueScriptPath, (path) {
+            setState(() => _trueScriptPath = path);
+          }),
+          _buildScriptPathSelector('时间前执行脚本', _falseScriptPath, (path) {
+            setState(() => _falseScriptPath = path);
+          }),
+        ];
+      case '逻辑脚本-数值对比':
+        return [
+          _buildFieldRow('目标值', _targetValueController, '', required: true),
+          _buildDropdownRow('对比方式', _compareMethod, ['>', '<', '=', '>=', '<='],
+              (val) {
+            if (val != null) setState(() => _compareMethod = val);
+          }),
+          _buildFieldRow('多个筛选', _multipleSelectionController, '1',
+              hint: '1:第一个, -1:最后一个, 0:随机'),
+          _buildFieldRow('在...之后搜索', _afterSearchController, ''),
+          _buildFieldRow('在...之前搜索', _beforeSearchController, ''),
+          _buildScriptPathSelector('满足执行脚本', _trueScriptPath, (path) {
+            setState(() => _trueScriptPath = path);
+          }),
+          _buildScriptPathSelector('不满足执行脚本', _falseScriptPath, (path) {
+            setState(() => _falseScriptPath = path);
+          }),
+        ];
+      case '新建窗口并执行脚本':
+        return [
+          _buildFieldRow('窗口名称', _windowNameController, ''),
+          _buildDropdownRow('窗口UA', _windowUa, ['Mobile', 'Tablet', 'Desktop'],
+              (val) {
+            if (val != null) setState(() => _windowUa = val);
+          }),
+          _buildFieldRow('网址', _urlController, ''),
+          _buildScriptPathSelector('脚本集', _targetScriptPath, (path) {
+            setState(() => _targetScriptPath = path);
+          }),
+          _buildCheckboxRow('立即执行', _executeImmediately, (val) {
+            setState(() => _executeImmediately = val ?? false);
+          }),
+        ];
+      case '跳转脚本':
+        return [
+          _buildFieldRow(
+              '跳转至序号', _targetScriptIndicesController, '请输入要跳转到的脚本序号'),
+        ];
+      case '数值对比-点击文字':
+        return [
+          _buildFieldRow('点击文本', _clickTextController, '', required: true),
+          _buildFieldRow('目标值', _targetValueController, '', required: true),
+          _buildDropdownRow('对比方式', _compareMethod, ['>', '<', '=', '>=', '<='],
+              (val) {
+            if (val != null) setState(() => _compareMethod = val);
+          }),
+          _buildFieldRow('多个筛选', _multipleSelectionController, '1',
+              hint: '1:第一个, -1:最后一个, 0:随机'),
+          _buildFieldRow('在...之后搜索', _afterSearchController, ''),
+          _buildFieldRow('在...之前搜索', _beforeSearchController, ''),
+        ];
+
+      case '控制脚本开关':
+        return [
+          _buildFieldRow(
+              '脚本序号', _targetScriptIndicesController, '例如: 1 3 5 (空格隔开)',
+              required: true),
+          _buildDropdownRow('更改为', _switchAction, ['禁用', '启用', '反相'], (val) {
+            if (val != null) setState(() => _switchAction = val);
+          }),
+        ];
+
+      case '通知栏提醒':
+        return [
+          _buildFieldRow('提醒内容', _notificationContentController, '',
+              required: true),
+        ];
+
+      case '设置Cookie':
+        return [
+          _buildFieldRow(
+              '账号存档名称', _cookieProfileNameController, '选填，如：主账号 / 小号1 (优先应用存档)'),
+          _buildFieldRow('Cookie名称', _cookieNameController, '单项设置：名称 (如: token)'),
+          _buildFieldRow('Cookie值', _cookieValueController, '单项设置：对应值'),
+          _buildCheckboxRow('设置后刷新页面', _cookieAutoReload, (val) {
+            setState(() => _cookieAutoReload = val ?? true);
+          }),
+        ];
+
+      case '清除Cookie':
+        return [
+          _buildCheckboxRow('清除全部站点 Cookie', _cookieClearAll, (val) {
+            setState(() => _cookieClearAll = val ?? false);
+          }),
+          _buildCheckboxRow('清除后刷新页面', _cookieAutoReload, (val) {
+            setState(() => _cookieAutoReload = val ?? true);
+          }),
+        ];
+
+      case '提取文字':
+        return [
+          _buildFieldRow(
+              'CSS选择器', _extractSelectorController, '例如: .price 或 #order-id',
+              required: true),
+          _buildFieldRow('提取属性', _extractAttributeController,
+              'text: 文本, html: HTML, 或属性名如 href, src'),
+          _buildFieldRow('保存至变量', _extractVarNameController,
+              '例如: orderId，后续步骤可用 \${orderId} 动态引用'),
+        ];
+
+      default:
+        return [];
+    }
+  }
+
+  Widget _buildLabel(String text, {Color? color}) {
+    return Text(
+      text,
+      style: TextStyle(
+        color: color ?? _theme.labelColor,
+        fontSize: 13,
+      ),
+    );
+  }
+
+  Widget _buildTextField(TextEditingController controller, String placeholder) {
+    return TextField(
+      controller: controller,
+      style: TextStyle(fontSize: 14, color: _theme.textColor),
+      decoration: InputDecoration(
+        hintText: placeholder,
+        hintStyle: TextStyle(color: _theme.hintColor, fontSize: 14),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        filled: true,
+        fillColor: _theme.inputFillColor,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: _theme.borderColor),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: _theme.borderColor),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.blue),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFieldRow(
+      String label, TextEditingController controller, String placeholder,
+      {bool required = false, String? hint}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 120,
+            child: Row(
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(color: _theme.textColor, fontSize: 13),
+                ),
+                if (required)
+                  const Text(
+                    '*',
+                    style: TextStyle(color: Colors.red, fontSize: 13),
+                  ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _buildTextField(controller, hint ?? placeholder),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCheckboxRow(
+      String label, bool value, ValueChanged<bool?> onChanged) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(
+              label,
+              style: TextStyle(color: _theme.textColor, fontSize: 13),
+            ),
+          ),
+          SizedBox(
+            height: 24,
+            width: 24,
+            child: Checkbox(
+              value: value,
+              onChanged: onChanged,
+              activeColor: Colors.blue,
+              side: BorderSide(color: _theme.borderColor, width: 1.5),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(4)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDropdownRow(String label, String value, List<String> items,
+      ValueChanged<String?> onChanged) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(
+              label,
+              style: TextStyle(color: _theme.textColor, fontSize: 13),
+            ),
+          ),
+          Expanded(
+            child: DropdownButtonFormField<String>(
+              value: value,
+              isExpanded: true,
+              decoration: InputDecoration(
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                filled: true,
+                fillColor: _theme.inputFillColor,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: _theme.borderColor),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: _theme.borderColor),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: Colors.blue),
+                ),
+              ),
+              dropdownColor: _theme.dropdownColor,
+              style: TextStyle(fontSize: 14, color: _theme.textColor),
+              icon: Icon(Icons.arrow_drop_down, color: _theme.iconColor),
+              items: items.map((String item) {
+                return DropdownMenuItem<String>(
+                  value: item,
+                  child: Text(
+                    item,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                );
+              }).toList(),
+              onChanged: onChanged,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDelayFieldWithUnit(String label, {bool required = false}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 120,
+            child: Row(
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(color: _theme.textColor, fontSize: 13),
+                ),
+                if (required)
+                  const Text(
+                    '*',
+                    style: TextStyle(color: Colors.red, fontSize: 13),
+                  ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildTextField(_delayController, '0'),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 84,
+                  child: DropdownButtonFormField<String>(
+                    value: _delayTimeUnit,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 12),
+                      filled: true,
+                      fillColor: _theme.inputFillColor,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(color: _theme.borderColor),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(color: _theme.borderColor),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(color: Colors.blue),
+                      ),
+                    ),
+                    dropdownColor: _theme.dropdownColor,
+                    style: TextStyle(fontSize: 13, color: _theme.textColor),
+                    icon: Icon(Icons.arrow_drop_down, color: _theme.iconColor, size: 20),
+                    items: ['毫秒', '秒', '分钟'].map((String unit) {
+                      return DropdownMenuItem<String>(
+                        value: unit,
+                        child: Text(
+                          unit,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (String? newValue) {
+                      if (newValue != null) {
+                        setState(() {
+                          _delayTimeUnit = newValue;
+                        });
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScriptPathSelector(
+      String label, String? currentPath, ValueChanged<String?> onPathSelected) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text(
+            label,
+            style: TextStyle(color: _theme.textColor, fontSize: 13),
+          ),
+        ),
+        Row(
+          children: [
+            Expanded(
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                decoration: BoxDecoration(
+                  color: _theme.inputFillColor,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: _theme.borderColor),
+                ),
+                child: Text(
+                  currentPath != null
+                      ? currentPath.split(Platform.pathSeparator).last
+                      : '未选择文件',
+                  style: TextStyle(
+                    color: currentPath != null
+                        ? _theme.textColor
+                        : _theme.hintColor,
+                    fontSize: 13,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              onPressed: () async {
+                FilePickerResult? result = await FilePicker.platform.pickFiles(
+                  type: FileType.custom,
+                  allowedExtensions: ['json'],
+                );
+
+                if (result != null) {
+                  onPathSelected(result.files.single.path);
+                }
+              },
+              icon: Icon(Icons.folder_open, color: _theme.iconColor),
+              tooltip: '选择脚本集文件',
+            ),
+            if (currentPath != null)
+              IconButton(
+                onPressed: () => onPathSelected(null),
+                icon: const Icon(Icons.close, color: Colors.red),
+                tooltip: '清除选择',
+              ),
+          ],
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+
+  /// 构建自定义JS专用配置字段：同时支持大文本框直接编写/粘贴与本地文件选择
+  List<Widget> _buildCustomJsFields() {
+    final isDark = _theme.isDarkMode;
+    return [
+      // 1. 顶部文件状态与工具栏
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: _theme.tileColor,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: _theme.borderColor),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              _jsFilePath != null ? Icons.description_rounded : Icons.code_rounded,
+              size: 18,
+              color: _jsFilePath != null ? Colors.green : Colors.blueAccent,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _jsFilePath != null
+                        ? '已关联: ${_jsFilePath!.split(Platform.pathSeparator).last}'
+                        : '直接编写或选择本地 .js 文件',
+                    style: TextStyle(
+                      color: _jsFilePath != null
+                          ? (_theme.isDarkMode ? Colors.greenAccent : Colors.green.shade700)
+                          : _theme.textColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (_jsFilePath != null)
+                    Text(
+                      _jsFilePath!,
+                      style: TextStyle(
+                        color: _theme.hintColor,
+                        fontSize: 11,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            // 选择JS文件按钮
+            ElevatedButton.icon(
+              onPressed: () async {
+                FilePickerResult? result = await FilePicker.platform.pickFiles(
+                  type: FileType.any,
+                );
+
+                if (result != null && result.files.single.path != null) {
+                  final path = result.files.single.path!;
+                  if (!path.toLowerCase().endsWith('.js')) {
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('请选择 .js 格式的文件'),
+                        backgroundColor: Colors.orange,
+                      ),
+                    );
+                    return;
+                  }
+                  File file = File(path);
+                  String content = await file.readAsString();
+                  setState(() {
+                    _jsFilePath = path;
+                    _customJsController.text = content;
+                  });
+                }
+              },
+              icon: const Icon(Icons.folder_open_rounded, size: 15),
+              label: const Text('选择文件', style: TextStyle(fontSize: 12)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF5E81AC),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                elevation: 0,
+              ),
+            ),
+            if (_jsFilePath != null || _customJsController.text.isNotEmpty) ...[
+              const SizedBox(width: 6),
+              // 清空内容与文件关联
+              IconButton(
+                icon: const Icon(Icons.clear_all_rounded, size: 18),
+                tooltip: '清空代码与关联',
+                color: Colors.redAccent.shade200,
+                onPressed: () {
+                  setState(() {
+                    _jsFilePath = null;
+                    _customJsController.clear();
+                  });
+                },
+              ),
+            ],
+          ],
+        ),
+      ),
+
+      // 2. 代码大文本框标题栏与快捷粘贴
+      Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: Row(
+                children: [
+                  Text(
+                    'JavaScript 脚本代码',
+                    style: TextStyle(
+                      color: _theme.textColor,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '(支持直接编写与粘贴)',
+                      style: TextStyle(
+                        color: _theme.hintColor,
+                        fontSize: 11,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            InkWell(
+              onTap: () async {
+                final data = await Clipboard.getData(Clipboard.kTextPlain);
+                if (data?.text != null && data!.text!.isNotEmpty) {
+                  setState(() {
+                    _customJsController.text = data.text!;
+                  });
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('已从剪贴板粘贴代码'),
+                        duration: Duration(seconds: 1),
+                      ),
+                    );
+                  }
+                }
+              },
+              borderRadius: BorderRadius.circular(4),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.paste_rounded, size: 14, color: Colors.blueAccent),
+                    const SizedBox(width: 4),
+                    Text(
+                      '粘贴剪贴板',
+                      style: TextStyle(fontSize: 12, color: Colors.blueAccent),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+
+      // 3. 代码编辑器大文本框
+      Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isDark ? Colors.blueAccent.withAlpha(80) : Colors.blueGrey.shade200,
+          ),
+        ),
+        child: TextField(
+          controller: _customJsController,
+          maxLines: 12,
+          minLines: 7,
+          style: TextStyle(
+            fontFamily: 'Consolas',
+            fontSize: 12.5,
+            color: isDark ? const Color(0xFFE2E8F0) : const Color(0xFF1E293B),
+            height: 1.45,
+          ),
+          decoration: InputDecoration(
+            hintText: '// 在此直接编写或粘贴 JavaScript 代码\n'
+                '// 示例 1: 普通网页点击\n'
+                '// document.querySelector("#myBtn")?.click();\n\n'
+                '// 示例 2: 白鹭引擎 (Egret) 游戏虚拟点击\n'
+                '// window.clickVirtual && window.clickVirtual("商城");\n\n'
+                '// 示例 3: 异步流程\n'
+                '// await new Promise(r => setTimeout(r, 1000));',
+            hintStyle: TextStyle(
+              fontFamily: 'Consolas',
+              fontSize: 12,
+              color: isDark ? Colors.white30 : Colors.black26,
+              height: 1.45,
+            ),
+            contentPadding: const EdgeInsets.all(12),
+            border: InputBorder.none,
+          ),
+        ),
+      ),
+
+      // 4. 常用代码片段快捷 Chip 列表
+      Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(
+              '常用模板:',
+              style: TextStyle(fontSize: 11, color: _theme.hintColor),
+            ),
+            _buildSnippetChip(
+              '🎮 游戏虚拟点击',
+              '// 触发白鹭 Canvas 游戏虚拟点击 (自动模糊匹配并返回执行结果)\nreturn window.clickVirtual("商城");',
+            ),
+            _buildSnippetChip(
+              '👇 游戏触屏下滑',
+              '// 模拟手指在白鹭 Canvas 游戏内向下划动 (400像素)\nawait window.swipeVirtual("向下", 400);',
+            ),
+            _buildSnippetChip(
+              '⏱️ 异步延时',
+              '// 等待 1000 毫秒\nawait new Promise(r => setTimeout(r, 1000));',
+            ),
+            _buildSnippetChip(
+              '📜 页面置底滚动',
+              'window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });',
+            ),
+            _buildSnippetChip(
+              '🔍 游戏节点扫描',
+              'console.log("[Auok] 自动化节点扫描:", window.scanEgretElements ? window.scanEgretElements() : "无引擎");',
+            ),
+          ],
+        ),
+      ),
+    ];
+  }
+
+  Widget _buildSnippetChip(String label, String codeSnippet) {
+    final isDark = _theme.isDarkMode;
+    return InkWell(
+      onTap: () {
+        final current = _customJsController.text;
+        if (current.trim().isEmpty) {
+          setState(() {
+            _customJsController.text = codeSnippet;
+          });
+        } else {
+          setState(() {
+            _customJsController.text = '$current\n\n$codeSnippet';
+          });
+        }
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: isDark ? Colors.white10 : Colors.grey.shade200,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isDark ? Colors.white12 : Colors.grey.shade300,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: isDark ? Colors.lightBlueAccent.shade100 : Colors.blue.shade700,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildScriptPathField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text(
+            '目标脚本集',
+            style: TextStyle(color: _theme.textColor, fontSize: 13),
+          ),
+        ),
+        Row(
+          children: [
+            Expanded(
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                decoration: BoxDecoration(
+                  color: _theme.inputFillColor,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: _theme.borderColor),
+                ),
+                child: Text(
+                  _targetScriptPath != null
+                      ? _targetScriptPath!.split(Platform.pathSeparator).last
+                      : '未选择文件',
+                  style: TextStyle(
+                    color: _targetScriptPath != null
+                        ? _theme.textColor
+                        : _theme.hintColor,
+                    fontSize: 13,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              onPressed: () async {
+                FilePickerResult? result = await FilePicker.platform.pickFiles(
+                  type: FileType.custom,
+                  allowedExtensions: ['json'],
+                );
+
+                if (result != null) {
+                  setState(() {
+                    _targetScriptPath = result.files.single.path;
+                  });
+                }
+              },
+              icon: Icon(Icons.folder_open, color: _theme.iconColor),
+              tooltip: '选择脚本集文件',
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFormDataFields() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text(
+            '表单字段',
+            style: TextStyle(color: _theme.textColor, fontSize: 13),
+          ),
+        ),
+        ..._formItems.asMap().entries.map((entry) {
+          final index = entry.key;
+          final item = entry.value;
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: TextField(
+                    controller: item.keyController,
+                    decoration: InputDecoration(
+                      hintText: '字段名 (name/id)',
+                      hintStyle:
+                          TextStyle(color: _theme.hintColor, fontSize: 13),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 8),
+                      filled: true,
+                      fillColor: _theme.inputFillColor,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(color: _theme.borderColor),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(color: _theme.borderColor),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(color: Colors.blue),
+                      ),
+                      isDense: true,
+                    ),
+                    style: TextStyle(fontSize: 13, color: _theme.textColor),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 3,
+                  child: TextField(
+                    controller: item.valueController,
+                    decoration: InputDecoration(
+                      hintText: '字段值',
+                      hintStyle:
+                          TextStyle(color: _theme.hintColor, fontSize: 13),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 8),
+                      filled: true,
+                      fillColor: _theme.inputFillColor,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(color: _theme.borderColor),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(color: _theme.borderColor),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(color: Colors.blue),
+                      ),
+                      isDense: true,
+                    ),
+                    style: TextStyle(fontSize: 13, color: _theme.textColor),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () {
+                    setState(() {
+                      _formItems[index].dispose();
+                      _formItems.removeAt(index);
+                    });
+                  },
+                ),
+              ],
+            ),
+          );
+        }),
+        TextButton.icon(
+          onPressed: () {
+            setState(() {
+              _formItems
+                  .add(_FormDataItem('field${_formItems.length + 1}', ''));
+            });
+          },
+          icon: Icon(Icons.add, color: _theme.iconColor, size: 18),
+          label: Text('添加字段',
+              style: TextStyle(color: _theme.iconColor, fontSize: 13)),
+          style: TextButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAdvancedSection() {
+    return Container(
+      decoration: BoxDecoration(
+        color: _theme.isDarkMode
+            ? Colors.white.withValues(alpha: 0.03)
+            : Colors.black.withValues(alpha: 0.02),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: _isAdvancedExpanded
+              ? Colors.blueAccent.withValues(alpha: 0.4)
+              : _theme.borderColor,
+          width: 1,
+        ),
+      ),
+      child: Column(
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () {
+              setState(() {
+                _isAdvancedExpanded = !_isAdvancedExpanded;
+              });
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.tune,
+                    size: 18,
+                    color: _isAdvancedExpanded
+                        ? Colors.blueAccent
+                        : (_theme.isDarkMode ? Colors.white70 : Colors.black54),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '高级配置 (选填)',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: _isAdvancedExpanded
+                          ? Colors.blueAccent
+                          : (_theme.isDarkMode ? Colors.white : Colors.black87),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  if (_beforeScript != null ||
+                      _afterScript != null ||
+                      _timeoutSecondsController.text != '30')
+                    Container(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.blueAccent.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text(
+                        '已自定义',
+                        style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.blueAccent,
+                            fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  const Spacer(),
+                  Icon(
+                    _isAdvancedExpanded
+                        ? Icons.keyboard_arrow_up
+                        : Icons.keyboard_arrow_down,
+                    size: 20,
+                    color: _theme.iconColor,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_isAdvancedExpanded) ...[
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.all(14.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildFieldRow(
+                    '超时时间 (秒)',
+                    _timeoutSecondsController,
+                    '30',
+                    hint: '脚本单步执行超过此时间未完成时视为超时',
+                  ),
+                  const SizedBox(height: 12),
+                  _buildNestedScriptTile('执行每个脚本前执行 (前置脚本)', 'beforeScript'),
+                  const SizedBox(height: 10),
+                  _buildNestedScriptTile('执行每个脚本后执行 (后置脚本)', 'afterScript'),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNestedScriptTile(String label, String type) {
+    final script = type == 'beforeScript' ? _beforeScript : _afterScript;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: _theme.tileColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _theme.borderColor),
+      ),
+      child: ListTile(
+        title: Text(
+          label,
+          style: TextStyle(color: _theme.textColor, fontSize: 13),
+        ),
+        subtitle: Text(
+          script != null ? '${script.type} (已配置)' : '未配置',
+          style: TextStyle(
+            color: script != null
+                ? Colors.blueAccent
+                : (_theme.isDarkMode ? Colors.grey : Colors.grey.shade600),
+            fontSize: 12,
+          ),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (script != null)
+              IconButton(
+                icon:
+                    const Icon(Icons.close, color: Colors.redAccent, size: 18),
+                onPressed: () {
+                  setState(() {
+                    if (type == 'beforeScript') {
+                      _beforeScript = null;
+                    } else {
+                      _afterScript = null;
+                    }
+                  });
+                },
+              ),
+            IconButton(
+              icon: Icon(script != null ? Icons.edit : Icons.add,
+                  color: _theme.iconColor, size: 18),
+              onPressed: () async {
+                final result = await showDialog<Script>(
+                  context: context,
+                  builder: (context) => AddScriptDialog(
+                    script: script,
+                    isNested: true, // Pass a flag to indicate nested mode
+                  ),
+                );
+
+                if (result != null) {
+                  setState(() {
+                    if (type == 'beforeScript') {
+                      _beforeScript = result;
+                    } else {
+                      _afterScript = result;
+                    }
+                  });
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Helper method to convert delay to milliseconds based on selected unit
+  int _convertDelayToMilliseconds() {
+    final value = int.tryParse(_delayController.text) ?? 0;
+    switch (_delayTimeUnit) {
+      case '秒':
+        return value * 1000;
+      case '分':
+        return value * 60000;
+      default: // '毫秒'
+        return value;
+    }
+  }
+
+  void _handleSubmit() {
+    final scriptProvider = context.read<ScriptProvider>();
+
+    // Build params based on script type
+    final params = <String, dynamic>{};
+
+    if (_selectedScriptType != '全局设置') {
+      params['重复次数'] = int.tryParse(_repeatCountController.text) ?? 1;
+    }
+
+    // Add type-specific params based on JSON structure
+    switch (_selectedScriptType) {
+      case '全局设置':
+        if (_delayController.text.isEmpty) return;
+        params['执行延迟'] = _convertDelayToMilliseconds();
+        break;
+
+      case '点击文字':
+        if (_clickTextController.text.isEmpty) return;
+        params['点击文本'] = _clickTextController.text;
+        params['出现文字'] = _appearTextController.text;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
+        if (_intervalHoursController.text.isNotEmpty) {
+          params['时间间隔-小时'] = int.tryParse(_intervalHoursController.text) ?? 0;
+        }
+        if (_intervalMinutesController.text.isNotEmpty) {
+          params['时间间隔-分钟'] =
+              int.tryParse(_intervalMinutesController.text) ?? 0;
+        }
+        if (_intervalSecondsController.text.isNotEmpty) {
+          params['时间间隔-秒'] = int.tryParse(_intervalSecondsController.text) ?? 0;
+        }
+        params['在此之后'] = _afterSearchController.text;
+        params['在此之前'] = _beforeSearchController.text;
+        params['多个筛选'] = int.tryParse(_multipleSelectionController.text) ?? 1;
+        params['完全匹配'] = _exactMatch;
+        break;
+
+      case '点击图片':
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
+        params['图片地址'] = _clickTextController.text;
+        params['多个筛选'] = int.tryParse(_multipleSelectionController.text) ?? 1;
+        params['在此之后'] = _afterSearchController.text;
+        params['在此之前'] = _beforeSearchController.text;
+        break;
+
+      case '间隔时间':
+        if (_intervalHoursController.text.isNotEmpty) {
+          params['时间间隔-小时'] = int.tryParse(_intervalHoursController.text) ?? 0;
+        }
+        if (_intervalMinutesController.text.isNotEmpty) {
+          params['时间间隔-分钟'] =
+              int.tryParse(_intervalMinutesController.text) ?? 0;
+        }
+        if (_intervalSecondsController.text.isNotEmpty) {
+          params['时间间隔-秒'] = int.tryParse(_intervalSecondsController.text) ?? 0;
+        }
+        if (_targetScriptPath != null) {
+          params['间隔时间后执行脚本'] = _targetScriptPath;
+        }
+        break;
+
+      case '自定义JS':
+        final jsCode = _customJsController.text.trim();
+        if (jsCode.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('请输入 JS 代码或选择 JS 文件'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+          return;
+        }
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
+        params['代码'] = _customJsController.text;
+        params['js内容'] = _customJsController.text;
+        if (_jsFilePath != null && _jsFilePath!.isNotEmpty) {
+          params['jsFilePath'] = _jsFilePath;
+        } else {
+          params.remove('jsFilePath');
+        }
+        break;
+
+      case '进入网址':
+      case '新建标签页并执行脚本':
+        if (_urlController.text.isEmpty) return;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
+        params['网址'] = _urlController.text;
+        break;
+
+      case '输入框提交':
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
+        if (_submitButtonTextController.text.isNotEmpty) {
+          params['提交按钮文字'] = _submitButtonTextController.text;
+        }
+        params['多个筛选'] = int.tryParse(_multipleSelectionController.text) ?? 1;
+        params['启用正则'] = _enableRegex;
+        // Reconstruct formData from _formItems
+        if (_formItems.isNotEmpty) {
+          final formDataMap = <String, String>{};
+          for (var item in _formItems) {
+            if (item.keyController.text.isNotEmpty) {
+              formDataMap[item.keyController.text] = item.valueController.text;
+            }
+          }
+          if (formDataMap.isNotEmpty) {
+            params['表单数据'] = Map<String, dynamic>.from(formDataMap);
+          }
+        }
+        break;
+
+      case '脚本替换':
+      case '执行本地脚本集':
+        if (_targetScriptPath == null) return;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
+        params['脚本集'] = _targetScriptPath;
+        break;
+
+      case '脚本停止':
+      case '脚本暂停':
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
+        params['执行完成提醒'] = _enableNotification;
+        break;
+
+      case '延时脚本':
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
+        break;
+
+      case '控制脚本开关':
+        if (_targetScriptIndicesController.text.isEmpty) return;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
+        params['脚本序号'] = _targetScriptIndicesController.text;
+        params['开关动作'] = _switchAction;
+        break;
+
+      case '逻辑脚本-出现文字':
+        if (_appearTextController.text.isEmpty) return;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
+        params['出现文字'] = _appearTextController.text;
+        params['在此之后'] = _afterSearchController.text;
+        params['在此之前'] = _beforeSearchController.text;
+        if (_trueScriptPath != null) {
+          params['出现时执行'] = _trueScriptPath;
+        }
+        if (_falseScriptPath != null) {
+          params['未出现时执行'] = _falseScriptPath;
+        }
+        break;
+
+      case '逻辑脚本-时间对比':
+        if (_targetValueController.text.isEmpty) return;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
+        params['目标值'] = _targetValueController.text;
+        if (_trueScriptPath != null) {
+          params['出现时执行'] =
+              _trueScriptPath; // Reuse key for simplicity or use specific key
+        }
+        if (_falseScriptPath != null) {
+          params['未出现时执行'] = _falseScriptPath;
+        }
+        break;
+
+      case '逻辑脚本-数值对比':
+        if (_targetValueController.text.isEmpty) return;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
+        params['目标值'] = _targetValueController.text;
+        params['对比方式'] = _compareMethod;
+        params['多个筛选'] = int.tryParse(_multipleSelectionController.text) ?? 1;
+        params['在此之后'] = _afterSearchController.text;
+        params['在此之前'] = _beforeSearchController.text;
+        if (_trueScriptPath != null) {
+          params['出现时执行'] = _trueScriptPath;
+        }
+        if (_falseScriptPath != null) {
+          params['未出现时执行'] = _falseScriptPath;
+        }
+        break;
+
+      case '新建窗口并执行脚本':
+        if (_urlController.text.isEmpty) return;
+        params['窗口名称'] = _windowNameController.text;
+        params['窗口UA'] = _windowUa;
+        params['网址'] = _urlController.text;
+        if (_targetScriptPath != null) {
+          params['脚本集'] = _targetScriptPath;
+        }
+        params['立即执行'] = _executeImmediately;
+        break;
+
+      case '跳转脚本':
+        if (_targetScriptIndicesController.text.isEmpty) return;
+        params['跳转的脚本序号'] = _targetScriptIndicesController.text;
+        break;
+
+      case '数值对比-点击文字':
+        if (_clickTextController.text.isEmpty) return;
+        if (_targetValueController.text.isEmpty) return;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
+        params['点击文本'] = _clickTextController.text;
+        params['目标值'] = _targetValueController.text;
+        params['对比方式'] = _compareMethod;
+        params['多个筛选'] = int.tryParse(_multipleSelectionController.text) ?? 1;
+        params['在此之后'] = _afterSearchController.text;
+        params['在此之前'] = _beforeSearchController.text;
+        break;
+
+      case '通知栏提醒':
+        if (_notificationContentController.text.isEmpty) return;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
+        params['提醒内容'] = _notificationContentController.text;
+        break;
+
+      case '设置Cookie':
+        if (_cookieProfileNameController.text.isNotEmpty) {
+          params['账号存档名称'] = _cookieProfileNameController.text;
+        }
+        if (_cookieNameController.text.isNotEmpty) {
+          params['Cookie名称'] = _cookieNameController.text;
+          params['Cookie值'] = _cookieValueController.text;
+        }
+        params['设置后刷新页面'] = _cookieAutoReload;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
+        break;
+
+      case '清除Cookie':
+        params['清除全部站点'] = _cookieClearAll;
+        params['清除后刷新页面'] = _cookieAutoReload;
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
+        break;
+
+      case '提取文字':
+        if (_extractSelectorController.text.isEmpty) return;
+        params['CSS选择器'] = _extractSelectorController.text.trim();
+        params['属性'] = _extractAttributeController.text.isEmpty
+            ? 'text'
+            : _extractAttributeController.text.trim();
+        if (_extractVarNameController.text.isNotEmpty) {
+          params['变量名'] = _extractVarNameController.text.trim();
+        }
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
+        break;
+
+      default:
+        // For other types, just save delay if present
+        if (_delayController.text.isNotEmpty) {
+          params['执行延迟'] = _convertDelayToMilliseconds();
+        }
+        break;
+    }
+
+    // Save nested scripts
+    if (_beforeScript != null) {
+      params['执行每个脚本前执行'] = _beforeScript!.toUserMap();
+    }
+    if (_afterScript != null) {
+      params['执行每个脚本后执行'] = _afterScript!.toUserMap();
+    }
+
+    final timeout = int.tryParse(_timeoutSecondsController.text);
+    if (timeout != null && timeout > 0) {
+      params['超时时间'] = timeout;
+    }
+
+    final newScript = Script(
+      type: _selectedScriptType,
+      params: params,
+      isEnabled: true,
+    );
+
+    if (widget.isNested) {
+      Navigator.pop(context, newScript);
+      return;
+    }
+
+    if (widget.script != null && widget.index != null) {
+      // Update existing script
+      scriptProvider.updateScript(widget.index!, newScript);
+      Navigator.pop(context);
+    } else {
+      // Return new script for external handling (insertScript or addScript)
+      Navigator.pop(context, newScript);
+    }
+  }
+}
+
+/// 脚本类型快速模糊搜索与选择对话框
+class _ScriptTypeSearchDialog extends StatefulWidget {
+  final String currentType;
+  final List<String> scriptTypes;
+  final Map<String, _ScriptTypeMeta> metas;
+  final bool isDarkMode;
+
+  const _ScriptTypeSearchDialog({
+    required this.currentType,
+    required this.scriptTypes,
+    required this.metas,
+    required this.isDarkMode,
+  });
+
+  @override
+  State<_ScriptTypeSearchDialog> createState() =>
+      _ScriptTypeSearchDialogState();
+}
+
+class _ScriptTypeSearchDialogState extends State<_ScriptTypeSearchDialog> {
+  final TextEditingController _searchController = TextEditingController();
+  String _selectedCategory = '全部';
+
+  late List<String> _filteredTypes;
+
+  final List<String> _categories = [
+    '全部',
+    '页面动作',
+    '脚本控制',
+    '逻辑判断',
+    '网页导航',
+    '数据管理',
+    '辅助工具',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _filteredTypes = List.from(widget.scriptTypes);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _filter() {
+    final query = _searchController.text.trim().toLowerCase();
+    setState(() {
+      _filteredTypes = widget.scriptTypes.where((type) {
+        final meta = widget.metas[type];
+
+        // 检查分类过滤
+        if (_selectedCategory != '全部') {
+          if (meta?.category != _selectedCategory) {
+            return false;
+          }
+        }
+
+        // 检查关键词模糊匹配
+        if (query.isEmpty) return true;
+
+        if (type.toLowerCase().contains(query)) return true;
+        if (meta != null) {
+          if (meta.category.toLowerCase().contains(query)) return true;
+          if (meta.keywords.toLowerCase().contains(query)) return true;
+        }
+        return false;
+      }).toList();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.isDarkMode;
+    final bgColor = isDark ? const Color(0xFF242424) : Colors.white;
+    final cardBg = isDark ? const Color(0xFF2E2E2E) : const Color(0xFFF7F8FA);
+    final borderColor = isDark ? Colors.white12 : Colors.grey.shade300;
+    final textColor = isDark ? Colors.white : Colors.black87;
+
+    final dialogWidth = MediaQuery.of(context).size.width >= 560
+        ? 480.0
+        : MediaQuery.of(context).size.width * 0.92;
+
+    return Dialog(
+      backgroundColor: bgColor,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      child: SizedBox(
+        width: dialogWidth,
+        height: 520,
+        child: Column(
+          children: [
+            // 顶部标题栏
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
+              child: Row(
+                children: [
+                  const Icon(Icons.manage_search_rounded,
+                      color: Colors.blueAccent, size: 24),
+                  const SizedBox(width: 8),
+                  Text(
+                    '选择脚本类型',
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold,
+                      color: textColor,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: Icon(Icons.close_rounded,
+                        color: isDark ? Colors.white54 : Colors.black54),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+
+            // 搜索输入框
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: TextField(
+                controller: _searchController,
+                autofocus: true,
+                style: TextStyle(fontSize: 14, color: textColor),
+                decoration: InputDecoration(
+                  hintText: '输入关键词搜索 (如: 点击、文字、cookie、js)...',
+                  hintStyle: TextStyle(
+                    fontSize: 13,
+                    color: isDark ? Colors.white38 : Colors.black38,
+                  ),
+                  prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                  suffixIcon: _searchController.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear_rounded, size: 18),
+                          onPressed: () {
+                            _searchController.clear();
+                            _filter();
+                          },
+                        )
+                      : null,
+                  isDense: true,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  filled: true,
+                  fillColor: isDark ? Colors.white10 : Colors.grey.shade100,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+                onChanged: (_) => _filter(),
+                onSubmitted: (_) {
+                  if (_filteredTypes.isNotEmpty) {
+                    Navigator.pop(context, _filteredTypes.first);
+                  }
+                },
+              ),
+            ),
+
+            // 分类快捷标签栏
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: _categories.map((cat) {
+                  final isSelected = _selectedCategory == cat;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ChoiceChip(
+                      label: Text(cat),
+                      labelStyle: TextStyle(
+                        fontSize: 12,
+                        color: isSelected
+                            ? Colors.white
+                            : (isDark ? Colors.white70 : Colors.black87),
+                        fontWeight:
+                            isSelected ? FontWeight.bold : FontWeight.normal,
+                      ),
+                      selected: isSelected,
+                      selectedColor: Colors.blueAccent,
+                      backgroundColor:
+                          isDark ? Colors.white12 : Colors.grey.shade200,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        side: BorderSide.none,
+                      ),
+                      onSelected: (selected) {
+                        if (selected) {
+                          setState(() {
+                            _selectedCategory = cat;
+                          });
+                          _filter();
+                        }
+                      },
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+
+            const Divider(height: 1),
+
+            // 过滤结果列表
+            Expanded(
+              child: _filteredTypes.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.search_off_rounded,
+                            size: 40,
+                            color: isDark ? Colors.white24 : Colors.black26,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            '未找到匹配的脚本类型',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: isDark ? Colors.white38 : Colors.black38,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      itemCount: _filteredTypes.length,
+                      itemBuilder: (context, index) {
+                        final type = _filteredTypes[index];
+                        final meta = widget.metas[type];
+                        final isCurrent = type == widget.currentType;
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 6),
+                          decoration: BoxDecoration(
+                            color: isCurrent
+                                ? Colors.blueAccent.withAlpha(isDark ? 50 : 25)
+                                : cardBg,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: isCurrent
+                                  ? Colors.blueAccent
+                                  : borderColor,
+                            ),
+                          ),
+                          child: ListTile(
+                            dense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 2),
+                            leading: Icon(
+                              meta?.icon ?? Icons.code_rounded,
+                              size: 20,
+                              color: isCurrent
+                                  ? Colors.blueAccent
+                                  : (isDark ? Colors.white70 : Colors.black87),
+                            ),
+                            title: Text(
+                              type,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: isCurrent
+                                    ? FontWeight.bold
+                                    : FontWeight.w500,
+                                color: isCurrent ? Colors.blueAccent : textColor,
+                              ),
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (meta != null)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: isDark
+                                          ? Colors.white12
+                                          : Colors.grey.shade200,
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      meta.category,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: isDark
+                                            ? Colors.white60
+                                            : Colors.black54,
+                                      ),
+                                    ),
+                                  ),
+                                if (isCurrent) ...[
+                                  const SizedBox(width: 8),
+                                  const Icon(Icons.check_circle_rounded,
+                                      size: 18, color: Colors.blueAccent),
+                                ],
+                              ],
+                            ),
+                            onTap: () {
+                              Navigator.pop(context, type);
+                            },
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 参考用户截图形式的脚本类型快捷选择弹窗
+class _ScriptTypePopupMenuDialog extends StatelessWidget {
+  final String currentType;
+  final List<String> scriptTypes;
+  final bool isDarkMode;
+
+  const _ScriptTypePopupMenuDialog({
+    required this.currentType,
+    required this.scriptTypes,
+    required this.isDarkMode,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // 按照用户截图顺序优化排列，常用与自动化操作置顶
+    final displayOrder = [
+      '点击文字',
+      '输入框提交',
+      '刷新网页',
+      '进入网址',
+      '执行本地脚本集',
+      '脚本替换',
+      '执行插件',
+      '逻辑脚本-出现文字',
+      '逻辑脚本-时间对比',
+      '逻辑脚本-数值对比',
+      '验证码图片识别',
+      '数值对比',
+      '数值对比-点击文字',
+      '网页文字替换',
+      '提取文字',
+      '设置Cookie',
+      '清除Cookie',
+      '自定义JS',
+      '间隔时间',
+      '延时脚本',
+      '网页后退',
+      '网页前进',
+      '脚本暂停',
+      '脚本停止',
+      '控制脚本开关',
+      '通知栏提醒',
+      '新建窗口并执行脚本',
+      '跳转脚本',
+    ];
+
+    final allTypes = <String>[];
+    for (var t in displayOrder) {
+      if (scriptTypes.contains(t) && !allTypes.contains(t)) {
+        allTypes.add(t);
+      }
+    }
+    for (var t in scriptTypes) {
+      if (!allTypes.contains(t)) {
+        allTypes.add(t);
+      }
+    }
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 36),
+      child: Center(
+        child: Container(
+          width: 250,
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.70,
+          ),
+          decoration: BoxDecoration(
+            color: const Color(0xFF2E2E2E),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: Colors.white24, width: 0.8),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.6),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: ListView.separated(
+              shrinkWrap: true,
+              padding: EdgeInsets.zero,
+              itemCount: allTypes.length,
+              separatorBuilder: (context, index) => Container(
+                height: 1,
+                color: Colors.white.withValues(alpha: 0.08),
+              ),
+              itemBuilder: (context, index) {
+                final type = allTypes[index];
+                final isSelected = type == currentType;
+
+                return Material(
+                  color: isSelected
+                      ? const Color(0xFF424242)
+                      : Colors.transparent,
+                  child: InkWell(
+                    onTap: () => Navigator.pop(context, type),
+                    child: Container(
+                      height: 44,
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      child: Text(
+                        type,
+                        style: TextStyle(
+                          color: isSelected ? Colors.lightBlueAccent : Colors.white,
+                          fontSize: 15,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w400,
+                          letterSpacing: 0.5,
+                        ),
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

@@ -63,8 +63,8 @@ class _BrowserHomePageState extends State<BrowserHomePage>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      // 当应用切回前台（如在 iOS 网络权限弹窗点击“允许”）时，自动探测并静默热刷新欢迎页
+    // 仅在移动端切回前台时静默探测欢迎页，避免 PC 端每次鼠标点击/窗口焦点切换时意外刷新页面
+    if (state == AppLifecycleState.resumed && !Platform.isWindows) {
       _silentlyRefreshWelcomeIfAvailable();
     }
   }
@@ -76,9 +76,12 @@ class _BrowserHomePageState extends State<BrowserHomePage>
     );
     if (content != null && content.isNotEmpty && mounted) {
       for (var tab in browserProvider.tabs) {
-        if (tab.url == 'about:blank' ||
+        // 只有确实处于欢迎页且未在导航跳转中的标签才静默更新，杜绝在点击链接加载期间被误重载
+        final isWelcome = tab.url == 'about:blank' ||
             tab.url.isEmpty ||
-            tab.url.contains('welcome.html')) {
+            tab.url.endsWith('welcome.html') ||
+            tab.url == 'file:///welcome.html';
+        if (isWelcome && !tab.isLoading) {
           tab.controller?.loadData(
             data: content,
             mimeType: 'text/html',
@@ -776,28 +779,34 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                               scriptProvider.recordAction('刷新网页');
                             }
 
-                            // Smart refresh: check if on welcome page
-                            final currentUrl = await browserProvider
-                                .currentTab?.controller
-                                ?.getUrl();
-                            if (currentUrl == null ||
-                                currentUrl.toString() == 'about:blank' ||
-                                currentUrl.toString() ==
-                                    'file:///welcome.html') {
-                              // Reload welcome content with latest version
-                              WelcomeManager.getWelcomeContent()
-                                  .then((content) {
-                                browserProvider.currentTab?.controller
-                                    ?.loadData(
-                                        data: content,
-                                        mimeType: 'text/html',
-                                        encoding: 'utf-8',
-                                        baseUrl:
-                                            WebUri('file:///welcome.html'));
-                              });
-                            } else {
-                              // Normal page reload
-                              browserProvider.currentTab?.controller?.reload();
+                            // 智能刷新：精准判定是否真正处于欢迎页，杜绝因点击链接后页面过渡期 getUrl() 暂时为 blank 而误重置回初始页
+                            final currentTab = browserProvider.currentTab;
+                            if (currentTab != null) {
+                              final tabUrl = currentTab.url;
+                              final curUrl = (await currentTab.controller?.getUrl())?.toString() ?? '';
+                              final isReallyWelcome = (curUrl.endsWith('welcome.html') || curUrl == 'file:///welcome.html') &&
+                                  (tabUrl.isEmpty || tabUrl == 'about:blank' || tabUrl.endsWith('welcome.html'));
+
+                              if (isReallyWelcome) {
+                                WelcomeManager.getWelcomeContent().then((content) {
+                                  currentTab.controller?.loadData(
+                                    data: content,
+                                    mimeType: 'text/html',
+                                    encoding: 'utf-8',
+                                    baseUrl: WebUri('file:///welcome.html'),
+                                  );
+                                });
+                              } else {
+                                try {
+                                  await currentTab.controller?.reload();
+                                } catch (_) {
+                                  if (tabUrl.isNotEmpty && tabUrl != 'about:blank') {
+                                    currentTab.controller?.loadUrl(
+                                      urlRequest: URLRequest(url: WebUri(tabUrl)),
+                                    );
+                                  }
+                                }
+                              }
                             }
                           },
                         ),

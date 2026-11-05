@@ -1,152 +1,152 @@
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../providers/browser_provider.dart';
-
-class UrlSearchOverlay extends StatefulWidget {
-  final String initialUrl;
-  final Function(String) onSubmitted;
-
-  const UrlSearchOverlay({
-    super.key,
-    required this.initialUrl,
-    required this.onSubmitted,
-  });
-
-  @override
-  State<UrlSearchOverlay> createState() => _UrlSearchOverlayState();
-}
-
-class _UrlSearchOverlayState extends State<UrlSearchOverlay> {
-  late TextEditingController _controller;
-  final FocusNode _focusNode = FocusNode();
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(text: widget.initialUrl);
-
-    // Auto focus and select all text
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _focusNode.requestFocus();
-      _controller.selection = TextSelection(
-        baseOffset: 0,
-        extentOffset: _controller.text.length,
-      );
-    });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    _focusNode.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDarkMode =
-        context.select<BrowserProvider, bool>((p) => p.isDarkMode);
-    final backgroundColor = isDarkMode ? const Color(0xFF1E1E1E) : Colors.white;
-
-    return Scaffold(
-      backgroundColor: backgroundColor,
-      appBar: AppBar(
-        backgroundColor: Colors.grey[800],
-        elevation: 0,
-        automaticallyImplyLeading: false,
-        title: Container(
-          decoration: BoxDecoration(
-            color: Colors.grey[700],
-            borderRadius: BorderRadius.circular(8),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: TextField(
-            controller: _controller,
-            focusNode: _focusNode,
-            style: const TextStyle(color: Colors.white),
-            keyboardType: TextInputType.url,
-            textInputAction: TextInputAction.go,
-            autocorrect: false,
-            enableSuggestions: false,
-            contextMenuBuilder: (context, editableTextState) {
-              final List<ContextMenuButtonItem> buttonItems = [];
-              // 剪切
-              if (editableTextState.cutEnabled) {
-                buttonItems.add(ContextMenuButtonItem(
-                  label: '剪切',
-                  onPressed: () {
-                    editableTextState
-                        .cutSelection(SelectionChangedCause.toolbar);
-                  },
-                ));
-              }
-              // 复制
-              if (editableTextState.copyEnabled) {
-                buttonItems.add(ContextMenuButtonItem(
-                  label: '复制',
-                  onPressed: () {
-                    editableTextState
-                        .copySelection(SelectionChangedCause.toolbar);
-                  },
-                ));
-              }
-              // 粘贴
-              if (editableTextState.pasteEnabled) {
-                buttonItems.add(ContextMenuButtonItem(
-                  label: '粘贴',
-                  onPressed: () {
-                    editableTextState.pasteText(SelectionChangedCause.toolbar);
-                  },
-                ));
-              }
-              // 全选
-              if (editableTextState.selectAllEnabled) {
-                buttonItems.add(ContextMenuButtonItem(
-                  label: '全选',
-                  onPressed: () {
-                    editableTextState.selectAll(SelectionChangedCause.toolbar);
-                  },
-                ));
-              }
-              return AdaptiveTextSelectionToolbar.buttonItems(
-                anchors: editableTextState.contextMenuAnchors,
-                buttonItems: buttonItems,
-              );
-            },
-            decoration: const InputDecoration(
-              hintText: '输入网址或搜索...',
-              hintStyle: TextStyle(color: Colors.white54),
-              border: InputBorder.none,
-              isDense: true,
-              contentPadding: EdgeInsets.symmetric(vertical: 14),
-            ),
-            onSubmitted: (value) {
-              // Logic is handled in home_screen, just pass back
-              widget.onSubmitted(value);
-              Navigator.pop(context);
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-            },
-            child: const Text(
-              '取消',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 16, // Slightly larger than default
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ],
-      ),
-      body: Container(
-        color: backgroundColor,
-        // Future: Add search history or suggestions here
-      ),
-    );
-  }
-}
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/browser_provider.dart';
+
+class UrlSearchOverlay extends StatefulWidget {
+  final String initialUrl;
+  final Function(String) onSubmitted;
+
+  const UrlSearchOverlay({
+    super.key,
+    required this.initialUrl,
+    required this.onSubmitted,
+  });
+
+  @override
+  State<UrlSearchOverlay> createState() => _UrlSearchOverlayState();
+}
+
+class _UrlSearchOverlayState extends State<UrlSearchOverlay> {
+  late TextEditingController _controller;
+  final FocusNode _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialUrl);
+
+    // Auto focus and select all text
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNode.requestFocus();
+      _controller.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _controller.text.length,
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDarkMode =
+        context.select<BrowserProvider, bool>((p) => p.isDarkMode);
+    final backgroundColor = isDarkMode ? const Color(0xFF1E1E1E) : Colors.white;
+
+    return Scaffold(
+      backgroundColor: backgroundColor,
+      appBar: AppBar(
+        backgroundColor: Colors.grey[800],
+        elevation: 0,
+        automaticallyImplyLeading: false,
+        title: Container(
+          decoration: BoxDecoration(
+            color: Colors.grey[700],
+            borderRadius: BorderRadius.circular(8),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: TextField(
+            controller: _controller,
+            focusNode: _focusNode,
+            style: const TextStyle(color: Colors.white),
+            keyboardType: TextInputType.url,
+            textInputAction: TextInputAction.go,
+            autocorrect: false,
+            enableSuggestions: false,
+            contextMenuBuilder: (context, editableTextState) {
+              final List<ContextMenuButtonItem> buttonItems = [];
+              // 剪切
+              if (editableTextState.cutEnabled) {
+                buttonItems.add(ContextMenuButtonItem(
+                  label: '剪切',
+                  onPressed: () {
+                    editableTextState
+                        .cutSelection(SelectionChangedCause.toolbar);
+                  },
+                ));
+              }
+              // 复制
+              if (editableTextState.copyEnabled) {
+                buttonItems.add(ContextMenuButtonItem(
+                  label: '复制',
+                  onPressed: () {
+                    editableTextState
+                        .copySelection(SelectionChangedCause.toolbar);
+                  },
+                ));
+              }
+              // 粘贴
+              if (editableTextState.pasteEnabled) {
+                buttonItems.add(ContextMenuButtonItem(
+                  label: '粘贴',
+                  onPressed: () {
+                    editableTextState.pasteText(SelectionChangedCause.toolbar);
+                  },
+                ));
+              }
+              // 全选
+              if (editableTextState.selectAllEnabled) {
+                buttonItems.add(ContextMenuButtonItem(
+                  label: '全选',
+                  onPressed: () {
+                    editableTextState.selectAll(SelectionChangedCause.toolbar);
+                  },
+                ));
+              }
+              return AdaptiveTextSelectionToolbar.buttonItems(
+                anchors: editableTextState.contextMenuAnchors,
+                buttonItems: buttonItems,
+              );
+            },
+            decoration: const InputDecoration(
+              hintText: '输入网址或搜索...',
+              hintStyle: TextStyle(color: Colors.white54),
+              border: InputBorder.none,
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(vertical: 14),
+            ),
+            onSubmitted: (value) {
+              // Logic is handled in home_screen, just pass back
+              widget.onSubmitted(value);
+              Navigator.pop(context);
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+            },
+            child: const Text(
+              '取消',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16, // Slightly larger than default
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+      body: Container(
+        color: backgroundColor,
+        // Future: Add search history or suggestions here
+      ),
+    );
+  }
+}

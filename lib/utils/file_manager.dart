@@ -1,72 +1,72 @@
-import 'dart:io';
-import 'package:path/path.dart' as path;
-import 'package:path_provider/path_provider.dart';
-
-/// Utility class for managing script file directories
-class FileManager {
-  /// Get the default script directory path (脚本)
-  /// Creates the directory if it doesn't exist
-  static Future<String> getScriptDirectory() async {
-    // Get app documents directory
-    final Directory appDocDir = await getApplicationDocumentsDirectory();
-
-    // Create 脚本 path directly under Documents
-    final String scriptDirPath = path.join(appDocDir.path, '脚本');
-
-    // Create directory if it doesn't exist
-    final Directory scriptDir = Directory(scriptDirPath);
-    if (!await scriptDir.exists()) {
-      await scriptDir.create(recursive: true);
-    }
-
-    return scriptDirPath;
-  }
-
-  /// Get a list of all saved script files (.json)
-  static Future<List<File>> getSavedScripts() async {
-    final scriptDirPath = await getScriptDirectory();
-    final scriptDir = Directory(scriptDirPath);
-    
-    if (!await scriptDir.exists()) {
-      return [];
-    }
-
-    final List<FileSystemEntity> entities = await scriptDir.list().toList();
-    final List<File> scriptFiles = [];
-
-    for (var entity in entities) {
-      if (entity is File && entity.path.toLowerCase().endsWith('.json')) {
-        scriptFiles.add(entity);
-      }
-    }
-
-    // Sort by last modified time (newest first)
-    try {
-      scriptFiles.sort((a, b) {
-        final aStat = a.statSync();
-        final bStat = b.statSync();
-        return bStat.modified.compareTo(aStat.modified);
-      });
-    } catch (_) {
-      // Fallback if statSync fails
-    }
-
-    return scriptFiles;
-  }
-
-  /// Check if a file exists at the given path
-  static Future<bool> fileExists(String? filePath) async {
-    if (filePath == null || filePath.isEmpty) {
-      return false;
-    }
-    return await File(filePath).exists();
-  }
-
-  /// Delete a file at the given path
-  static Future<void> deleteFile(String filePath) async {
-    final file = File(filePath);
-    if (await file.exists()) {
-      await file.delete();
-    }
-  }
-}
+import 'dart:io';
+import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
+
+/// Utility class for managing script file directories
+class FileManager {
+  /// Get the default script directory path (脚本)
+  /// Creates the directory if it doesn't exist
+  static Future<String> getScriptDirectory() async {
+    // Get app documents directory
+    final Directory appDocDir = await getApplicationDocumentsDirectory();
+
+    // Create 脚本 path directly under Documents
+    final String scriptDirPath = path.join(appDocDir.path, '脚本');
+
+    // Create directory if it doesn't exist
+    final Directory scriptDir = Directory(scriptDirPath);
+    if (!await scriptDir.exists()) {
+      await scriptDir.create(recursive: true);
+    }
+
+    return scriptDirPath;
+  }
+
+  /// Get a list of all saved script files (.json)
+  static Future<List<File>> getSavedScripts() async {
+    final scriptDirPath = await getScriptDirectory();
+    final scriptDir = Directory(scriptDirPath);
+    
+    if (!await scriptDir.exists()) {
+      return [];
+    }
+
+    final List<FileSystemEntity> entities = await scriptDir.list().toList();
+    final List<File> scriptFiles = [];
+
+    for (var entity in entities) {
+      if (entity is File && entity.path.toLowerCase().endsWith('.json')) {
+        scriptFiles.add(entity);
+      }
+    }
+
+    // Sort by last modified time (newest first)
+    try {
+      scriptFiles.sort((a, b) {
+        final aStat = a.statSync();
+        final bStat = b.statSync();
+        return bStat.modified.compareTo(aStat.modified);
+      });
+    } catch (_) {
+      // Fallback if statSync fails
+    }
+
+    return scriptFiles;
+  }
+
+  /// Check if a file exists at the given path
+  static Future<bool> fileExists(String? filePath) async {
+    if (filePath == null || filePath.isEmpty) {
+      return false;
+    }
+    return await File(filePath).exists();
+  }
+
+  /// Delete a file at the given path
+  static Future<void> deleteFile(String filePath) async {
+    final file = File(filePath);
+    if (await file.exists()) {
+      await file.delete();
+    }
+  }
+}
