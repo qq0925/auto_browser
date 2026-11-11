@@ -1,532 +1,632 @@
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../providers/browser_provider.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
-
-class BookmarksHistoryDialog extends StatefulWidget {
-  const BookmarksHistoryDialog({super.key});
-
-  @override
-  State<BookmarksHistoryDialog> createState() => _BookmarksHistoryDialogState();
-}
-
-class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDarkMode =
-        context.select<BrowserProvider, bool>((p) => p.isDarkMode);
-    final backgroundColor = isDarkMode ? const Color(0xFF1E1E1E) : Colors.white;
-
-    return Scaffold(
-      backgroundColor: backgroundColor,
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF333333),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: TabBar(
-          controller: _tabController,
-          indicatorColor: Colors.white,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.grey,
-          tabs: const [
-            Tab(
-              icon: Icon(Icons.star),
-              text: '书签',
-            ),
-            Tab(
-              icon: Icon(Icons.history),
-              text: '历史',
-            ),
-          ],
-        ),
-        actions: [],
-      ),
-      body: SafeArea(
-        bottom: true,
-        top: false,
-        child: TabBarView(
-          controller: _tabController,
-          children: [
-            _buildBookmarksList(),
-            _buildHistoryList(),
-          ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          // Show actions menu similar to screenshot
-          _showActionsMenu(context);
-        },
-        backgroundColor: const Color(0xFF333333),
-        child: const Icon(Icons.menu, color: Colors.white),
-      ),
-    );
-  }
-
-  Widget _buildBookmarksList() {
-    return Consumer<BrowserProvider>(
-      builder: (context, provider, child) {
-        if (provider.bookmarks.isEmpty) {
-          return const Center(child: Text('暂无书签'));
-        }
-        return ListView.separated(
-          itemCount: provider.bookmarks.length,
-          separatorBuilder: (context, index) => const Divider(height: 1),
-          itemBuilder: (context, index) {
-            final bookmark = provider.bookmarks[index];
-            final textColor =
-                provider.isDarkMode ? Colors.white : Colors.black87;
-            final subtitleColor =
-                provider.isDarkMode ? Colors.white70 : Colors.black54;
-
-            return ListTile(
-              title: Text(bookmark.title,
-                  style:
-                      TextStyle(color: textColor, fontWeight: FontWeight.bold),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
-              subtitle: Text(bookmark.url,
-                  style: TextStyle(color: subtitleColor),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
-              onTap: () {
-                final targetUrl = BrowserProvider.normalizeUrl(bookmark.url);
-                final currentTab = provider.currentTab;
-                if (currentTab != null && currentTab.controller != null) {
-                  currentTab.url = targetUrl;
-                  currentTab.title = bookmark.title;
-                  provider.updateTabInfo(
-                      provider.currentIndex, targetUrl, bookmark.title);
-                  currentTab.controller?.loadUrl(
-                      urlRequest: URLRequest(url: WebUri(targetUrl)));
-                } else {
-                  provider.addTab(
-                      initialUrl: targetUrl,
-                      initialTitle: bookmark.title,
-                      switchToNewTab: true);
-                }
-                Navigator.of(context).pop();
-              },
-              onLongPress: () {
-                final targetUrl = BrowserProvider.normalizeUrl(bookmark.url);
-                showModalBottomSheet(
-                  context: context,
-                  backgroundColor: const Color(0xFF2C2C2C),
-                  shape: const RoundedRectangleBorder(
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                  ),
-                  builder: (ctx) => SafeArea(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        ListTile(
-                          leading: const Icon(Icons.open_in_browser, color: Colors.white),
-                          title: const Text('在当前窗口打开', style: TextStyle(color: Colors.white)),
-                          onTap: () {
-                            Navigator.pop(ctx);
-                            final currentTab = provider.currentTab;
-                            if (currentTab != null && currentTab.controller != null) {
-                              currentTab.url = targetUrl;
-                              currentTab.title = bookmark.title;
-                              provider.updateTabInfo(
-                                  provider.currentIndex, targetUrl, bookmark.title);
-                              currentTab.controller?.loadUrl(
-                                  urlRequest: URLRequest(url: WebUri(targetUrl)));
-                            } else {
-                              provider.addTab(
-                                  initialUrl: targetUrl,
-                                  initialTitle: bookmark.title,
-                                  switchToNewTab: true);
-                            }
-                            Navigator.of(context).pop();
-                          },
-                        ),
-                        const Divider(color: Colors.white12, height: 1),
-                        ListTile(
-                          leading: const Icon(Icons.tab, color: Colors.blueAccent),
-                          title: const Text('在新标签页中打开', style: TextStyle(color: Colors.white)),
-                          onTap: () {
-                            Navigator.pop(ctx);
-                            provider.addTab(
-                              initialUrl: targetUrl,
-                              initialTitle: bookmark.title,
-                              switchToNewTab: true,
-                            );
-                            Navigator.of(context).pop();
-                          },
-                        ),
-                        const Divider(color: Colors.white12, height: 1),
-                        ListTile(
-                          leading: const Icon(Icons.delete, color: Colors.redAccent),
-                          title: const Text('删除书签', style: TextStyle(color: Colors.redAccent)),
-                          onTap: () {
-                            Navigator.pop(ctx);
-                            provider.removeBookmark(bookmark);
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-              trailing: IconButton(
-                icon: const Icon(Icons.close, size: 16),
-                onPressed: () {
-                  showDialog(
-                    context: context,
-                    builder: (ctx) => AlertDialog(
-                      title: const Text('确认删除'),
-                      content: Text('确定要删除书签 "${bookmark.title}" 吗？'),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          child: const Text('取消'),
-                        ),
-                        TextButton(
-                          onPressed: () {
-                            provider.removeBookmark(bookmark);
-                            Navigator.pop(ctx);
-                          },
-                          child: const Text('删除',
-                              style: TextStyle(color: Colors.red)),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildHistoryList() {
-    return Consumer<BrowserProvider>(
-      builder: (context, provider, child) {
-        if (provider.history.isEmpty) {
-          return const Center(child: Text('暂无历史记录'));
-        }
-        return ListView.separated(
-          itemCount: provider.history.length,
-          separatorBuilder: (context, index) => const Divider(height: 1),
-          itemBuilder: (context, index) {
-            final item = provider.history[index];
-            final textColor =
-                provider.isDarkMode ? Colors.white : Colors.black87;
-            final subtitleColor =
-                provider.isDarkMode ? Colors.white70 : Colors.black54;
-
-            return ListTile(
-              title: Text(item.title,
-                  style:
-                      TextStyle(color: textColor, fontWeight: FontWeight.bold),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
-              subtitle: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(item.url,
-                      style: TextStyle(color: subtitleColor),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis),
-                  Text(
-                    '${item.visitedAt.year}-${item.visitedAt.month.toString().padLeft(2, '0')}-${item.visitedAt.day.toString().padLeft(2, '0')} ${item.visitedAt.hour.toString().padLeft(2, '0')}:${item.visitedAt.minute.toString().padLeft(2, '0')}:${item.visitedAt.second.toString().padLeft(2, '0')}',
-                    style: TextStyle(color: subtitleColor, fontSize: 12),
-                    maxLines: 1,
-                  ),
-                ],
-              ),
-              isThreeLine: true,
-              onTap: () {
-                final targetUrl = BrowserProvider.normalizeUrl(item.url);
-                final currentTab = provider.currentTab;
-                if (currentTab != null && currentTab.controller != null) {
-                  currentTab.url = targetUrl;
-                  currentTab.title = item.title;
-                  provider.updateTabInfo(
-                      provider.currentIndex, targetUrl, item.title);
-                  currentTab.controller?.loadUrl(
-                      urlRequest: URLRequest(url: WebUri(targetUrl)));
-                } else {
-                  provider.addTab(
-                      initialUrl: targetUrl,
-                      initialTitle: item.title,
-                      switchToNewTab: true);
-                }
-                Navigator.of(context).pop();
-              },
-              onLongPress: () {
-                final targetUrl = BrowserProvider.normalizeUrl(item.url);
-                showModalBottomSheet(
-                  context: context,
-                  backgroundColor: const Color(0xFF2C2C2C),
-                  shape: const RoundedRectangleBorder(
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                  ),
-                  builder: (ctx) => SafeArea(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        ListTile(
-                          leading: const Icon(Icons.open_in_browser, color: Colors.white),
-                          title: const Text('在当前窗口打开', style: TextStyle(color: Colors.white)),
-                          onTap: () {
-                            Navigator.pop(ctx);
-                            final currentTab = provider.currentTab;
-                            if (currentTab != null && currentTab.controller != null) {
-                              currentTab.url = targetUrl;
-                              currentTab.title = item.title;
-                              provider.updateTabInfo(
-                                  provider.currentIndex, targetUrl, item.title);
-                              currentTab.controller?.loadUrl(
-                                  urlRequest: URLRequest(url: WebUri(targetUrl)));
-                            } else {
-                              provider.addTab(
-                                  initialUrl: targetUrl,
-                                  initialTitle: item.title,
-                                  switchToNewTab: true);
-                            }
-                            Navigator.of(context).pop();
-                          },
-                        ),
-                        const Divider(color: Colors.white12, height: 1),
-                        ListTile(
-                          leading: const Icon(Icons.tab, color: Colors.blueAccent),
-                          title: const Text('在新标签页中打开', style: TextStyle(color: Colors.white)),
-                          onTap: () {
-                            Navigator.pop(ctx);
-                            provider.addTab(
-                              initialUrl: targetUrl,
-                              initialTitle: item.title,
-                              switchToNewTab: true,
-                            );
-                            Navigator.of(context).pop();
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            );
-          },
-        );
-      },
-    );
-  }
-
-  void _showClearDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('确认清空'),
-        content:
-            Text(_tabController.index == 0 ? '确定要清空所有书签吗？' : '确定要清空所有历史记录吗？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () {
-              final provider = context.read<BrowserProvider>();
-              if (_tabController.index == 0) {
-                provider.clearBookmarks();
-              } else {
-                provider.clearHistory();
-              }
-              Navigator.pop(context);
-            },
-            child: const Text('确定'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showActionsMenu(BuildContext context) {
-    final isBookmarks = _tabController.index == 0;
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        margin: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: const Color(0xFF333333),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (isBookmarks) ...[
-                _buildActionItem(Icons.add, '增加书签', () {
-                  Navigator.pop(context);
-                  _showAddBookmarkDialog(context);
-                }),
-                const Divider(color: Colors.grey, height: 1),
-                _buildActionItem(Icons.sort, '排序', () {
-                  Navigator.pop(context);
-                  showModalBottomSheet(
-                    context: context,
-                    backgroundColor: Colors.transparent,
-                    builder: (context) => Container(
-                      margin: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF333333),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: SafeArea(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _buildActionItem(null, '按地址排序', () {
-                              context
-                                  .read<BrowserProvider>()
-                                  .sortBookmarks('url');
-                              Navigator.pop(context);
-                            }),
-                            const Divider(color: Colors.grey, height: 1),
-                            _buildActionItem(null, '按名称排序', () {
-                              context
-                                  .read<BrowserProvider>()
-                                  .sortBookmarks('name');
-                              Navigator.pop(context);
-                            }),
-                            const Divider(color: Colors.grey, height: 1),
-                            _buildActionItem(null, '按时间排序', () {
-                              context
-                                  .read<BrowserProvider>()
-                                  .sortBookmarks('time');
-                              Navigator.pop(context);
-                            }),
-                            const Divider(color: Colors.grey, height: 1),
-                            _buildActionItem(null, '取消', () {
-                              Navigator.pop(context);
-                            }),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                }),
-                const Divider(color: Colors.grey, height: 1),
-              ],
-              _buildActionItem(Icons.delete_outline, '清空', () {
-                Navigator.pop(context);
-                _showClearDialog(context);
-              }),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showAddBookmarkDialog(BuildContext context) {
-    final provider = context.read<BrowserProvider>();
-    String initialTitle = provider.currentTab?.title ?? '';
-    String initialUrl = provider.currentTab?.url ?? '';
-
-    if (initialUrl == 'about:blank' || initialUrl.endsWith('welcome.html')) {
-      initialTitle = 'Auok浏览器';
-      initialUrl = 'about:blank';
-    }
-
-    final titleController = TextEditingController(text: initialTitle);
-    final urlController = TextEditingController(text: initialUrl);
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF333333),
-        title: const Row(
-          children: [
-            Icon(Icons.star, color: Colors.white),
-            SizedBox(width: 8),
-            Text('增加书签', style: TextStyle(color: Colors.white)),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: titleController,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                labelText: '名称:',
-                labelStyle: TextStyle(color: Colors.grey),
-                enabledBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: Colors.grey)),
-                focusedBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: Colors.white)),
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: urlController,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                labelText: '地址:',
-                labelStyle: TextStyle(color: Colors.grey),
-                enabledBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: Colors.grey)),
-                focusedBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: Colors.white)),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消', style: TextStyle(color: Colors.white)),
-          ),
-          TextButton(
-            onPressed: () {
-              if (titleController.text.isNotEmpty &&
-                  urlController.text.isNotEmpty) {
-                provider.addBookmark(urlController.text, titleController.text);
-              }
-              Navigator.pop(context);
-            },
-            child: const Text('确定', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActionItem(IconData? icon, String label, VoidCallback onTap) {
-    return ListTile(
-      leading: icon != null ? Icon(icon, color: Colors.white) : null,
-      title: Text(
-        label,
-        style: const TextStyle(color: Colors.white),
-        textAlign: icon == null ? TextAlign.center : TextAlign.start,
-      ),
-      onTap: onTap,
-      dense: true,
-    );
-  }
-}
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import '../models/browser_data.dart';
+import '../providers/browser_provider.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+
+class BookmarksHistoryDialog extends StatefulWidget {
+  const BookmarksHistoryDialog({super.key});
+
+  @override
+  State<BookmarksHistoryDialog> createState() => _BookmarksHistoryDialogState();
+}
+
+class _BookmarksHistoryDialogState extends State<BookmarksHistoryDialog>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDarkMode =
+        context.select<BrowserProvider, bool>((p) => p.isDarkMode);
+    final backgroundColor = isDarkMode ? const Color(0xFF1E1E1E) : Colors.white;
+
+    return Scaffold(
+      backgroundColor: backgroundColor,
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF333333),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: TabBar(
+          controller: _tabController,
+          indicatorColor: Colors.white,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.grey,
+          tabs: const [
+            Tab(
+              icon: Icon(Icons.star),
+              text: '书签',
+            ),
+            Tab(
+              icon: Icon(Icons.history),
+              text: '历史',
+            ),
+          ],
+        ),
+        actions: [],
+      ),
+      body: SafeArea(
+        bottom: true,
+        top: false,
+        child: TabBarView(
+          controller: _tabController,
+          children: [
+            _buildBookmarksList(),
+            _buildHistoryList(),
+          ],
+        ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          // Show actions menu similar to screenshot
+          _showActionsMenu(context);
+        },
+        backgroundColor: const Color(0xFF333333),
+        child: const Icon(Icons.menu, color: Colors.white),
+      ),
+    );
+  }
+
+  Widget _buildBookmarksList() {
+    return Consumer<BrowserProvider>(
+      builder: (context, provider, child) {
+        if (provider.bookmarks.isEmpty) {
+          return const Center(child: Text('暂无书签'));
+        }
+        return ListView.separated(
+          itemCount: provider.bookmarks.length,
+          separatorBuilder: (context, index) => const Divider(height: 1),
+          itemBuilder: (context, index) {
+            final bookmark = provider.bookmarks[index];
+            final textColor =
+                provider.isDarkMode ? Colors.white : Colors.black87;
+            final subtitleColor =
+                provider.isDarkMode ? Colors.white70 : Colors.black54;
+
+            return ListTile(
+              title: Text(bookmark.title,
+                  style:
+                      TextStyle(color: textColor, fontWeight: FontWeight.bold),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
+              subtitle: Text(bookmark.url,
+                  style: TextStyle(color: subtitleColor),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
+              onTap: () {
+                final targetUrl = BrowserProvider.normalizeUrl(bookmark.url);
+                final currentTab = provider.currentTab;
+                if (currentTab != null && currentTab.controller != null) {
+                  currentTab.url = targetUrl;
+                  currentTab.title = bookmark.title;
+                  provider.updateTabInfo(
+                      provider.currentIndex, targetUrl, bookmark.title);
+                  currentTab.controller?.loadUrl(
+                      urlRequest: URLRequest(url: WebUri(targetUrl)));
+                } else {
+                  provider.addTab(
+                      initialUrl: targetUrl,
+                      initialTitle: bookmark.title,
+                      switchToNewTab: true);
+                }
+                Navigator.of(context).pop();
+              },
+              onLongPress: () {
+                final targetUrl = BrowserProvider.normalizeUrl(bookmark.url);
+                showModalBottomSheet(
+                  context: context,
+                  backgroundColor: const Color(0xFF2C2C2C),
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                  ),
+                  builder: (ctx) => SafeArea(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ListTile(
+                          leading: const Icon(Icons.open_in_browser, color: Colors.white),
+                          title: const Text('在当前窗口打开', style: TextStyle(color: Colors.white)),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            final currentTab = provider.currentTab;
+                            if (currentTab != null && currentTab.controller != null) {
+                              currentTab.url = targetUrl;
+                              currentTab.title = bookmark.title;
+                              provider.updateTabInfo(
+                                  provider.currentIndex, targetUrl, bookmark.title);
+                              currentTab.controller?.loadUrl(
+                                  urlRequest: URLRequest(url: WebUri(targetUrl)));
+                            } else {
+                              provider.addTab(
+                                  initialUrl: targetUrl,
+                                  initialTitle: bookmark.title,
+                                  switchToNewTab: true);
+                            }
+                            Navigator.of(context).pop();
+                          },
+                        ),
+                        const Divider(color: Colors.white12, height: 1),
+                        ListTile(
+                          leading: const Icon(Icons.tab, color: Colors.blueAccent),
+                          title: const Text('在新标签页中打开', style: TextStyle(color: Colors.white)),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            provider.addTab(
+                              initialUrl: targetUrl,
+                              initialTitle: bookmark.title,
+                              switchToNewTab: true,
+                            );
+                            Navigator.of(context).pop();
+                          },
+                        ),
+                        const Divider(color: Colors.white12, height: 1),
+                        ListTile(
+                          leading: const Icon(Icons.edit, color: Colors.amberAccent),
+                          title: const Text('编辑', style: TextStyle(color: Colors.white)),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            _showEditBookmarkDialog(context, provider, bookmark);
+                          },
+                        ),
+                        const Divider(color: Colors.white12, height: 1),
+                        ListTile(
+                          leading: const Icon(Icons.copy, color: Colors.greenAccent),
+                          title: const Text('复制链接地址', style: TextStyle(color: Colors.white)),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            Clipboard.setData(ClipboardData(text: bookmark.url));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('已复制链接地址'),
+                                duration: Duration(seconds: 1),
+                              ),
+                            );
+                          },
+                        ),
+                        const Divider(color: Colors.white12, height: 1),
+                        ListTile(
+                          leading: const Icon(Icons.delete, color: Colors.redAccent),
+                          title: const Text('删除书签', style: TextStyle(color: Colors.redAccent)),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            provider.removeBookmark(bookmark);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+              trailing: IconButton(
+                icon: const Icon(Icons.close, size: 16),
+                onPressed: () {
+                  showDialog(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('确认删除'),
+                      content: Text('确定要删除书签 "${bookmark.title}" 吗？'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text('取消'),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            provider.removeBookmark(bookmark);
+                            Navigator.pop(ctx);
+                          },
+                          child: const Text('删除',
+                              style: TextStyle(color: Colors.red)),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildHistoryList() {
+    return Consumer<BrowserProvider>(
+      builder: (context, provider, child) {
+        if (provider.history.isEmpty) {
+          return const Center(child: Text('暂无历史记录'));
+        }
+        return ListView.separated(
+          itemCount: provider.history.length,
+          separatorBuilder: (context, index) => const Divider(height: 1),
+          itemBuilder: (context, index) {
+            final item = provider.history[index];
+            final textColor =
+                provider.isDarkMode ? Colors.white : Colors.black87;
+            final subtitleColor =
+                provider.isDarkMode ? Colors.white70 : Colors.black54;
+
+            return ListTile(
+              title: Text(item.title,
+                  style:
+                      TextStyle(color: textColor, fontWeight: FontWeight.bold),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(item.url,
+                      style: TextStyle(color: subtitleColor),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                  Text(
+                    '${item.visitedAt.year}-${item.visitedAt.month.toString().padLeft(2, '0')}-${item.visitedAt.day.toString().padLeft(2, '0')} ${item.visitedAt.hour.toString().padLeft(2, '0')}:${item.visitedAt.minute.toString().padLeft(2, '0')}:${item.visitedAt.second.toString().padLeft(2, '0')}',
+                    style: TextStyle(color: subtitleColor, fontSize: 12),
+                    maxLines: 1,
+                  ),
+                ],
+              ),
+              isThreeLine: true,
+              onTap: () {
+                final targetUrl = BrowserProvider.normalizeUrl(item.url);
+                final currentTab = provider.currentTab;
+                if (currentTab != null && currentTab.controller != null) {
+                  currentTab.url = targetUrl;
+                  currentTab.title = item.title;
+                  provider.updateTabInfo(
+                      provider.currentIndex, targetUrl, item.title);
+                  currentTab.controller?.loadUrl(
+                      urlRequest: URLRequest(url: WebUri(targetUrl)));
+                } else {
+                  provider.addTab(
+                      initialUrl: targetUrl,
+                      initialTitle: item.title,
+                      switchToNewTab: true);
+                }
+                Navigator.of(context).pop();
+              },
+              onLongPress: () {
+                final targetUrl = BrowserProvider.normalizeUrl(item.url);
+                showModalBottomSheet(
+                  context: context,
+                  backgroundColor: const Color(0xFF2C2C2C),
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                  ),
+                  builder: (ctx) => SafeArea(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ListTile(
+                          leading: const Icon(Icons.open_in_browser, color: Colors.white),
+                          title: const Text('在当前窗口打开', style: TextStyle(color: Colors.white)),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            final currentTab = provider.currentTab;
+                            if (currentTab != null && currentTab.controller != null) {
+                              currentTab.url = targetUrl;
+                              currentTab.title = item.title;
+                              provider.updateTabInfo(
+                                  provider.currentIndex, targetUrl, item.title);
+                              currentTab.controller?.loadUrl(
+                                  urlRequest: URLRequest(url: WebUri(targetUrl)));
+                            } else {
+                              provider.addTab(
+                                  initialUrl: targetUrl,
+                                  initialTitle: item.title,
+                                  switchToNewTab: true);
+                            }
+                            Navigator.of(context).pop();
+                          },
+                        ),
+                        const Divider(color: Colors.white12, height: 1),
+                        ListTile(
+                          leading: const Icon(Icons.tab, color: Colors.blueAccent),
+                          title: const Text('在新标签页中打开', style: TextStyle(color: Colors.white)),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            provider.addTab(
+                              initialUrl: targetUrl,
+                              initialTitle: item.title,
+                              switchToNewTab: true,
+                            );
+                            Navigator.of(context).pop();
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showClearDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('确认清空'),
+        content:
+            Text(_tabController.index == 0 ? '确定要清空所有书签吗？' : '确定要清空所有历史记录吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () {
+              final provider = context.read<BrowserProvider>();
+              if (_tabController.index == 0) {
+                provider.clearBookmarks();
+              } else {
+                provider.clearHistory();
+              }
+              Navigator.pop(context);
+            },
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showActionsMenu(BuildContext context) {
+    final isBookmarks = _tabController.index == 0;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        margin: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF333333),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isBookmarks) ...[
+                _buildActionItem(Icons.add, '增加书签', () {
+                  Navigator.pop(context);
+                  _showAddBookmarkDialog(context);
+                }),
+                const Divider(color: Colors.grey, height: 1),
+                _buildActionItem(Icons.sort, '排序', () {
+                  Navigator.pop(context);
+                  showModalBottomSheet(
+                    context: context,
+                    backgroundColor: Colors.transparent,
+                    builder: (context) => Container(
+                      margin: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF333333),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: SafeArea(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildActionItem(null, '按地址排序', () {
+                              context
+                                  .read<BrowserProvider>()
+                                  .sortBookmarks('url');
+                              Navigator.pop(context);
+                            }),
+                            const Divider(color: Colors.grey, height: 1),
+                            _buildActionItem(null, '按名称排序', () {
+                              context
+                                  .read<BrowserProvider>()
+                                  .sortBookmarks('name');
+                              Navigator.pop(context);
+                            }),
+                            const Divider(color: Colors.grey, height: 1),
+                            _buildActionItem(null, '按时间排序', () {
+                              context
+                                  .read<BrowserProvider>()
+                                  .sortBookmarks('time');
+                              Navigator.pop(context);
+                            }),
+                            const Divider(color: Colors.grey, height: 1),
+                            _buildActionItem(null, '取消', () {
+                              Navigator.pop(context);
+                            }),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+                const Divider(color: Colors.grey, height: 1),
+              ],
+              _buildActionItem(Icons.delete_outline, '清空', () {
+                Navigator.pop(context);
+                _showClearDialog(context);
+              }),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 弹出编辑书签对话框（支持修改书签名称和地址）
+  void _showEditBookmarkDialog(
+      BuildContext context, BrowserProvider provider, Bookmark bookmark) {
+    final titleController = TextEditingController(text: bookmark.title);
+    final urlController = TextEditingController(text: bookmark.url);
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: const Color(0xFF333333),
+        title: const Row(
+          children: [
+            Icon(Icons.edit, color: Colors.amberAccent),
+            SizedBox(width: 8),
+            Text('编辑书签', style: TextStyle(color: Colors.white)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: titleController,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: '名称:',
+                labelStyle: TextStyle(color: Colors.grey),
+                enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.grey)),
+                focusedBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.white)),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: urlController,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: '地址:',
+                labelStyle: TextStyle(color: Colors.grey),
+                enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.grey)),
+                focusedBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.white)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消', style: TextStyle(color: Colors.white70)),
+          ),
+          TextButton(
+            onPressed: () {
+              final newTitle = titleController.text.trim();
+              final newUrl = urlController.text.trim();
+              if (newTitle.isNotEmpty && newUrl.isNotEmpty) {
+                provider.updateBookmark(bookmark, newTitle, newUrl);
+                Navigator.pop(dialogContext);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('书签已更新'),
+                    duration: Duration(seconds: 1),
+                  ),
+                );
+              }
+            },
+            child: const Text('保存', style: TextStyle(color: Colors.amberAccent)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAddBookmarkDialog(BuildContext context) {
+    final provider = context.read<BrowserProvider>();
+    String initialTitle = provider.currentTab?.title ?? '';
+    String initialUrl = provider.currentTab?.url ?? '';
+
+    if (initialUrl == 'about:blank' || initialUrl.endsWith('welcome.html')) {
+      initialTitle = 'Auok浏览器';
+      initialUrl = 'about:blank';
+    }
+
+    final titleController = TextEditingController(text: initialTitle);
+    final urlController = TextEditingController(text: initialUrl);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF333333),
+        title: const Row(
+          children: [
+            Icon(Icons.star, color: Colors.white),
+            SizedBox(width: 8),
+            Text('增加书签', style: TextStyle(color: Colors.white)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: titleController,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: '名称:',
+                labelStyle: TextStyle(color: Colors.grey),
+                enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.grey)),
+                focusedBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.white)),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: urlController,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: '地址:',
+                labelStyle: TextStyle(color: Colors.grey),
+                enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.grey)),
+                focusedBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.white)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消', style: TextStyle(color: Colors.white)),
+          ),
+          TextButton(
+            onPressed: () {
+              if (titleController.text.isNotEmpty &&
+                  urlController.text.isNotEmpty) {
+                provider.addBookmark(urlController.text, titleController.text);
+              }
+              Navigator.pop(context);
+            },
+            child: const Text('确定', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionItem(IconData? icon, String label, VoidCallback onTap) {
+    return ListTile(
+      leading: icon != null ? Icon(icon, color: Colors.white) : null,
+      title: Text(
+        label,
+        style: const TextStyle(color: Colors.white),
+        textAlign: icon == null ? TextAlign.center : TextAlign.start,
+      ),
+      onTap: onTap,
+      dense: true,
+    );
+  }
+}

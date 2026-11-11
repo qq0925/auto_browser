@@ -171,9 +171,20 @@ class _BrowserViewState extends State<BrowserView> {
         (function() {
           function handleDownloadClick(e) {
             try {
-              var target = e.target;
-              while (target && target.tagName !== 'A' && target.tagName !== 'BUTTON') {
-                target = target.parentElement;
+              var rawTarget = e.target;
+              if (rawTarget && rawTarget.nodeType === 3) {
+                rawTarget = rawTarget.parentElement;
+              }
+              if (!rawTarget) return;
+
+              // 优先查找外层 <a> 链接（解决 <a href="xxx.apk"><button>下载</button></a> 嵌套按钮丢失 href 的问题）
+              var target = (rawTarget.closest && rawTarget.closest('a[href]')) ||
+                           (rawTarget.closest && rawTarget.closest('a, button'));
+              if (!target) {
+                target = rawTarget;
+                while (target && target.tagName !== 'A' && target.tagName !== 'BUTTON') {
+                  target = target.parentElement;
+                }
               }
               if (!target) return;
 
@@ -185,7 +196,14 @@ class _BrowserViewState extends State<BrowserView> {
               var isDownloadExt = /\\.(apk|exe|msi|zip|rar|7z|tar|gz|bz2|dmg|iso|pkg|pdf|mp3|mp4|flv|mkv|avi|mov|docx|xlsx|pptx|torrent|deb|rpm|appx|msix)(\\?.*)?\$/i.test(href);
 
               if (downloadAttr !== null || isDownloadExt) {
-                var fullUrl = target.href || href;
+                var fullUrl = target.href || '';
+                if (!fullUrl && href) {
+                  try {
+                    fullUrl = new URL(href, window.location.href).href;
+                  } catch(_) {
+                    fullUrl = href;
+                  }
+                }
                 if (fullUrl && (fullUrl.startsWith('http://') || fullUrl.startsWith('https://'))) {
                   e.preventDefault();
                   e.stopPropagation();
@@ -859,8 +877,18 @@ class _BrowserViewState extends State<BrowserView> {
               }
             },
             onCreateWindow: (controller, createWindowAction) async {
-              final targetUrl = createWindowAction.request.url?.toString();
+              String? targetUrl = createWindowAction.request.url?.toString();
               DebugLogManager.log('🪟 [onCreateWindow] targetUrl=$targetUrl');
+              if (targetUrl == null ||
+                  targetUrl.isEmpty ||
+                  targetUrl == 'about:blank') {
+                try {
+                  final hitTest = await controller.getHitTestResult();
+                  if (hitTest?.extra != null && hitTest!.extra!.isNotEmpty) {
+                    targetUrl = hitTest.extra;
+                  }
+                } catch (_) {}
+              }
               if (targetUrl != null &&
                   targetUrl.isNotEmpty &&
                   targetUrl != 'about:blank') {

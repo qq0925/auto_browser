@@ -1,784 +1,798 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
-import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
-import 'dart:io';
-import '../models/browser_tab.dart';
-import '../models/browser_data.dart';
-import 'package:wakelock_plus/wakelock_plus.dart';
-import 'package:path_provider/path_provider.dart';
-import '../utils/welcome_manager.dart';
-
-class BrowserProvider extends ChangeNotifier {
-  final List<BrowserTab> _tabs = [];
-  int _currentIndex = 0;
-  final List<Bookmark> _bookmarks = [];
-  final List<HistoryItem> _history = [];
-  bool _isDarkMode = false;
-  bool _keepScreenOn = false;
-  bool _autoLeaveMode = false;
-  bool _isScriptPanelExpanded = false; // Default to false (collapsed)
-  String _searchEngine = 'Baidu'; // Default to Baidu
-  String? _nightCssContent;
-  int _maxHistoryDays = 4; // 最大历史记录保存天数，默认4天，0为永久保存
-
-  // Hardcoded fallback CSS for Night Mode (High Specificity)
-  static const String _fallbackNightCss = '''
-    html, body {
-      background-color: #121212 !important;
-      color: #e0e0e0 !important;
-    }
-    div, p, span, a, li, ul, ol, table, tr, td, th, h1, h2, h3, h4, h5, h6 {
-      background-color: transparent !important;
-      color: inherit !important;
-    }
-    a { color: #bb86fc !important; }
-    input, textarea, select, button {
-      background-color: #333 !important;
-      color: #fff !important;
-      border-color: #555 !important;
-    }
-    img { opacity: 0.8 !important; }
-  ''';
-
-  // Need a navigator key to access context for AssetBundle if context not available
-  static final GlobalKey<NavigatorState> navigatorKey =
-      GlobalKey<NavigatorState>();
-
-  List<BrowserTab> get tabs => _tabs;
-  int get currentIndex => _currentIndex;
-  List<Bookmark> get bookmarks => _bookmarks;
-
-  // Filter welcome.html from visible history
-  List<HistoryItem> get history =>
-      _history.where((item) => !item.url.endsWith('welcome.html')).toList();
-
-  bool get isDarkMode => _isDarkMode;
-  bool get keepScreenOn => _keepScreenOn;
-  bool get autoLeaveMode => _autoLeaveMode;
-  bool get isScriptPanelExpanded => _isScriptPanelExpanded;
-  String get searchEngine => _searchEngine;
-  String? get nightCssContent => _nightCssContent;
-  int get maxHistoryDays => _maxHistoryDays;
-
-  BrowserTab? get currentTab =>
-      _tabs.isNotEmpty && _currentIndex >= 0 && _currentIndex < _tabs.length
-          ? _tabs[_currentIndex]
-          : null;
-
-  BrowserProvider() {
-    _init();
-  }
-
-  Future<void> _init() async {
-    await _loadBookmarksAndHistory();
-    // await _restoreTabsState(); // Removed restoration logic
-    // Instead, just ensure settings are loaded or defaults set, and add a default tab
-    await _loadSettings();
-    await addTab(); // Always start with a new tab
-    try {
-      final String content = await rootBundle.loadString('assets/night.css');
-      _nightCssContent = content;
-      _nightModeUserScript = null; // Reset cache to use loaded content
-    } catch (e) {
-      debugPrint('Error loading night.css: $e');
-    }
-
-    // Apply restored dark mode to any existing tabs (handling race condition)
-    if (_isDarkMode && _nightCssContent != null) {
-      for (var tab in _tabs) {
-        if (tab.controller != null && nightModeUserScript != null) {
-          tab.controller!.addUserScript(userScript: nightModeUserScript!);
-          _injectNightMode(tab.controller!);
-        }
-      }
-    }
-
-    // Start background welcome.html update (fire-and-forget)
-    WelcomeManager.updateWelcomeInBackground();
-
-    _isInitialized = true;
-    notifyListeners();
-  }
-
-  bool _isInitialized = false;
-  bool get isInitialized => _isInitialized;
-
-  UserScript? _nightModeUserScript;
-
-  String _getNightModeJs() {
-    final css = (_nightCssContent != null && _nightCssContent!.isNotEmpty)
-        ? _nightCssContent
-        : _fallbackNightCss;
-
-    // Escape newlines and quotes for JS string
-    final safeCss = css!
-        .replaceAll('\n', ' ')
-        .replaceAll("'", "\\'")
-        .replaceAll('"', '\\"');
-
-    return '''
-      (function() {
-        // 1. Immediately hide page to prevent white flash
-        if (!document.getElementById('auok-night-mode')) {
-          var hideStyle = document.createElement('style');
-          hideStyle.id = 'auok-night-hide';
-          hideStyle.innerHTML = 'html, body { visibility: hidden !important; background: #121212 !important; }';
-          var earlyTarget = document.head || document.documentElement || document.body;
-          if (earlyTarget) earlyTarget.appendChild(hideStyle);
-        }
-        
-        // 2. Inject night mode CSS
-        if (document.getElementById('auok-night-mode')) {
-          document.getElementById('auok-night-hide')?.remove();
-          return;
-        }
-        var style = document.createElement('style');
-        style.id = 'auok-night-mode';
-        style.innerHTML = '$safeCss';
-        var target = document.head || document.documentElement;
-        if (target) {
-          target.appendChild(style);
-        } else {
-          setTimeout(function() {
-             var targetRetry = document.head || document.documentElement;
-             if (targetRetry) targetRetry.appendChild(style);
-          }, 50);
-        }
-        
-        // 3. Reveal page after CSS is applied
-        requestAnimationFrame(function() {
-          document.getElementById('auok-night-hide')?.remove();
-        });
-      })();
-    ''';
-  }
-
-  UserScript? get nightModeUserScript {
-    // if (_nightCssContent == null) return null; // Removed to allow fallback
-    _nightModeUserScript ??= UserScript(
-      source: _getNightModeJs(),
-      injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
-    );
-    return _nightModeUserScript;
-  }
-
-  void toggleDarkMode(bool value) {
-    _isDarkMode = value;
-    notifyListeners();
-    _saveTabsState();
-
-    // Apply to all tabs
-    for (var tab in _tabs) {
-      tab.controller?.setSettings(
-          settings: InAppWebViewSettings(
-        preferredContentMode: _getPreferredContentMode(userAgent),
-      ));
-
-      if (value) {
-        if (tab.controller != null && nightModeUserScript != null) {
-          // Add UserScript for future navigations
-          tab.controller!.addUserScript(userScript: nightModeUserScript!);
-          // Inject immediately for current page
-          _injectNightMode(tab.controller!);
-        }
-      } else {
-        if (tab.controller != null && nightModeUserScript != null) {
-          // Remove UserScript
-          tab.controller!.removeUserScript(userScript: nightModeUserScript!);
-          // Remove style from current page
-          tab.controller!.evaluateJavascript(
-              source: "document.getElementById('auok-night-mode')?.remove();");
-        }
-      }
-    }
-  }
-
-  void injectNightMode(InAppWebViewController controller) {
-    final css = (_nightCssContent != null && _nightCssContent!.isNotEmpty)
-        ? _nightCssContent
-        : _fallbackNightCss;
-
-    if (css != null) {
-      try {
-        if (Platform.isWindows) {
-          // Windows-specific aggressive injection
-          // 1. Try official CSS injection (Best for Windows/WebView2)
-          controller.injectCSSCode(source: css);
-
-          // 2. Fallback: JS Injection of Style Tag (Original method)
-          controller.evaluateJavascript(source: _getNightModeJs());
-
-          // 3. Nuclear Option: Direct Style Manipulation (For stubborn pages)
-          // Force background to dark immediately
-          controller.evaluateJavascript(source: """
-            (function() {
-              try {
-                document.body.style.backgroundColor = '#121212';
-                document.documentElement.style.backgroundColor = '#121212';
-              } catch(e) {}
-            })();
-          """);
-        } else {
-          // Mobile (Android/iOS): Use original, standard method
-          controller.evaluateJavascript(source: _getNightModeJs());
-        }
-      } catch (_) {}
-    }
-  }
-
-  void _injectNightMode(InAppWebViewController controller) {
-    injectNightMode(controller);
-  }
-
-  void toggleKeepScreenOn(bool value) {
-    _keepScreenOn = value;
-    if (value) {
-      WakelockPlus.enable();
-    } else {
-      WakelockPlus.disable();
-    }
-    notifyListeners();
-    _saveTabsState();
-  }
-
-  void toggleAutoLeaveMode(bool value) {
-    _autoLeaveMode = value;
-    notifyListeners();
-    _saveTabsState();
-  }
-
-  bool _isAdBlockEnabled = true;
-  bool get isAdBlockEnabled => _isAdBlockEnabled;
-
-  void toggleAdBlock(bool value) {
-    _isAdBlockEnabled = value;
-    notifyListeners();
-    _saveTabsState();
-  }
-
-  bool _isDebugModeEnabled = false;
-  bool get isDebugModeEnabled => _isDebugModeEnabled;
-
-  void toggleDebugMode(bool value) {
-    _isDebugModeEnabled = value;
-    notifyListeners();
-    _saveTabsState();
-  }
-
-  static int _tabIdCounter = 0;
-
-  static String normalizeUrl(String input) {
-    var url = input.trim();
-    if (url.isEmpty) return 'about:blank';
-    final lower = url.toLowerCase();
-    if (lower.startsWith('http://') ||
-        lower.startsWith('https://') ||
-        lower.startsWith('file://') ||
-        lower.startsWith('about:') ||
-        lower.startsWith('javascript:') ||
-        lower.startsWith('data:') ||
-        lower.startsWith('blob:')) {
-      return url;
-    }
-    return 'https://$url';
-  }
-
-  Future<void> addTab({
-    String initialUrl = 'about:blank',
-    String? initialTitle,
-    String? customName,
-    String? customUserAgent,
-    bool switchToNewTab = true,
-  }) async {
-    _tabIdCounter++;
-    final uniqueId = '${DateTime.now().millisecondsSinceEpoch}_$_tabIdCounter';
-    final normalizedUrl = normalizeUrl(initialUrl);
-
-    final tab = BrowserTab(
-      id: uniqueId,
-      url: normalizedUrl,
-      title: initialTitle ??
-          (normalizedUrl == 'about:blank' ? '新标签页' : '正在加载...'),
-      customName: customName,
-      customUserAgent: customUserAgent,
-    );
-    _tabs.add(tab);
-    if (switchToNewTab) {
-      _currentIndex = _tabs.length - 1;
-    }
-    notifyListeners();
-    _saveTabsState();
-  }
-
-  bool canCloseTab(int index) {
-    if (index >= 0 && index < _tabs.length) {
-      return !_tabs[index].isExecutingScript;
-    }
-    return false;
-  }
-
-  void removeTab(int index) {
-    if (index < 0 || index >= _tabs.length) return;
-    final tab = _tabs[index];
-
-    // Prevent closing if executing script
-    if (tab.isExecutingScript) {
-      return; // Caller should show error message
-    }
-
-    // Stop tab auto refresh timer
-    tab.stopAutoRefresh();
-
-    _tabs.removeAt(index);
-
-    if (_tabs.isEmpty) {
-      _currentIndex = 0;
-    } else if (_currentIndex >= _tabs.length) {
-      _currentIndex = _tabs.length - 1;
-    } else if (_currentIndex > index) {
-      _currentIndex--;
-    }
-
-    notifyListeners();
-    _saveTabsState();
-  }
-
-  void updateTabInfo(int index, String url, String title) {
-    if (index >= 0 && index < _tabs.length) {
-      _tabs[index].url = url;
-      _tabs[index].title = title;
-      notifyListeners();
-      _saveTabsState();
-    }
-  }
-
-  void updateTabCustomSettings(
-      int index, String? customName, String? customUserAgent) {
-    if (index >= 0 && index < _tabs.length) {
-      _tabs[index].customName = customName;
-      _tabs[index].customUserAgent = customUserAgent;
-      notifyListeners();
-      _saveTabsState();
-    }
-  }
-
-  void updateTabNavigationState(int index, bool canGoBack, bool canGoForward) {
-    if (index >= 0 && index < _tabs.length) {
-      _tabs[index].canGoBack = canGoBack;
-      _tabs[index].canGoForward = canGoForward;
-      notifyListeners();
-    }
-  }
-
-  void updateTabProgress(double progress) {
-    if (_currentIndex >= 0 && _currentIndex < _tabs.length) {
-      _tabs[_currentIndex].progress = progress;
-      notifyListeners();
-    }
-  }
-
-  void setCurrentIndex(int index) {
-    if (index >= 0 && index < _tabs.length) {
-      _currentIndex = index;
-      notifyListeners();
-      _saveTabsState();
-    }
-  }
-
-  void addToHistory(String url, String title) {
-    // Allow welcome.html to be recorded, but exclude other file URLs and about:blank
-    // We allow welcome.html so it's in the history list (for potential internal use)
-    // but we filter it out in the 'history' getter so it's not shown in UI.
-    if ((url.startsWith('file:///') && !url.endsWith('welcome.html')) ||
-        url == 'about:blank') {
-      return;
-    }
-
-    _history.insert(
-        0,
-        HistoryItem(
-          title: title,
-          url: url,
-          visitedAt: DateTime.now(),
-        ));
-    _cleanExpiredHistory();
-    notifyListeners();
-    _saveBookmarksAndHistory();
-  }
-
-  void updateHistoryTitle(String url, String title) {
-    if (_history.isEmpty) return;
-
-    // Check if the most recent item matches the URL
-    if (_history.first.url == url) {
-      final oldItem = _history.first;
-      _history[0] = HistoryItem(
-        title: title,
-        url: oldItem.url,
-        visitedAt: oldItem.visitedAt,
-      );
-      notifyListeners();
-      _saveBookmarksAndHistory();
-    }
-  }
-
-  void addBookmark(String url, String title) {
-    _bookmarks.add(Bookmark(
-      title: title,
-      url: url,
-      createdAt: DateTime.now(),
-    ));
-    notifyListeners();
-    _saveBookmarksAndHistory();
-  }
-
-  void removeBookmark(Bookmark bookmark) {
-    _bookmarks.remove(bookmark);
-    notifyListeners();
-    _saveBookmarksAndHistory();
-  }
-
-  void removeBookmarkByUrl(String url) {
-    _bookmarks.removeWhere((bookmark) => bookmark.url == url);
-    notifyListeners();
-    _saveBookmarksAndHistory();
-  }
-
-  bool isBookmarked(String url) {
-    return _bookmarks.any((bookmark) => bookmark.url == url);
-  }
-
-  void toggleBookmark(String url, String title) {
-    if (isBookmarked(url)) {
-      removeBookmarkByUrl(url);
-    } else {
-      addBookmark(url, title);
-    }
-  }
-
-  void sortBookmarks(String type) {
-    if (type == 'url') {
-      _bookmarks.sort((a, b) => a.url.compareTo(b.url));
-    } else if (type == 'name') {
-      _bookmarks.sort((a, b) => a.title.compareTo(b.title));
-    } else if (type == 'time') {
-      _bookmarks
-          .sort((a, b) => b.createdAt.compareTo(a.createdAt)); // Newest first
-    }
-    notifyListeners();
-    _saveBookmarksAndHistory();
-  }
-
-  void toggleScriptPanel() {
-    _isScriptPanelExpanded = !_isScriptPanelExpanded;
-    notifyListeners();
-    _saveTabsState();
-  }
-
-  /// 明确收起/收纳脚本管理器抽屉
-  void closeScriptPanel() {
-    if (_isScriptPanelExpanded) {
-      _isScriptPanelExpanded = false;
-      notifyListeners();
-      _saveTabsState();
-    }
-  }
-
-  void clearHistory() {
-    _history.clear();
-    notifyListeners();
-    _saveBookmarksAndHistory();
-  }
-
-  void clearBookmarks() {
-    _bookmarks.clear();
-    notifyListeners();
-    _saveBookmarksAndHistory();
-  }
-
-  Future<void> _loadBookmarksAndHistory() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      _maxHistoryDays = prefs.getInt('max_history_days') ?? 4;
-      final bookmarksJson = prefs.getStringList('bookmarks') ?? [];
-      final historyJson = prefs.getStringList('history') ?? [];
-
-      _bookmarks.clear();
-      _bookmarks.addAll(bookmarksJson.map((json) {
-        final data = jsonDecode(json);
-        return Bookmark(
-          title: data['title'],
-          url: data['url'],
-          createdAt: DateTime.parse(data['createdAt']),
-        );
-      }));
-
-      _history.clear();
-      _history.addAll(historyJson.map((json) {
-        final data = jsonDecode(json);
-        return HistoryItem(
-          title: data['title'],
-          url: data['url'],
-          visitedAt: DateTime.parse(data['visitedAt']),
-        );
-      }));
-      _cleanExpiredHistory();
-      notifyListeners();
-    } catch (e) {
-      debugPrint('Load bookmarks and history error: $e');
-    }
-  }
-
-  /// 依据设置的最大保存天数清理过期历史记录（0 表示永久保存）
-  void _cleanExpiredHistory() {
-    if (_maxHistoryDays <= 0) return;
-    final now = DateTime.now();
-    _history.removeWhere((item) {
-      final diffDays = now.difference(item.visitedAt).inDays;
-      return diffDays >= _maxHistoryDays;
-    });
-  }
-
-  /// 设置最大历史记录保存天数并持久化
-  Future<void> setMaxHistoryDays(int days) async {
-    _maxHistoryDays = days;
-    _cleanExpiredHistory();
-    notifyListeners();
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt('max_history_days', days);
-      await _saveBookmarksAndHistory();
-    } catch (e) {
-      debugPrint('Save max history days error: $e');
-    }
-  }
-
-  Future<void> _saveBookmarksAndHistory() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setStringList(
-          'bookmarks',
-          _bookmarks
-              .map((bookmark) => jsonEncode({
-                    'title': bookmark.title,
-                    'url': bookmark.url,
-                    'createdAt': bookmark.createdAt.toIso8601String(),
-                  }))
-              .toList());
-
-      await prefs.setStringList(
-          'history',
-          _history
-              .map((item) => jsonEncode({
-                    'title': item.title,
-                    'url': item.url,
-                    'visitedAt': item.visitedAt.toIso8601String(),
-                  }))
-              .toList());
-    } catch (e) {
-      debugPrint('Save bookmarks and history error: $e');
-    }
-  }
-
-  Future<void> _saveTabsState() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-
-      // Ensure we have valid data to save
-      final tabsData = await Future.wait(_tabs.map((tab) async {
-        String url = tab.url;
-        // If url is file path (welcome page), save as about:blank to trigger welcome logic on restore
-        if (url.startsWith('file:///')) {
-          url = 'about:blank';
-        }
-
-        return {
-          'url': url,
-          'title': tab.title,
-          'scriptFilePath': tab.scriptFilePath,
-        };
-      }));
-
-      final dataToSave = {
-        'tabs': tabsData,
-        'currentIndex': _currentIndex,
-        'isDarkMode': _isDarkMode,
-        'keepScreenOn': _keepScreenOn,
-        'isScriptPanelExpanded': _isScriptPanelExpanded,
-        'searchEngine': _searchEngine,
-        'userAgent': _userAgent, // Save UserAgent
-        'autoLeaveMode': _autoLeaveMode,
-        'isAdBlockEnabled': _isAdBlockEnabled,
-        'isDebugModeEnabled': _isDebugModeEnabled,
-      };
-
-      await prefs.setString('last_tabs', jsonEncode(dataToSave));
-    } catch (e) {
-      debugPrint('Save tabs state error: $e');
-    }
-  }
-
-  Future<void> _loadSettings() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final tabsJson = prefs.getString('last_tabs');
-
-      if (tabsJson != null) {
-        final data = jsonDecode(tabsJson);
-        _isDarkMode = data['isDarkMode'] ?? false;
-        _keepScreenOn = data['keepScreenOn'] ?? false;
-        _autoLeaveMode = data['autoLeaveMode'] ?? false;
-        _isAdBlockEnabled = data['isAdBlockEnabled'] ?? true;
-        _isDebugModeEnabled = data['isDebugModeEnabled'] ?? false;
-        _searchEngine = data['searchEngine'] ?? 'Baidu';
-        _userAgent = data['userAgent'] ?? defaultUserAgentType;
-
-        if (_keepScreenOn) {
-          await WakelockPlus.enable();
-        }
-      }
-    } catch (e) {
-      debugPrint('Load settings error: $e');
-    }
-  }
-
-  /// 获取当前平台的默认 User-Agent 类型（PC/桌面端默认为 Desktop，移动端默认为 Mobile）
-  static String get defaultUserAgentType {
-    if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
-      return 'Desktop';
-    }
-    return 'Mobile';
-  }
-
-  static String get desktopUserAgentString {
-    if (Platform.isWindows) {
-      return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-    }
-    return 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-  }
-
-  static String get mobileUserAgentString {
-    if (Platform.isAndroid) {
-      return 'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36';
-    }
-    return 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
-  }
-
-  static String get tabletUserAgentString {
-    if (Platform.isAndroid) {
-      return 'Mozilla/5.0 (Linux; Android 14; Tablet) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
-    }
-    return 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
-  }
-
-  // User Agent
-  late String _userAgent = defaultUserAgentType;
-  String get userAgent => _userAgent;
-
-  Map<String, String> get uaMap => {
-    'Mobile': mobileUserAgentString,
-    'Tablet': tabletUserAgentString,
-    'Desktop': desktopUserAgentString,
-  };
-
-  String getUserAgentString(String? type) {
-    if (type == 'Desktop') return desktopUserAgentString;
-    if (type == 'Tablet') return tabletUserAgentString;
-    if (type == 'Mobile') return mobileUserAgentString;
-    return uaMap[_userAgent] ?? (Platform.isWindows || Platform.isMacOS || Platform.isLinux ? desktopUserAgentString : mobileUserAgentString);
-  }
-
-  void setUserAgent(String type) {
-    if (uaMap.containsKey(type)) {
-      _userAgent = type;
-      notifyListeners();
-      _saveTabsState();
-      // Apply to current tab if exists
-      if (currentTab != null && currentTab!.controller != null) {
-        currentTab!.controller!.setSettings(
-            settings: InAppWebViewSettings(
-                userAgent: getUserAgentString(type),
-                preferredContentMode: _getPreferredContentMode(type)));
-        currentTab!.controller!.reload();
-      }
-    }
-  }
-
-  void setSearchEngine(String engine) {
-    _searchEngine = engine;
-    notifyListeners();
-    _saveTabsState();
-  }
-
-  String get currentUserAgentString => getUserAgentString(_userAgent);
-
-  UserPreferredContentMode _getPreferredContentMode(String userAgentType) {
-    if (userAgentType == 'Desktop') {
-      return UserPreferredContentMode.DESKTOP;
-    }
-    return UserPreferredContentMode.MOBILE;
-  }
-
-  /// 异步获取当前临时缓存大小估算字符串
-  Future<String> getCacheSizeString() async {
-    try {
-      final tempDir = await getTemporaryDirectory();
-      if (!await tempDir.exists()) return '0.0 MB';
-      int totalBytes = 0;
-      await for (final file
-          in tempDir.list(recursive: true, followLinks: false)) {
-        if (file is File) {
-          try {
-            totalBytes += await file.length();
-          } catch (_) {}
-        }
-      }
-      if (totalBytes < 1024) {
-        return '$totalBytes B';
-      } else if (totalBytes < 1024 * 1024) {
-        return '${(totalBytes / 1024).toStringAsFixed(1)} KB';
-      }
-      return '${(totalBytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    } catch (_) {
-      return '0.0 MB';
-    }
-  }
-
-  /// 清空浏览器缓存
-  /// 深度清除：InAppWebView 全局缓存、各活跃标签页控制器缓存、系统临时目录文件
-  Future<void> clearCache() async {
-    try {
-      // 1. 全局清除 InAppWebView 缓存（涵盖所有活跃与非活跃标签页）
-      try {
-        await InAppWebViewController.clearAllCache();
-      } catch (e) {
-        debugPrint('clearAllCache error: $e');
-      }
-
-      // 2. 清理系统临时目录缓存文件
-      try {
-        final tempDir = await getTemporaryDirectory();
-        if (await tempDir.exists()) {
-          final entities = tempDir.listSync(recursive: false);
-          for (final entity in entities) {
-            try {
-              if (entity is File) {
-                await entity.delete();
-              } else if (entity is Directory) {
-                await entity.delete(recursive: true);
-              }
-            } catch (_) {}
-          }
-        }
-      } catch (e) {
-        debugPrint('Clear temp dir error: $e');
-      }
-
-      notifyListeners();
-    } catch (e) {
-      debugPrint('clearCache failed: $e');
-    }
-  }
-}
+import 'package:flutter/material.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'dart:io';
+import '../models/browser_tab.dart';
+import '../models/browser_data.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:path_provider/path_provider.dart';
+import '../utils/welcome_manager.dart';
+
+class BrowserProvider extends ChangeNotifier {
+  final List<BrowserTab> _tabs = [];
+  int _currentIndex = 0;
+  final List<Bookmark> _bookmarks = [];
+  final List<HistoryItem> _history = [];
+  bool _isDarkMode = false;
+  bool _keepScreenOn = false;
+  bool _autoLeaveMode = false;
+  bool _isScriptPanelExpanded = false; // Default to false (collapsed)
+  String _searchEngine = 'Baidu'; // Default to Baidu
+  String? _nightCssContent;
+  int _maxHistoryDays = 4; // 最大历史记录保存天数，默认4天，0为永久保存
+
+  // Hardcoded fallback CSS for Night Mode (High Specificity)
+  static const String _fallbackNightCss = '''
+    html, body {
+      background-color: #121212 !important;
+      color: #e0e0e0 !important;
+    }
+    div, p, span, a, li, ul, ol, table, tr, td, th, h1, h2, h3, h4, h5, h6 {
+      background-color: transparent !important;
+      color: inherit !important;
+    }
+    a { color: #bb86fc !important; }
+    input, textarea, select, button {
+      background-color: #333 !important;
+      color: #fff !important;
+      border-color: #555 !important;
+    }
+    img { opacity: 0.8 !important; }
+  ''';
+
+  // Need a navigator key to access context for AssetBundle if context not available
+  static final GlobalKey<NavigatorState> navigatorKey =
+      GlobalKey<NavigatorState>();
+
+  List<BrowserTab> get tabs => _tabs;
+  int get currentIndex => _currentIndex;
+  List<Bookmark> get bookmarks => _bookmarks;
+
+  // Filter welcome.html from visible history
+  List<HistoryItem> get history =>
+      _history.where((item) => !item.url.endsWith('welcome.html')).toList();
+
+  bool get isDarkMode => _isDarkMode;
+  bool get keepScreenOn => _keepScreenOn;
+  bool get autoLeaveMode => _autoLeaveMode;
+  bool get isScriptPanelExpanded => _isScriptPanelExpanded;
+  String get searchEngine => _searchEngine;
+  String? get nightCssContent => _nightCssContent;
+  int get maxHistoryDays => _maxHistoryDays;
+
+  BrowserTab? get currentTab =>
+      _tabs.isNotEmpty && _currentIndex >= 0 && _currentIndex < _tabs.length
+          ? _tabs[_currentIndex]
+          : null;
+
+  BrowserProvider() {
+    _init();
+  }
+
+  Future<void> _init() async {
+    await _loadBookmarksAndHistory();
+    // await _restoreTabsState(); // Removed restoration logic
+    // Instead, just ensure settings are loaded or defaults set, and add a default tab
+    await _loadSettings();
+    await addTab(); // Always start with a new tab
+    try {
+      final String content = await rootBundle.loadString('assets/night.css');
+      _nightCssContent = content;
+      _nightModeUserScript = null; // Reset cache to use loaded content
+    } catch (e) {
+      debugPrint('Error loading night.css: $e');
+    }
+
+    // Apply restored dark mode to any existing tabs (handling race condition)
+    if (_isDarkMode && _nightCssContent != null) {
+      for (var tab in _tabs) {
+        if (tab.controller != null && nightModeUserScript != null) {
+          tab.controller!.addUserScript(userScript: nightModeUserScript!);
+          _injectNightMode(tab.controller!);
+        }
+      }
+    }
+
+    // Start background welcome.html update (fire-and-forget)
+    WelcomeManager.updateWelcomeInBackground();
+
+    _isInitialized = true;
+    notifyListeners();
+  }
+
+  bool _isInitialized = false;
+  bool get isInitialized => _isInitialized;
+
+  UserScript? _nightModeUserScript;
+
+  String _getNightModeJs() {
+    final css = (_nightCssContent != null && _nightCssContent!.isNotEmpty)
+        ? _nightCssContent
+        : _fallbackNightCss;
+
+    // Escape newlines and quotes for JS string
+    final safeCss = css!
+        .replaceAll('\n', ' ')
+        .replaceAll("'", "\\'")
+        .replaceAll('"', '\\"');
+
+    return '''
+      (function() {
+        // 1. Immediately hide page to prevent white flash
+        if (!document.getElementById('auok-night-mode')) {
+          var hideStyle = document.createElement('style');
+          hideStyle.id = 'auok-night-hide';
+          hideStyle.innerHTML = 'html, body { visibility: hidden !important; background: #121212 !important; }';
+          var earlyTarget = document.head || document.documentElement || document.body;
+          if (earlyTarget) earlyTarget.appendChild(hideStyle);
+        }
+        
+        // 2. Inject night mode CSS
+        if (document.getElementById('auok-night-mode')) {
+          document.getElementById('auok-night-hide')?.remove();
+          return;
+        }
+        var style = document.createElement('style');
+        style.id = 'auok-night-mode';
+        style.innerHTML = '$safeCss';
+        var target = document.head || document.documentElement;
+        if (target) {
+          target.appendChild(style);
+        } else {
+          setTimeout(function() {
+             var targetRetry = document.head || document.documentElement;
+             if (targetRetry) targetRetry.appendChild(style);
+          }, 50);
+        }
+        
+        // 3. Reveal page after CSS is applied
+        requestAnimationFrame(function() {
+          document.getElementById('auok-night-hide')?.remove();
+        });
+      })();
+    ''';
+  }
+
+  UserScript? get nightModeUserScript {
+    // if (_nightCssContent == null) return null; // Removed to allow fallback
+    _nightModeUserScript ??= UserScript(
+      source: _getNightModeJs(),
+      injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+    );
+    return _nightModeUserScript;
+  }
+
+  void toggleDarkMode(bool value) {
+    _isDarkMode = value;
+    notifyListeners();
+    _saveTabsState();
+
+    // Apply to all tabs
+    for (var tab in _tabs) {
+      tab.controller?.setSettings(
+          settings: InAppWebViewSettings(
+        preferredContentMode: _getPreferredContentMode(userAgent),
+      ));
+
+      if (value) {
+        if (tab.controller != null && nightModeUserScript != null) {
+          // Add UserScript for future navigations
+          tab.controller!.addUserScript(userScript: nightModeUserScript!);
+          // Inject immediately for current page
+          _injectNightMode(tab.controller!);
+        }
+      } else {
+        if (tab.controller != null && nightModeUserScript != null) {
+          // Remove UserScript
+          tab.controller!.removeUserScript(userScript: nightModeUserScript!);
+          // Remove style from current page
+          tab.controller!.evaluateJavascript(
+              source: "document.getElementById('auok-night-mode')?.remove();");
+        }
+      }
+    }
+  }
+
+  void injectNightMode(InAppWebViewController controller) {
+    final css = (_nightCssContent != null && _nightCssContent!.isNotEmpty)
+        ? _nightCssContent
+        : _fallbackNightCss;
+
+    if (css != null) {
+      try {
+        if (Platform.isWindows) {
+          // Windows-specific aggressive injection
+          // 1. Try official CSS injection (Best for Windows/WebView2)
+          controller.injectCSSCode(source: css);
+
+          // 2. Fallback: JS Injection of Style Tag (Original method)
+          controller.evaluateJavascript(source: _getNightModeJs());
+
+          // 3. Nuclear Option: Direct Style Manipulation (For stubborn pages)
+          // Force background to dark immediately
+          controller.evaluateJavascript(source: """
+            (function() {
+              try {
+                document.body.style.backgroundColor = '#121212';
+                document.documentElement.style.backgroundColor = '#121212';
+              } catch(e) {}
+            })();
+          """);
+        } else {
+          // Mobile (Android/iOS): Use original, standard method
+          controller.evaluateJavascript(source: _getNightModeJs());
+        }
+      } catch (_) {}
+    }
+  }
+
+  void _injectNightMode(InAppWebViewController controller) {
+    injectNightMode(controller);
+  }
+
+  void toggleKeepScreenOn(bool value) {
+    _keepScreenOn = value;
+    if (value) {
+      WakelockPlus.enable();
+    } else {
+      WakelockPlus.disable();
+    }
+    notifyListeners();
+    _saveTabsState();
+  }
+
+  void toggleAutoLeaveMode(bool value) {
+    _autoLeaveMode = value;
+    notifyListeners();
+    _saveTabsState();
+  }
+
+  bool _isAdBlockEnabled = true;
+  bool get isAdBlockEnabled => _isAdBlockEnabled;
+
+  void toggleAdBlock(bool value) {
+    _isAdBlockEnabled = value;
+    notifyListeners();
+    _saveTabsState();
+  }
+
+  bool _isDebugModeEnabled = false;
+  bool get isDebugModeEnabled => _isDebugModeEnabled;
+
+  void toggleDebugMode(bool value) {
+    _isDebugModeEnabled = value;
+    notifyListeners();
+    _saveTabsState();
+  }
+
+  static int _tabIdCounter = 0;
+
+  static String normalizeUrl(String input) {
+    var url = input.trim();
+    if (url.isEmpty) return 'about:blank';
+    final lower = url.toLowerCase();
+    if (lower.startsWith('http://') ||
+        lower.startsWith('https://') ||
+        lower.startsWith('file://') ||
+        lower.startsWith('about:') ||
+        lower.startsWith('javascript:') ||
+        lower.startsWith('data:') ||
+        lower.startsWith('blob:')) {
+      return url;
+    }
+    return 'https://$url';
+  }
+
+  Future<void> addTab({
+    String initialUrl = 'about:blank',
+    String? initialTitle,
+    String? customName,
+    String? customUserAgent,
+    bool switchToNewTab = true,
+  }) async {
+    _tabIdCounter++;
+    final uniqueId = '${DateTime.now().millisecondsSinceEpoch}_$_tabIdCounter';
+    final normalizedUrl = normalizeUrl(initialUrl);
+
+    final tab = BrowserTab(
+      id: uniqueId,
+      url: normalizedUrl,
+      title: initialTitle ??
+          (normalizedUrl == 'about:blank' ? '新标签页' : '正在加载...'),
+      customName: customName,
+      customUserAgent: customUserAgent,
+    );
+    _tabs.add(tab);
+    if (switchToNewTab) {
+      _currentIndex = _tabs.length - 1;
+    }
+    notifyListeners();
+    _saveTabsState();
+  }
+
+  bool canCloseTab(int index) {
+    if (index >= 0 && index < _tabs.length) {
+      return !_tabs[index].isExecutingScript;
+    }
+    return false;
+  }
+
+  void removeTab(int index) {
+    if (index < 0 || index >= _tabs.length) return;
+    final tab = _tabs[index];
+
+    // Prevent closing if executing script
+    if (tab.isExecutingScript) {
+      return; // Caller should show error message
+    }
+
+    // Stop tab auto refresh timer
+    tab.stopAutoRefresh();
+
+    _tabs.removeAt(index);
+
+    if (_tabs.isEmpty) {
+      _currentIndex = 0;
+    } else if (_currentIndex >= _tabs.length) {
+      _currentIndex = _tabs.length - 1;
+    } else if (_currentIndex > index) {
+      _currentIndex--;
+    }
+
+    notifyListeners();
+    _saveTabsState();
+  }
+
+  void updateTabInfo(int index, String url, String title) {
+    if (index >= 0 && index < _tabs.length) {
+      _tabs[index].url = url;
+      _tabs[index].title = title;
+      notifyListeners();
+      _saveTabsState();
+    }
+  }
+
+  void updateTabCustomSettings(
+      int index, String? customName, String? customUserAgent) {
+    if (index >= 0 && index < _tabs.length) {
+      _tabs[index].customName = customName;
+      _tabs[index].customUserAgent = customUserAgent;
+      notifyListeners();
+      _saveTabsState();
+    }
+  }
+
+  void updateTabNavigationState(int index, bool canGoBack, bool canGoForward) {
+    if (index >= 0 && index < _tabs.length) {
+      _tabs[index].canGoBack = canGoBack;
+      _tabs[index].canGoForward = canGoForward;
+      notifyListeners();
+    }
+  }
+
+  void updateTabProgress(double progress) {
+    if (_currentIndex >= 0 && _currentIndex < _tabs.length) {
+      _tabs[_currentIndex].progress = progress;
+      notifyListeners();
+    }
+  }
+
+  void setCurrentIndex(int index) {
+    if (index >= 0 && index < _tabs.length) {
+      _currentIndex = index;
+      notifyListeners();
+      _saveTabsState();
+    }
+  }
+
+  void addToHistory(String url, String title) {
+    // Allow welcome.html to be recorded, but exclude other file URLs and about:blank
+    // We allow welcome.html so it's in the history list (for potential internal use)
+    // but we filter it out in the 'history' getter so it's not shown in UI.
+    if ((url.startsWith('file:///') && !url.endsWith('welcome.html')) ||
+        url == 'about:blank') {
+      return;
+    }
+
+    _history.insert(
+        0,
+        HistoryItem(
+          title: title,
+          url: url,
+          visitedAt: DateTime.now(),
+        ));
+    _cleanExpiredHistory();
+    notifyListeners();
+    _saveBookmarksAndHistory();
+  }
+
+  void updateHistoryTitle(String url, String title) {
+    if (_history.isEmpty) return;
+
+    // Check if the most recent item matches the URL
+    if (_history.first.url == url) {
+      final oldItem = _history.first;
+      _history[0] = HistoryItem(
+        title: title,
+        url: oldItem.url,
+        visitedAt: oldItem.visitedAt,
+      );
+      notifyListeners();
+      _saveBookmarksAndHistory();
+    }
+  }
+
+  void addBookmark(String url, String title) {
+    _bookmarks.add(Bookmark(
+      title: title,
+      url: url,
+      createdAt: DateTime.now(),
+    ));
+    notifyListeners();
+    _saveBookmarksAndHistory();
+  }
+
+  /// 编辑并更新指定书签的名称与链接地址
+  void updateBookmark(Bookmark oldBookmark, String newTitle, String newUrl) {
+    final index = _bookmarks.indexOf(oldBookmark);
+    if (index != -1) {
+      _bookmarks[index] = Bookmark(
+        title: newTitle.trim(),
+        url: newUrl.trim(),
+        createdAt: oldBookmark.createdAt,
+      );
+      notifyListeners();
+      _saveBookmarksAndHistory();
+    }
+  }
+
+  void removeBookmark(Bookmark bookmark) {
+    _bookmarks.remove(bookmark);
+    notifyListeners();
+    _saveBookmarksAndHistory();
+  }
+
+  void removeBookmarkByUrl(String url) {
+    _bookmarks.removeWhere((bookmark) => bookmark.url == url);
+    notifyListeners();
+    _saveBookmarksAndHistory();
+  }
+
+  bool isBookmarked(String url) {
+    return _bookmarks.any((bookmark) => bookmark.url == url);
+  }
+
+  void toggleBookmark(String url, String title) {
+    if (isBookmarked(url)) {
+      removeBookmarkByUrl(url);
+    } else {
+      addBookmark(url, title);
+    }
+  }
+
+  void sortBookmarks(String type) {
+    if (type == 'url') {
+      _bookmarks.sort((a, b) => a.url.compareTo(b.url));
+    } else if (type == 'name') {
+      _bookmarks.sort((a, b) => a.title.compareTo(b.title));
+    } else if (type == 'time') {
+      _bookmarks
+          .sort((a, b) => b.createdAt.compareTo(a.createdAt)); // Newest first
+    }
+    notifyListeners();
+    _saveBookmarksAndHistory();
+  }
+
+  void toggleScriptPanel() {
+    _isScriptPanelExpanded = !_isScriptPanelExpanded;
+    notifyListeners();
+    _saveTabsState();
+  }
+
+  /// 明确收起/收纳脚本管理器抽屉
+  void closeScriptPanel() {
+    if (_isScriptPanelExpanded) {
+      _isScriptPanelExpanded = false;
+      notifyListeners();
+      _saveTabsState();
+    }
+  }
+
+  void clearHistory() {
+    _history.clear();
+    notifyListeners();
+    _saveBookmarksAndHistory();
+  }
+
+  void clearBookmarks() {
+    _bookmarks.clear();
+    notifyListeners();
+    _saveBookmarksAndHistory();
+  }
+
+  Future<void> _loadBookmarksAndHistory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _maxHistoryDays = prefs.getInt('max_history_days') ?? 4;
+      final bookmarksJson = prefs.getStringList('bookmarks') ?? [];
+      final historyJson = prefs.getStringList('history') ?? [];
+
+      _bookmarks.clear();
+      _bookmarks.addAll(bookmarksJson.map((json) {
+        final data = jsonDecode(json);
+        return Bookmark(
+          title: data['title'],
+          url: data['url'],
+          createdAt: DateTime.parse(data['createdAt']),
+        );
+      }));
+
+      _history.clear();
+      _history.addAll(historyJson.map((json) {
+        final data = jsonDecode(json);
+        return HistoryItem(
+          title: data['title'],
+          url: data['url'],
+          visitedAt: DateTime.parse(data['visitedAt']),
+        );
+      }));
+      _cleanExpiredHistory();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Load bookmarks and history error: $e');
+    }
+  }
+
+  /// 依据设置的最大保存天数清理过期历史记录（0 表示永久保存）
+  void _cleanExpiredHistory() {
+    if (_maxHistoryDays <= 0) return;
+    final now = DateTime.now();
+    _history.removeWhere((item) {
+      final diffDays = now.difference(item.visitedAt).inDays;
+      return diffDays >= _maxHistoryDays;
+    });
+  }
+
+  /// 设置最大历史记录保存天数并持久化
+  Future<void> setMaxHistoryDays(int days) async {
+    _maxHistoryDays = days;
+    _cleanExpiredHistory();
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('max_history_days', days);
+      await _saveBookmarksAndHistory();
+    } catch (e) {
+      debugPrint('Save max history days error: $e');
+    }
+  }
+
+  Future<void> _saveBookmarksAndHistory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(
+          'bookmarks',
+          _bookmarks
+              .map((bookmark) => jsonEncode({
+                    'title': bookmark.title,
+                    'url': bookmark.url,
+                    'createdAt': bookmark.createdAt.toIso8601String(),
+                  }))
+              .toList());
+
+      await prefs.setStringList(
+          'history',
+          _history
+              .map((item) => jsonEncode({
+                    'title': item.title,
+                    'url': item.url,
+                    'visitedAt': item.visitedAt.toIso8601String(),
+                  }))
+              .toList());
+    } catch (e) {
+      debugPrint('Save bookmarks and history error: $e');
+    }
+  }
+
+  Future<void> _saveTabsState() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // Ensure we have valid data to save
+      final tabsData = await Future.wait(_tabs.map((tab) async {
+        String url = tab.url;
+        // If url is file path (welcome page), save as about:blank to trigger welcome logic on restore
+        if (url.startsWith('file:///')) {
+          url = 'about:blank';
+        }
+
+        return {
+          'url': url,
+          'title': tab.title,
+          'scriptFilePath': tab.scriptFilePath,
+        };
+      }));
+
+      final dataToSave = {
+        'tabs': tabsData,
+        'currentIndex': _currentIndex,
+        'isDarkMode': _isDarkMode,
+        'keepScreenOn': _keepScreenOn,
+        'isScriptPanelExpanded': _isScriptPanelExpanded,
+        'searchEngine': _searchEngine,
+        'userAgent': _userAgent, // Save UserAgent
+        'autoLeaveMode': _autoLeaveMode,
+        'isAdBlockEnabled': _isAdBlockEnabled,
+        'isDebugModeEnabled': _isDebugModeEnabled,
+      };
+
+      await prefs.setString('last_tabs', jsonEncode(dataToSave));
+    } catch (e) {
+      debugPrint('Save tabs state error: $e');
+    }
+  }
+
+  Future<void> _loadSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final tabsJson = prefs.getString('last_tabs');
+
+      if (tabsJson != null) {
+        final data = jsonDecode(tabsJson);
+        _isDarkMode = data['isDarkMode'] ?? false;
+        _keepScreenOn = data['keepScreenOn'] ?? false;
+        _autoLeaveMode = data['autoLeaveMode'] ?? false;
+        _isAdBlockEnabled = data['isAdBlockEnabled'] ?? true;
+        _isDebugModeEnabled = data['isDebugModeEnabled'] ?? false;
+        _searchEngine = data['searchEngine'] ?? 'Baidu';
+        _userAgent = data['userAgent'] ?? defaultUserAgentType;
+
+        if (_keepScreenOn) {
+          await WakelockPlus.enable();
+        }
+      }
+    } catch (e) {
+      debugPrint('Load settings error: $e');
+    }
+  }
+
+  /// 获取当前平台的默认 User-Agent 类型（PC/桌面端默认为 Desktop，移动端默认为 Mobile）
+  static String get defaultUserAgentType {
+    if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
+      return 'Desktop';
+    }
+    return 'Mobile';
+  }
+
+  static String get desktopUserAgentString {
+    if (Platform.isWindows) {
+      return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    }
+    return 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+  }
+
+  static String get mobileUserAgentString {
+    if (Platform.isAndroid) {
+      return 'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36';
+    }
+    return 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+  }
+
+  static String get tabletUserAgentString {
+    if (Platform.isAndroid) {
+      return 'Mozilla/5.0 (Linux; Android 14; Tablet) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
+    }
+    return 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+  }
+
+  // User Agent
+  late String _userAgent = defaultUserAgentType;
+  String get userAgent => _userAgent;
+
+  Map<String, String> get uaMap => {
+    'Mobile': mobileUserAgentString,
+    'Tablet': tabletUserAgentString,
+    'Desktop': desktopUserAgentString,
+  };
+
+  String getUserAgentString(String? type) {
+    if (type == 'Desktop') return desktopUserAgentString;
+    if (type == 'Tablet') return tabletUserAgentString;
+    if (type == 'Mobile') return mobileUserAgentString;
+    return uaMap[_userAgent] ?? (Platform.isWindows || Platform.isMacOS || Platform.isLinux ? desktopUserAgentString : mobileUserAgentString);
+  }
+
+  void setUserAgent(String type) {
+    if (uaMap.containsKey(type)) {
+      _userAgent = type;
+      notifyListeners();
+      _saveTabsState();
+      // Apply to current tab if exists
+      if (currentTab != null && currentTab!.controller != null) {
+        currentTab!.controller!.setSettings(
+            settings: InAppWebViewSettings(
+                userAgent: getUserAgentString(type),
+                preferredContentMode: _getPreferredContentMode(type)));
+        currentTab!.controller!.reload();
+      }
+    }
+  }
+
+  void setSearchEngine(String engine) {
+    _searchEngine = engine;
+    notifyListeners();
+    _saveTabsState();
+  }
+
+  String get currentUserAgentString => getUserAgentString(_userAgent);
+
+  UserPreferredContentMode _getPreferredContentMode(String userAgentType) {
+    if (userAgentType == 'Desktop') {
+      return UserPreferredContentMode.DESKTOP;
+    }
+    return UserPreferredContentMode.MOBILE;
+  }
+
+  /// 异步获取当前临时缓存大小估算字符串
+  Future<String> getCacheSizeString() async {
+    try {
+      final tempDir = await getTemporaryDirectory();
+      if (!await tempDir.exists()) return '0.0 MB';
+      int totalBytes = 0;
+      await for (final file
+          in tempDir.list(recursive: true, followLinks: false)) {
+        if (file is File) {
+          try {
+            totalBytes += await file.length();
+          } catch (_) {}
+        }
+      }
+      if (totalBytes < 1024) {
+        return '$totalBytes B';
+      } else if (totalBytes < 1024 * 1024) {
+        return '${(totalBytes / 1024).toStringAsFixed(1)} KB';
+      }
+      return '${(totalBytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    } catch (_) {
+      return '0.0 MB';
+    }
+  }
+
+  /// 清空浏览器缓存
+  /// 深度清除：InAppWebView 全局缓存、各活跃标签页控制器缓存、系统临时目录文件
+  Future<void> clearCache() async {
+    try {
+      // 1. 全局清除 InAppWebView 缓存（涵盖所有活跃与非活跃标签页）
+      try {
+        await InAppWebViewController.clearAllCache();
+      } catch (e) {
+        debugPrint('clearAllCache error: $e');
+      }
+
+      // 2. 清理系统临时目录缓存文件
+      try {
+        final tempDir = await getTemporaryDirectory();
+        if (await tempDir.exists()) {
+          final entities = tempDir.listSync(recursive: false);
+          for (final entity in entities) {
+            try {
+              if (entity is File) {
+                await entity.delete();
+              } else if (entity is Directory) {
+                await entity.delete(recursive: true);
+              }
+            } catch (_) {}
+          }
+        }
+      } catch (e) {
+        debugPrint('Clear temp dir error: $e');
+      }
+
+      notifyListeners();
+    } catch (e) {
+      debugPrint('clearCache failed: $e');
+    }
+  }
+}

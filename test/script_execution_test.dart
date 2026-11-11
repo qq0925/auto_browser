@@ -153,7 +153,10 @@ void main() {
       };
       final js = executor.buildClickScriptLogic(params);
       expect(js.contains("targetElement.closest('a')"), true);
+      expect(js.contains("targetElement.closest('button, input[type=\"submit\"]')"), true);
       expect(js.contains('isNavTrigger: isNav'), true);
+      expect(js.contains('_auokIsVisible'), true);
+      expect(js.contains('_auokFilterByPosition'), true);
     });
   });
 }

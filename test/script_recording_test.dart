@@ -143,5 +143,23 @@ void main() {
       expect(script.params['点击文本'], '商城');
       expect(script.params['完全匹配'], true);
     });
+
+    test('点击表单提交按钮去重保护：同名的点击文字自动合并为输入框提交', () {
+      // 模拟自定义按钮先触发点击文字，紧接着触发表单提交
+      scriptProvider.handleScriptMessage(
+        '点击文字|${json.encode({'text': '提交表单', 'index': 1, 'total': 1})}',
+      );
+      scriptProvider.handleScriptMessage(
+        '点击提交按钮|${json.encode({
+          '按钮文本': '提交表单',
+          '表单数据': {'用户名': 'auok_user'},
+        })}',
+      );
+
+      // 验证自动去重，仅保留 1 条“输入框提交”脚本
+      expect(testTab.scripts.length, 1);
+      expect(testTab.scripts[0].type, '输入框提交');
+      expect(testTab.scripts[0].params['提交按钮文字'], '提交表单');
+    });
   });
 }
