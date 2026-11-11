@@ -221,6 +221,38 @@ class _BrowserViewState extends State<BrowserView> {
       injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
     ));
 
+    // 全局接管 window.open 与弹窗，将弹窗平滑转为当前标签页导航，杜绝 Chromium 弹窗拒绝导致的死循环刷新
+    initialScripts.add(UserScript(
+      source: '''
+        (function() {
+          try {
+            var _origOpen = window.open;
+            window.open = function(url, target, features) {
+              if (url && typeof url === 'string') {
+                var trimmed = url.trim();
+                if (trimmed && trimmed !== 'about:blank' && !trimmed.startsWith('javascript:')) {
+                  try {
+                    var fullUrl = new URL(trimmed, window.location.href).href;
+                    window.location.href = fullUrl;
+                    return window;
+                  } catch(_) {
+                    window.location.href = trimmed;
+                    return window;
+                  }
+                }
+              }
+              try {
+                return _origOpen ? _origOpen.apply(window, arguments) : null;
+              } catch(e) {
+                return null;
+              }
+            };
+          } catch(e) {}
+        })();
+      ''',
+      injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+    ));
+
     return Container(
       color: browserProvider.isDarkMode ? Colors.black : Colors.white,
       child: Stack(
@@ -458,8 +490,8 @@ class _BrowserViewState extends State<BrowserView> {
               displayZoomControls: false, // 隐藏 Android 屏幕上过时的 +/- 浮动缩放按钮
               textZoom: 100, // 锁定文字缩放 100%，防止手机系统字体大小破坏网页排版
 
-              // ====== 3. 多窗口与新标签页支持 ======
-              supportMultipleWindows: true,
+              // ====== 3. 多窗口与新标签页支持 (保持 false 以免 Android Chromium 在 onCreateWindow 拦截丢失 target_blank 链接并陷入刷新死循环) ======
+              supportMultipleWindows: false,
               geolocationEnabled: true,
               safeBrowsingEnabled: true,
               userAgent: widget.tab.customUserAgent != null
@@ -892,7 +924,8 @@ class _BrowserViewState extends State<BrowserView> {
               if (targetUrl != null &&
                   targetUrl.isNotEmpty &&
                   targetUrl != 'about:blank') {
-                browserProvider.addTab(initialUrl: targetUrl);
+                // 平滑在当前窗口中直接加载，保持脚本引擎与会话连贯
+                await controller.loadUrl(urlRequest: URLRequest(url: WebUri(targetUrl)));
                 return true;
               }
               return false;
@@ -909,6 +942,20 @@ class _BrowserViewState extends State<BrowserView> {
               }
 
               if (uri != null) {
+                final scheme = uri.scheme.toLowerCase();
+                // 拦截非 Web 协议 (如 intent://, weixin://, alipays:// 等)，防止 Android WebView 抛出 net::ERR_UNKNOWN_URL_SCHEME 导致页面死循环刷新
+                if (scheme.isNotEmpty &&
+                    scheme != 'http' &&
+                    scheme != 'https' &&
+                    scheme != 'file' &&
+                    scheme != 'about' &&
+                    scheme != 'javascript' &&
+                    scheme != 'data' &&
+                    scheme != 'blob') {
+                  DebugLogManager.log('🚫 [shouldOverrideUrl] 拦截外部应用私有协议: $uri');
+                  return NavigationActionPolicy.CANCEL;
+                }
+
                 final urlStr = uri.toString();
                 // 2. 拦截并触发文件下载
                 if (_isDownloadableUrl(urlStr)) {

@@ -50,14 +50,13 @@ class RightScriptPanel extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 6),
               alignment: Alignment.center,
-              // 居中展示执行延迟与循环次数
+              // 居中展示内容块，内部「执行延迟」与「循环次数」左对齐
               child: Column(
                 mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     mainAxisSize: MainAxisSize.min,
-                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const Text(
                         '执行延迟: ',
@@ -79,7 +78,6 @@ class RightScriptPanel extends StatelessWidget {
                   const SizedBox(height: 2),
                   Row(
                     mainAxisSize: MainAxisSize.min,
-                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const Text(
                         '循环次数: ',

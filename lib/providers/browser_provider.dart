@@ -714,7 +714,8 @@ class BrowserProvider extends ChangeNotifier {
         currentTab!.controller!.setSettings(
             settings: InAppWebViewSettings(
                 userAgent: getUserAgentString(type),
-                preferredContentMode: _getPreferredContentMode(type)));
+                preferredContentMode: _getPreferredContentMode(type),
+                supportMultipleWindows: false));
         currentTab!.controller!.reload();
       }
     }

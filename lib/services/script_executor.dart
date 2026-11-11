@@ -1638,7 +1638,14 @@ class ScriptExecutor {
         _auokSimulateClick(clickTarget);
         // 若自身不是链接但父级或祖父级为 <a> 则联动触发（若 clickTarget 已是 anchor 则不重复触发）
         if (anchor && anchor !== clickTarget) {
-          _auokSimulateClick(anchor);
+          const anchorHref = (anchor.getAttribute('href') || '').trim();
+          // 仅当 anchor 具备有效外部地址且非 # 锚点时，且 clickTarget 并非原生按钮/输入框时联动，避免双重点击竞争与锚点重置
+          if (anchorHref && !anchorHref.startsWith('#') && !anchorHref.startsWith('javascript:')) {
+            const isNativeBtn = clickTarget.tagName === 'BUTTON' || clickTarget.tagName === 'INPUT';
+            if (!isNativeBtn) {
+              _auokSimulateClick(anchor);
+            }
+          }
         }
         return JSON.stringify({ success: true, isNavTrigger: isNav });
       }
@@ -1760,7 +1767,10 @@ class ScriptExecutor {
               _auokSimulateClick(targetImg);
               // 若自身不是链接但父级为 <a> 则联动仿真触发
               if (anchor && anchor !== targetImg) {
-                _auokSimulateClick(anchor);
+                const anchorHref = (anchor.getAttribute('href') || '').trim();
+                if (anchorHref && !anchorHref.startsWith('#') && !anchorHref.startsWith('javascript:')) {
+                  _auokSimulateClick(anchor);
+                }
               }
               return JSON.stringify({ success: true, isNavTrigger: isNav });
             }
@@ -2314,7 +2324,13 @@ class ScriptExecutor {
 
           _auokSimulateClick(clickTarget);
           if (anchor && anchor !== clickTarget) {
-            _auokSimulateClick(anchor);
+            const anchorHref = (anchor.getAttribute('href') || '').trim();
+            if (anchorHref && !anchorHref.startsWith('#') && !anchorHref.startsWith('javascript:')) {
+              const isNativeBtn = clickTarget.tagName === 'BUTTON' || clickTarget.tagName === 'INPUT';
+              if (!isNativeBtn) {
+                _auokSimulateClick(anchor);
+              }
+            }
           }
           return isNav ? "clicked_nav" : "clicked";
         } else {

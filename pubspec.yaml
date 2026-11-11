@@ -139,3 +139,4 @@ msix_config:
   logo_path: assets/app_icon.png
   capabilities: "internetClient, internetClientServer, privateNetworkClientServer"
   output_path: "C:\\Users\\79277\\Downloads"
+  output_name: auto_browser
