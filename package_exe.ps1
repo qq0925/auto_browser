@@ -26,8 +26,17 @@ try {
     $stageDir = Join-Path $tempDir 'stage'
     New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
 
-    # 复制 Release 文件 (排除 msix 文件)
-    Get-ChildItem -Path $releaseDir -Exclude '*.msix' | Copy-Item -Destination $stageDir -Recurse -Force
+    # 清理 Release 目录下的 WebView2 临时测试缓存
+    Get-ChildItem -Path $releaseDir -Filter '*.WebView2' -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+
+    # 复制 Release 文件 (严格排除 msix、WebView2 缓存文件夹与调试文件)
+    Get-ChildItem -Path $releaseDir | Where-Object { 
+        $_.Name -notlike '*.msix' -and 
+        $_.Name -notlike '*.WebView2' -and 
+        $_.Name -notlike '*.pdb' -and
+        $_.Name -notlike '*.exp' -and
+        $_.Name -notlike '*.lib'
+    } | Copy-Item -Destination $stageDir -Recurse -Force
 
     $zipPath = Join-Path $tempDir 'payload.zip'
     Compress-Archive -Path (Join-Path $stageDir '*') -DestinationPath $zipPath -Force
@@ -67,7 +76,11 @@ class Program {
             }
             ProcessStartInfo psi = new ProcessStartInfo(exePath);
             psi.WorkingDirectory = appDir;
-            psi.UseShellExecute = true;
+            psi.UseShellExecute = false;
+            string webviewArgs = "--disable-features=HttpsFirstMode,HttpsUpgrades,msSmartScreenProtection --ignore-certificate-errors --allow-running-insecure-content";
+            psi.EnvironmentVariables["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = webviewArgs;
+            string userDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AuokBrowser", "WebView2Data");
+            psi.EnvironmentVariables["WEBVIEW2_USER_DATA_FOLDER"] = userDataDir;
             Process.Start(psi);
         } catch (Exception) {}
     }

@@ -282,7 +282,7 @@ class BrowserProvider extends ChangeNotifier {
         lower.startsWith('blob:')) {
       return url;
     }
-    return 'https://$url';
+    return 'http://$url';
   }
 
   Future<void> addTab({
@@ -653,6 +653,12 @@ class BrowserProvider extends ChangeNotifier {
           await WakelockPlus.enable();
         }
       }
+
+      // 独立持久化读取 browser_user_agent，优先级高于 last_tabs，确保冷启动 100% 记住用户选择的 UA
+      final savedUa = prefs.getString('browser_user_agent');
+      if (savedUa != null && uaMap.containsKey(savedUa)) {
+        _userAgent = savedUa;
+      }
     } catch (e) {
       debugPrint('Load settings error: $e');
     }
@@ -704,11 +710,15 @@ class BrowserProvider extends ChangeNotifier {
     return uaMap[_userAgent] ?? (Platform.isWindows || Platform.isMacOS || Platform.isLinux ? desktopUserAgentString : mobileUserAgentString);
   }
 
-  void setUserAgent(String type) {
+  void setUserAgent(String type) async {
     if (uaMap.containsKey(type)) {
       _userAgent = type;
       notifyListeners();
       _saveTabsState();
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('browser_user_agent', type);
+      } catch (_) {}
       // Apply to current tab if exists
       if (currentTab != null && currentTab!.controller != null) {
         currentTab!.controller!.setSettings(

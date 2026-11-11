@@ -66,7 +66,7 @@ class _BrowserViewState extends State<BrowserView> {
         lower.startsWith('blob:')) {
       return url;
     }
-    return 'https://$url';
+    return 'http://$url';
   }
 
   @override
@@ -228,25 +228,69 @@ class _BrowserViewState extends State<BrowserView> {
           try {
             var _origOpen = window.open;
             window.open = function(url, target, features) {
-              if (url && typeof url === 'string') {
-                var trimmed = url.trim();
-                if (trimmed && trimmed !== 'about:blank' && !trimmed.startsWith('javascript:')) {
-                  try {
-                    var fullUrl = new URL(trimmed, window.location.href).href;
-                    window.location.href = fullUrl;
-                    return window;
-                  } catch(_) {
-                    window.location.href = trimmed;
-                    return window;
-                  }
+              function navigateCurrent(targetUrl) {
+                if (!targetUrl || typeof targetUrl !== 'string') return;
+                var trimmed = targetUrl.trim();
+                if (!trimmed || trimmed === 'about:blank' || trimmed.startsWith('javascript:')) return;
+                try {
+                  window.location.href = new URL(trimmed, window.location.href).href;
+                } catch(_) {
+                  window.location.href = trimmed;
                 }
               }
-              try {
-                return _origOpen ? _origOpen.apply(window, arguments) : null;
-              } catch(e) {
-                return null;
+
+              var proxyWin = {
+                closed: false,
+                name: target || '',
+                opener: window,
+                parent: window,
+                top: window,
+                self: null,
+                window: null,
+                close: function() { this.closed = true; },
+                focus: function() {},
+                blur: function() {},
+                postMessage: function() {},
+                document: {
+                  write: function() {},
+                  writeln: function() {},
+                  open: function() { return this; },
+                  close: function() {}
+                },
+                location: {
+                  get href() { return window.location.href; },
+                  set href(val) { navigateCurrent(val); },
+                  replace: function(val) { navigateCurrent(val); },
+                  assign: function(val) { navigateCurrent(val); },
+                  reload: function() { window.location.reload(); }
+                }
+              };
+              proxyWin.self = proxyWin;
+              proxyWin.window = proxyWin;
+
+              if (url && typeof url === 'string') {
+                navigateCurrent(url);
               }
+              return proxyWin;
             };
+
+            // 自动降级所有 target="_blank" 链接与表单为当前窗口加载，防御多窗口拦截导致的刷新
+            document.addEventListener('click', function(e) {
+              try {
+                var a = e.target && e.target.closest ? e.target.closest('a') : null;
+                if (a && a.target === '_blank') {
+                  a.target = '_self';
+                }
+              } catch(_) {}
+            }, true);
+
+            document.addEventListener('submit', function(e) {
+              try {
+                if (e.target && e.target.target === '_blank') {
+                  e.target.target = '_self';
+                }
+              } catch(_) {}
+            }, true);
           } catch(e) {}
         })();
       ''',
@@ -493,7 +537,7 @@ class _BrowserViewState extends State<BrowserView> {
               // ====== 3. 多窗口与新标签页支持 (保持 false 以免 Android Chromium 在 onCreateWindow 拦截丢失 target_blank 链接并陷入刷新死循环) ======
               supportMultipleWindows: false,
               geolocationEnabled: true,
-              safeBrowsingEnabled: true,
+              safeBrowsingEnabled: false,
               userAgent: widget.tab.customUserAgent != null
                   ? browserProvider.getUserAgentString(widget.tab.customUserAgent)
                   : browserProvider.currentUserAgentString,
@@ -564,8 +608,30 @@ class _BrowserViewState extends State<BrowserView> {
             ),
             initialUserScripts:
                 UnmodifiableListView<UserScript>(initialScripts),
-            onWebViewCreated: (controller) {
+            onWebViewCreated: (controller) async {
               widget.tab.setController(controller);
+
+              // 关键加固：在 WebView 内核创建完成的第一时间显式调用 setSettings
+              // 解决 Windows WebView2 等平台冷启动时 initialSettings.userAgent 未能立即生效导致的 UA 错乱问题
+              try {
+                final targetUa = widget.tab.customUserAgent != null
+                    ? browserProvider.getUserAgentString(widget.tab.customUserAgent)
+                    : browserProvider.currentUserAgentString;
+                final targetMode = widget.tab.customUserAgent != null
+                    ? (widget.tab.customUserAgent == 'Desktop'
+                        ? UserPreferredContentMode.DESKTOP
+                        : UserPreferredContentMode.MOBILE)
+                    : (browserProvider.userAgent == 'Desktop'
+                        ? UserPreferredContentMode.DESKTOP
+                        : UserPreferredContentMode.MOBILE);
+                await controller.setSettings(
+                  settings: InAppWebViewSettings(
+                    userAgent: targetUa,
+                    preferredContentMode: targetMode,
+                    supportMultipleWindows: false,
+                  ),
+                );
+              } catch (_) {}
 
               // Check if we need to load welcome page (new tab or empty url)
               if (widget.tab.url == 'about:blank' || widget.tab.url.isEmpty) {
@@ -975,6 +1041,12 @@ class _BrowserViewState extends State<BrowserView> {
             onReceivedServerTrustAuthRequest: (controller, challenge) async {
               return ServerTrustAuthResponse(
                 action: ServerTrustAuthResponseAction.PROCEED,
+              );
+            },
+            onSafeBrowsingHit: (controller, url, threatType) async {
+              return SafeBrowsingResponse(
+                report: false,
+                action: SafeBrowsingResponseAction.PROCEED,
               );
             },
             onJsBeforeUnload: (controller, jsBeforeUnloadRequest) async {
