@@ -232,6 +232,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   bool _isAdvancedExpanded = false;
   final TextEditingController _timeoutSecondsController =
       TextEditingController(text: '30');
+  String _timeoutUnit = 's';
 
   Script? _beforeScript;
   Script? _afterScript;
@@ -334,7 +335,9 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
       if (params['超时时间'] != null) {
         _timeoutSecondsController.text = params['超时时间'].toString();
-        if (params['超时时间'] != 30) {
+        final unit = params['超时单位']?.toString().toLowerCase();
+        _timeoutUnit = (unit == 'ms') ? 'ms' : 's';
+        if (params['超时时间'] != 30 || _timeoutUnit != 's') {
           _isAdvancedExpanded = true;
         }
       }
@@ -1608,7 +1611,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                   const SizedBox(width: 8),
                   if (_beforeScript != null ||
                       _afterScript != null ||
-                      _timeoutSecondsController.text != '30')
+                      _timeoutSecondsController.text != '30' || _timeoutUnit != 's')
                     Container(
                       padding:
                           const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -1643,12 +1646,72 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildFieldRow(
-                    '超时时间 (秒)',
-                    _timeoutSecondsController,
-                    '30',
-                    hint: '脚本单步执行超过此时间未完成时视为超时',
-                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 120,
+                          child: Text(
+                            '超时时间',
+                            style: TextStyle(color: _theme.textColor, fontSize: 13),
+                          ),
+                        ),
+                        Expanded(
+                          child: _buildTextField(
+                            _timeoutSecondsController,
+                            _timeoutUnit == 'ms' ? '5000' : '30',
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: 72,
+                          child: DropdownButtonFormField<String>(
+                            value: _timeoutUnit,
+                            isExpanded: true,
+                            decoration: InputDecoration(
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 12),
+                              filled: true,
+                              fillColor: _theme.inputFillColor,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide(color: _theme.borderColor),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide(color: _theme.borderColor),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: const BorderSide(color: Colors.blue),
+                              ),
+                            ),
+                            dropdownColor: _theme.dropdownColor,
+                            style: TextStyle(fontSize: 13, color: _theme.textColor),
+                            icon: Icon(Icons.arrow_drop_down, color: _theme.iconColor, size: 20),
+                            items: const [
+                              DropdownMenuItem<String>(
+                                value: 's',
+                                child: Text('s'),
+                              ),
+                              DropdownMenuItem<String>(
+                                value: 'ms',
+                                child: Text('ms'),
+                              ),
+                            ],
+                            onChanged: (String? val) {
+                              if (val != null) {
+                                setState(() {
+                                  _timeoutUnit = val;
+                                });
+                              }
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   _buildNestedScriptTile('执行每个脚本前执行 (前置脚本)', 'beforeScript'),
                   const SizedBox(height: 10),
@@ -2039,6 +2102,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     final timeout = int.tryParse(_timeoutSecondsController.text);
     if (timeout != null && timeout > 0) {
       params['超时时间'] = timeout;
+      params['超时单位'] = _timeoutUnit;
     }
 
     final newScript = Script(

@@ -297,6 +297,33 @@ class _BrowserViewState extends State<BrowserView> {
       injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
     ));
 
+    // 全局字体大小自适应注入 (跨平台通用 CSS zoom + text-size-adjust)
+    final zoomVal = browserProvider.textZoom;
+    final zoomRatio = (zoomVal / 100.0).toStringAsFixed(2);
+    if (zoomVal != 100) {
+      initialScripts.add(UserScript(
+        source: '''
+          (function() {
+            try {
+              var s = document.createElement('style');
+              s.id = 'auok-font-size-adjust';
+              s.appendChild(document.createTextNode('body { zoom: $zoomRatio !important; -webkit-text-size-adjust: $zoomVal% !important; text-size-adjust: $zoomVal% !important; }'));
+              (document.head || document.documentElement).appendChild(s);
+
+              if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', function() {
+                  if (document.body) document.body.style.zoom = '$zoomRatio';
+                });
+              } else if (document.body) {
+                document.body.style.zoom = '$zoomRatio';
+              }
+            } catch(e) {}
+          })();
+        ''',
+        injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+      ));
+    }
+
     return Container(
       color: browserProvider.isDarkMode ? Colors.black : Colors.white,
       child: Stack(
@@ -532,7 +559,7 @@ class _BrowserViewState extends State<BrowserView> {
               supportZoom: true,
               builtInZoomControls: true,
               displayZoomControls: false, // 隐藏 Android 屏幕上过时的 +/- 浮动缩放按钮
-              textZoom: 100, // 锁定文字缩放 100%，防止手机系统字体大小破坏网页排版
+              textZoom: browserProvider.textZoom, // 响应用户设定的网页字体大小缩放 (75% ~ 130%)
 
               // ====== 3. 多窗口与新标签页支持 (保持 false 以免 Android Chromium 在 onCreateWindow 拦截丢失 target_blank 链接并陷入刷新死循环) ======
               supportMultipleWindows: false,
@@ -629,8 +656,12 @@ class _BrowserViewState extends State<BrowserView> {
                     userAgent: targetUa,
                     preferredContentMode: targetMode,
                     supportMultipleWindows: false,
+                    textZoom: browserProvider.textZoom,
                   ),
                 );
+                if (browserProvider.textZoom != 100) {
+                  browserProvider.applyFontSizeToController(controller);
+                }
               } catch (_) {}
 
               // Check if we need to load welcome page (new tab or empty url)
@@ -773,6 +804,13 @@ class _BrowserViewState extends State<BrowserView> {
                     await controller.evaluateJavascript(
                         source: ScriptExecutor.egretCanvasProbeJs);
                   } catch (_) {}
+
+                  // 补强注入网页字体缩放
+                  if (browserProvider.textZoom != 100) {
+                    try {
+                      browserProvider.applyFontSizeToController(controller);
+                    } catch (_) {}
+                  }
 
                   if (!mounted) return;
 
@@ -1026,6 +1064,19 @@ class _BrowserViewState extends State<BrowserView> {
                 // 2. 拦截并触发文件下载
                 if (_isDownloadableUrl(urlStr)) {
                   _triggerDownload(controller, urlStr);
+                  return NavigationActionPolicy.CANCEL;
+                }
+
+                // 3. 拦截特定纯 HTTP 站点被内核自动升级为 HTTPS 导致的 403 错误
+                final host = uri.host.toLowerCase();
+                if (scheme == 'https' &&
+                    (host == 'duobao.txsj.ink' ||
+                        host.endsWith('.txsj.ink') ||
+                        host == 'zqwan.cn' ||
+                        host.endsWith('.zqwan.cn'))) {
+                  final httpUrl = uri.replace(scheme: 'http').toString();
+                  DebugLogManager.log('🛡️ [拦截HTTPS升级] 强制重定向至 HTTP: $httpUrl');
+                  controller.loadUrl(urlRequest: URLRequest(url: WebUri(httpUrl)));
                   return NavigationActionPolicy.CANCEL;
                 }
               }

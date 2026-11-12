@@ -84,13 +84,19 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
   // Configure WebView2 flags: disable HTTPS-First mode, SmartScreen, and certificate warnings
   SetEnvironmentVariableW(L"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-      L"--disable-features=HttpsFirstMode,HttpsUpgrades,msSmartScreenProtection --ignore-certificate-errors --allow-running-insecure-content");
+      L"--disable-features=msEdgeAutomaticHttps,AutomaticHttps,HttpsFirstMode,HttpsUpgrades,msSmartScreenProtection,AutoupgradeMixedContent --ignore-certificate-errors --allow-running-insecure-content");
 
   // Keep consistent WebView2 user data folder with MSIX
   wchar_t localAppData[MAX_PATH];
   if (GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, MAX_PATH) > 0) {
     std::wstring userDataFolder = std::wstring(localAppData) + L"\\AuokBrowser\\WebView2Data";
     SetEnvironmentVariableW(L"WEBVIEW2_USER_DATA_FOLDER", userDataFolder.c_str());
+
+    // Clean TransportSecurity (HSTS cache) to prevent HTTP sites from being forced to HTTPS
+    std::wstring hsts1 = userDataFolder + L"\\EBWebView\\Default\\TransportSecurity";
+    DeleteFileW(hsts1.c_str());
+    std::wstring hsts2 = userDataFolder + L"\\Default\\TransportSecurity";
+    DeleteFileW(hsts2.c_str());
   }
 
   // Attach to console when present (e.g., 'flutter run') or create a

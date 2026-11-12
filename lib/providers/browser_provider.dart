@@ -22,6 +22,16 @@ class BrowserProvider extends ChangeNotifier {
   String _searchEngine = 'Baidu'; // Default to Baidu
   String? _nightCssContent;
   int _maxHistoryDays = 4; // 最大历史记录保存天数，默认4天，0为永久保存
+  String _fontSize = '普通'; // 网页字体大小，默认普通 (100%)
+
+  static const List<String> fontSizeOptions = ['最大', '较大', '普通', '较小', '最小'];
+  static const Map<String, int> fontSizeZoomMap = {
+    '最大': 130,
+    '较大': 115,
+    '普通': 100,
+    '较小': 85,
+    '最小': 75,
+  };
 
   // Hardcoded fallback CSS for Night Mode (High Specificity)
   static const String _fallbackNightCss = '''
@@ -61,6 +71,8 @@ class BrowserProvider extends ChangeNotifier {
   String get searchEngine => _searchEngine;
   String? get nightCssContent => _nightCssContent;
   int get maxHistoryDays => _maxHistoryDays;
+  String get fontSize => _fontSize;
+  int get textZoom => fontSizeZoomMap[_fontSize] ?? 100;
 
   BrowserTab? get currentTab =>
       _tabs.isNotEmpty && _currentIndex >= 0 && _currentIndex < _tabs.length
@@ -265,6 +277,59 @@ class BrowserProvider extends ChangeNotifier {
     _isDebugModeEnabled = value;
     notifyListeners();
     _saveTabsState();
+  }
+
+  /// 设置网页字体大小并立即应用到所有打开的标签页
+  void setFontSize(String size) async {
+    if (fontSizeZoomMap.containsKey(size)) {
+      _fontSize = size;
+      notifyListeners();
+      _saveTabsState();
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('browser_font_size', size);
+      } catch (_) {}
+
+      for (var tab in _tabs) {
+        if (tab.controller != null) {
+          try {
+            applyFontSizeToController(tab.controller!);
+          } catch (_) {}
+        }
+      }
+    }
+  }
+
+  /// 将当前字体大小与缩放规则应用到指定的 WebView 页面
+  void applyFontSizeToController(InAppWebViewController controller) {
+    final zoom = textZoom;
+    final ratio = (zoom / 100.0).toStringAsFixed(2);
+    // 跨平台全适应缩放：
+    // 在 Chromium (Windows WebView2 / Android WebView) 和 WebKit (iOS) 中：
+    // CSS zoom 和 -webkit-text-size-adjust 配合工作，保证文字、输入框、布局元素成比例完美缩放
+    controller.evaluateJavascript(source: '''
+      (function() {
+        try {
+          var s = document.getElementById('auok-font-size-adjust');
+          if (!s) {
+            s = document.createElement('style');
+            s.id = 'auok-font-size-adjust';
+            (document.head || document.documentElement).appendChild(s);
+          }
+          if ($zoom === 100) {
+            s.textContent = '';
+            if (document.body) {
+              document.body.style.zoom = '';
+            }
+          } else {
+            s.textContent = 'body { zoom: $ratio !important; -webkit-text-size-adjust: $zoom% !important; text-size-adjust: $zoom% !important; }';
+            if (document.body) {
+              document.body.style.zoom = '$ratio';
+            }
+          }
+        } catch(e) {}
+      })();
+    ''');
   }
 
   static int _tabIdCounter = 0;
@@ -623,6 +688,7 @@ class BrowserProvider extends ChangeNotifier {
         'isScriptPanelExpanded': _isScriptPanelExpanded,
         'searchEngine': _searchEngine,
         'userAgent': _userAgent, // Save UserAgent
+        'fontSize': _fontSize, // Save FontSize
         'autoLeaveMode': _autoLeaveMode,
         'isAdBlockEnabled': _isAdBlockEnabled,
         'isDebugModeEnabled': _isDebugModeEnabled,
@@ -648,6 +714,7 @@ class BrowserProvider extends ChangeNotifier {
         _isDebugModeEnabled = data['isDebugModeEnabled'] ?? false;
         _searchEngine = data['searchEngine'] ?? 'Baidu';
         _userAgent = data['userAgent'] ?? defaultUserAgentType;
+        _fontSize = data['fontSize'] ?? '普通';
 
         if (_keepScreenOn) {
           await WakelockPlus.enable();
@@ -658,6 +725,12 @@ class BrowserProvider extends ChangeNotifier {
       final savedUa = prefs.getString('browser_user_agent');
       if (savedUa != null && uaMap.containsKey(savedUa)) {
         _userAgent = savedUa;
+      }
+
+      // 独立持久化读取 browser_font_size，确保冷启动 100% 记住用户选择的字体大小
+      final savedFontSize = prefs.getString('browser_font_size');
+      if (savedFontSize != null && fontSizeZoomMap.containsKey(savedFontSize)) {
+        _fontSize = savedFontSize;
       }
     } catch (e) {
       debugPrint('Load settings error: $e');

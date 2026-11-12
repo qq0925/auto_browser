@@ -198,6 +198,39 @@ class _BrowserSettingsDialogState extends State<BrowserSettingsDialog> {
                           activeColor: Colors.blue,
                           contentPadding: EdgeInsets.zero,
                         ),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text('网页字体大小',
+                              style: TextStyle(color: textColor)),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                provider.fontSize,
+                                style: TextStyle(
+                                  color: isDarkMode
+                                      ? Colors.white70
+                                      : Colors.black54,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Icon(Icons.chevron_right,
+                                  size: 18,
+                                  color: isDarkMode
+                                      ? Colors.white54
+                                      : Colors.grey),
+                            ],
+                          ),
+                          onTap: () => _showFontSizeDialog(
+                            context,
+                            provider,
+                            isDarkMode,
+                            textColor,
+                            backgroundColor,
+                            dividerColor,
+                          ),
+                        ),
                       ],
                     );
                   },
@@ -519,4 +552,90 @@ class _BrowserSettingsDialogState extends State<BrowserSettingsDialog> {
       dense: true,
     );
   }
+
+  /// 弹出网页字体大小选择框
+  void _showFontSizeDialog(
+    BuildContext context,
+    BrowserProvider provider,
+    bool isDarkMode,
+    Color textColor,
+    Color backgroundColor,
+    Color dividerColor,
+  ) {
+    final options = [
+      {'label': '最大 (130%)', 'value': '最大'},
+      {'label': '较大 (115%)', 'value': '较大'},
+      {'label': '普通 (100%)', 'value': '普通'},
+      {'label': '较小 (85%)', 'value': '较小'},
+      {'label': '最小 (75%)', 'value': '最小'},
+    ];
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: backgroundColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20.0, vertical: 4.0),
+                child: Text(
+                  '网页字体大小',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                    color: textColor,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Divider(height: 1, color: dividerColor),
+              ...options.map((option) {
+                final isSelected = provider.fontSize == option['value'];
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    InkWell(
+                      onTap: () {
+                        provider.setFontSize(option['value']!);
+                        Navigator.pop(dialogContext);
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 20.0, vertical: 12.0),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              option['label']!,
+                              style: TextStyle(
+                                color: isSelected ? Colors.blue : textColor,
+                                fontSize: 15,
+                                fontWeight: isSelected
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                              ),
+                            ),
+                            if (isSelected)
+                              const Icon(Icons.check,
+                                  color: Colors.blue, size: 20),
+                          ],
+                        ),
+                      ),
+                    ),
+                    Divider(height: 1, color: dividerColor.withValues(alpha: 0.5)),
+                  ],
+                );
+              }),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

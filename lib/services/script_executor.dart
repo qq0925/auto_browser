@@ -117,8 +117,31 @@ class ScriptExecutor {
         }
       }
 
-      // 脚本超时时间（默认 30 秒，可在参数中自定义）
-      final timeoutSeconds = resolvedScript.params['超时时间'] as int? ?? 30;
+      // 脚本超时时间（默认 30 秒，可在参数中自定义，支持 s/ms 单位）
+      Duration timeoutDuration = const Duration(seconds: 30);
+      String timeoutDesc = '30 秒';
+      if (resolvedScript.params.containsKey('超时时间')) {
+        final t = resolvedScript.params['超时时间'];
+        final unit = resolvedScript.params['超时单位']?.toString().toLowerCase();
+        if (t is int && t > 0) {
+          if (unit == 'ms' || unit == '毫秒') {
+            timeoutDuration = Duration(milliseconds: t);
+            timeoutDesc = '$t 毫秒';
+          } else if (unit == 's' || unit == '秒') {
+            timeoutDuration = Duration(seconds: t);
+            timeoutDesc = '$t 秒';
+          } else {
+            // 兼容无单位配置：<= 120 视为秒，> 120 视为毫秒
+            if (t <= 120) {
+              timeoutDuration = Duration(seconds: t);
+              timeoutDesc = '$t 秒';
+            } else {
+              timeoutDuration = Duration(milliseconds: t);
+              timeoutDesc = '$t 毫秒';
+            }
+          }
+        }
+      }
       try {
         final stepResult = await _executeSingleStep(
           controller,
@@ -126,12 +149,12 @@ class ScriptExecutor {
           onStatusChanged,
           scripts,
           variables: variables,
-        ).timeout(Duration(seconds: timeoutSeconds));
+        ).timeout(timeoutDuration);
         result = stepResult.success;
         lastStepTriggeredNav = stepResult.isNavTrigger;
       } on TimeoutException {
         onStatusChanged?.call(
-            ScriptStatus.failure, '脚本执行超时 ($timeoutSeconds 秒)', null);
+            ScriptStatus.failure, '脚本执行超时 ($timeoutDesc)', null);
         result = false;
         lastStepTriggeredNav = false;
       } catch (e) {
@@ -496,12 +519,18 @@ class ScriptExecutor {
     return true;
   }
 
-  /// 解析动作级超时时间（优先读取脚本参数中的【超时时间】，未配置时默认 5000 毫秒）
+  /// 解析动作级超时时间（优先读取脚本参数中的【超时时间】与【超时单位】，未配置时默认 5000 毫秒）
   Duration _getStepTimeout(Script script, {int defaultMs = 5000}) {
     if (script.params.containsKey('超时时间')) {
       final t = script.params['超时时间'];
+      final unit = script.params['超时单位']?.toString().toLowerCase();
       if (t is int && t > 0) {
-        // 用户配置若 <= 120 视为秒；若 > 120 视为毫秒
+        if (unit == 'ms' || unit == '毫秒') {
+          return Duration(milliseconds: t);
+        } else if (unit == 's' || unit == '秒') {
+          return Duration(seconds: t);
+        }
+        // 用户配置若 <= 120 视为秒；若 > 120 视为毫秒 (向后兼容历史旧配置)
         return Duration(milliseconds: t <= 120 ? t * 1000 : t);
       }
     }
@@ -2450,7 +2479,7 @@ class ScriptExecutor {
           onStatusChanged) async {
     final params = script.params;
     final targetText = params['出现文字'] as String? ?? '';
-    final timeoutSeconds = params['超时时间'] as int? ?? 10;
+    final timeoutDuration = _getStepTimeout(script, defaultMs: 10000);
 
     if (targetText.isEmpty) {
       onStatusChanged?.call(ScriptStatus.failure, '未指定等待文字', null);
@@ -2458,7 +2487,8 @@ class ScriptExecutor {
     }
 
     final targetTextJson = jsonEncode(targetText);
-    final totalMs = timeoutSeconds * 1000;
+    final totalMs = timeoutDuration.inMilliseconds;
+    final timeoutSeconds = (totalMs / 1000).ceil();
     final stopwatch = Stopwatch()..start();
     int lastReportSec = -1;
 

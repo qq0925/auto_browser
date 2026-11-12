@@ -77,10 +77,18 @@ class Program {
             ProcessStartInfo psi = new ProcessStartInfo(exePath);
             psi.WorkingDirectory = appDir;
             psi.UseShellExecute = false;
-            string webviewArgs = "--disable-features=HttpsFirstMode,HttpsUpgrades,msSmartScreenProtection --ignore-certificate-errors --allow-running-insecure-content";
+            string webviewArgs = "--disable-features=msEdgeAutomaticHttps,AutomaticHttps,HttpsFirstMode,HttpsUpgrades,msSmartScreenProtection,AutoupgradeMixedContent --ignore-certificate-errors --allow-running-insecure-content";
             psi.EnvironmentVariables["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = webviewArgs;
             string userDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AuokBrowser", "WebView2Data");
             psi.EnvironmentVariables["WEBVIEW2_USER_DATA_FOLDER"] = userDataDir;
+
+            try {
+                string hsts1 = Path.Combine(userDataDir, "EBWebView", "Default", "TransportSecurity");
+                if (File.Exists(hsts1)) File.Delete(hsts1);
+                string hsts2 = Path.Combine(userDataDir, "Default", "TransportSecurity");
+                if (File.Exists(hsts2)) File.Delete(hsts2);
+            } catch {}
+
             Process.Start(psi);
         } catch (Exception) {}
     }
