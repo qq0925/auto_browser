@@ -41,10 +41,6 @@ try {
     }
 } catch (Throwable ignored) {}
 
-rootProject.children.each { child ->
-    patchPluginProguard(child.projectDir)
-}
-
 subprojects { subproject ->
     patchPluginProguard(subproject.projectDir)
     subproject.beforeEvaluate {

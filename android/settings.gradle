@@ -90,6 +90,8 @@ try {
     }
 } catch (Throwable ignored) {}
 
-rootProject.children.each { child ->
-    patchPluginProguard(child.projectDir)
-}
+try {
+    rootProject.children.each { child ->
+        patchPluginProguard(child.projectDir)
+    }
+} catch (Throwable ignored) {}
