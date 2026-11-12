@@ -230,6 +230,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
   // 高级配置分层折叠与超时时间
   bool _isAdvancedExpanded = false;
+  bool _skipWhenNotFound = true;
   final TextEditingController _timeoutSecondsController =
       TextEditingController(text: '30');
   String _timeoutUnit = 's';
@@ -340,6 +341,10 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         if (params['超时时间'] != 30 || _timeoutUnit != 's') {
           _isAdvancedExpanded = true;
         }
+      }
+      _skipWhenNotFound = params['未找到时跳过'] as bool? ?? true;
+      if (params['未找到时跳过'] == false) {
+        _isAdvancedExpanded = true;
       }
       if (_beforeScript != null || _afterScript != null) {
         _isAdvancedExpanded = true;
@@ -1713,6 +1718,12 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                     ),
                   ),
                   const SizedBox(height: 12),
+                  _buildCheckboxRow(
+                    '未找到时跳过',
+                    _skipWhenNotFound,
+                    (val) => setState(() => _skipWhenNotFound = val ?? true),
+                  ),
+                  const SizedBox(height: 12),
                   _buildNestedScriptTile('执行每个脚本前执行 (前置脚本)', 'beforeScript'),
                   const SizedBox(height: 10),
                   _buildNestedScriptTile('执行每个脚本后执行 (后置脚本)', 'afterScript'),
@@ -2099,8 +2110,10 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       params['执行每个脚本后执行'] = _afterScript!.toUserMap();
     }
 
+    params['未找到时跳过'] = _skipWhenNotFound;
+
     final timeout = int.tryParse(_timeoutSecondsController.text);
-    if (timeout != null && timeout > 0) {
+    if (timeout != null && timeout >= 0) {
       params['超时时间'] = timeout;
       params['超时单位'] = _timeoutUnit;
     }

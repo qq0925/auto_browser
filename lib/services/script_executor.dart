@@ -13,7 +13,14 @@ import 'cookie_service.dart';
 class _StepExecutionResult {
   final bool success;
   final bool isNavTrigger;
-  const _StepExecutionResult({required this.success, this.isNavTrigger = false});
+  final bool isSkipped;
+  final String? message;
+  const _StepExecutionResult({
+    required this.success,
+    this.isNavTrigger = false,
+    this.isSkipped = false,
+    this.message,
+  });
 }
 
 class ScriptExecutor {
@@ -41,6 +48,8 @@ class ScriptExecutor {
 
     final repeatCount = resolvedScript.params['重复次数'] ?? 1;
     bool success = true;
+    bool lastStepSkipped = false;
+    String? lastSkipMessage;
 
     for (var i = 0; i < repeatCount; i++) {
       // 1. 识别导航类动作（进入网址、刷新网页、网页后退、网页前进）
@@ -152,11 +161,30 @@ class ScriptExecutor {
         ).timeout(timeoutDuration);
         result = stepResult.success;
         lastStepTriggeredNav = stepResult.isNavTrigger;
+        if (stepResult.isSkipped) {
+          lastStepSkipped = true;
+          lastSkipMessage = stepResult.message;
+        }
       } on TimeoutException {
-        onStatusChanged?.call(
-            ScriptStatus.failure, '脚本执行超时 ($timeoutDesc)', null);
-        result = false;
-        lastStepTriggeredNav = false;
+        final skipWhenNotFound =
+            resolvedScript.params['未找到时跳过'] as bool? ?? true;
+        if (skipWhenNotFound &&
+            (resolvedScript.type == '点击文字' ||
+                resolvedScript.type == '点击图片')) {
+          final target = resolvedScript.params['点击文本'] ??
+              resolvedScript.params['图片地址'] ??
+              '';
+          final msg = '超时未找到目标 [$target]，已跳过';
+          onStatusChanged?.call(ScriptStatus.success, msg, 1.0);
+          result = true;
+          lastStepSkipped = true;
+          lastSkipMessage = msg;
+        } else {
+          onStatusChanged?.call(
+              ScriptStatus.failure, '脚本执行超时 ($timeoutDesc)', null);
+          result = false;
+          lastStepTriggeredNav = false;
+        }
       } catch (e) {
         onStatusChanged?.call(ScriptStatus.failure, '脚本执行异常: $e', null);
         result = false;
@@ -212,7 +240,11 @@ class ScriptExecutor {
       "脚本暂停",
     };
     if (success && !flowControlTypes.contains(resolvedScript.type)) {
-      onStatusChanged?.call(ScriptStatus.success, null, 1.0);
+      if (lastStepSkipped && lastSkipMessage != null) {
+        onStatusChanged?.call(ScriptStatus.success, lastSkipMessage, 1.0);
+      } else {
+        onStatusChanged?.call(ScriptStatus.success, null, 1.0);
+      }
     }
 
     return success;
@@ -244,7 +276,8 @@ class ScriptExecutor {
 
     switch (script.type) {
       case "点击文字":
-        return await _executeClickScript(controller!, script);
+        return await _executeClickScript(controller!, script,
+            onStatusChanged: onStatusChanged);
       case "输入框提交":
         final ok = await _executeFormSubmit(controller!, script);
         return _StepExecutionResult(success: ok, isNavTrigger: ok);
@@ -260,7 +293,8 @@ class ScriptExecutor {
         final ok = await _executeNavigate(controller!, script);
         return _StepExecutionResult(success: ok, isNavTrigger: ok);
       case "点击图片":
-        return await _executeClickImage(controller!, script);
+        return await _executeClickImage(controller!, script,
+            onStatusChanged: onStatusChanged);
       case "刷新网页":
         await controller!.reload();
         return const _StepExecutionResult(success: true, isNavTrigger: true);
@@ -524,14 +558,17 @@ class ScriptExecutor {
     if (script.params.containsKey('超时时间')) {
       final t = script.params['超时时间'];
       final unit = script.params['超时单位']?.toString().toLowerCase();
-      if (t is int && t > 0) {
-        if (unit == 'ms' || unit == '毫秒') {
-          return Duration(milliseconds: t);
-        } else if (unit == 's' || unit == '秒') {
-          return Duration(seconds: t);
+      if (t is int) {
+        if (t == 0) return Duration.zero;
+        if (t > 0) {
+          if (unit == 'ms' || unit == '毫秒') {
+            return Duration(milliseconds: t);
+          } else if (unit == 's' || unit == '秒') {
+            return Duration(seconds: t);
+          }
+          // 用户配置若 <= 120 视为秒；若 > 120 视为毫秒 (向后兼容历史旧配置)
+          return Duration(milliseconds: t <= 120 ? t * 1000 : t);
         }
-        // 用户配置若 <= 120 视为秒；若 > 120 视为毫秒 (向后兼容历史旧配置)
-        return Duration(milliseconds: t <= 120 ? t * 1000 : t);
       }
     }
     return Duration(milliseconds: defaultMs);
@@ -547,11 +584,12 @@ class ScriptExecutor {
   }) async {
     final stopwatch = Stopwatch()..start();
     int attempts = 0;
-    while (stopwatch.elapsed < timeout) {
+    while (true) {
       try {
         final success = await action();
         if (success) return true;
       } catch (_) {}
+      if (stopwatch.elapsed >= timeout) break;
       final stepDelay = attempts < 3 ? 25 : (attempts < 10 ? 50 : 100);
       await Future.delayed(Duration(milliseconds: stepDelay));
       attempts++;
@@ -1193,10 +1231,21 @@ class ScriptExecutor {
   static const String egretCanvasProbeJs = _egretCanvasProbeJs;
 
   Future<_StepExecutionResult> _executeClickScript(
-      InAppWebViewController controller, Script script) async {
+      InAppWebViewController controller, Script script,
+      {Function(ScriptStatus status, String? message, double? progress)?
+          onStatusChanged}) async {
     final params = script.getClickParams();
     final clickText = params['点击文本'] ?? '';
-    if (clickText.isEmpty) return const _StepExecutionResult(success: false);
+    final skipWhenNotFound = params['未找到时跳过'] as bool? ?? true;
+
+    if (clickText.isEmpty) {
+      if (skipWhenNotFound) {
+        onStatusChanged?.call(ScriptStatus.success, '点击文本为空，已跳过', 1.0);
+        return const _StepExecutionResult(
+            success: true, isSkipped: true, message: '点击文本为空，已跳过');
+      }
+      return const _StepExecutionResult(success: false);
+    }
 
     // Always handle delay if present, regardless of mode
     final delay = params['执行延迟'] ?? 0;
@@ -1213,6 +1262,9 @@ class ScriptExecutor {
     }
 
     bool stepTriggeredNav = false;
+    String? lastFailureReason;
+
+    final timeout = _getStepTimeout(script);
     final success = await _pollUntilSuccess(() async {
       final rawResult = await controller.evaluateJavascript(source: '''
         (function() {
@@ -1232,16 +1284,41 @@ class ScriptExecutor {
               stepTriggeredNav = true;
             }
             return true;
+          } else {
+            if (parsed['reason'] != null) {
+              lastFailureReason = parsed['reason'].toString();
+            }
           }
         }
       } catch (_) {}
       return false;
-    }, timeout: _getStepTimeout(script));
+    }, timeout: timeout);
 
-    return _StepExecutionResult(
-      success: success,
-      isNavTrigger: stepTriggeredNav,
-    );
+    if (success) {
+      return _StepExecutionResult(
+        success: true,
+        isNavTrigger: stepTriggeredNav,
+      );
+    }
+
+    // 未找到点击目标
+    if (skipWhenNotFound) {
+      final msg = lastFailureReason == 'trigger_not_met'
+          ? '前置条件未满足 [${params['出现文字'] ?? ''}]，已跳过'
+          : '未找到目标 [$clickText]，已跳过';
+      onStatusChanged?.call(ScriptStatus.success, msg, 1.0);
+      return _StepExecutionResult(
+        success: true,
+        isSkipped: true,
+        message: msg,
+      );
+    } else {
+      final msg = lastFailureReason == 'trigger_not_met'
+          ? '前置条件未满足 [${params['出现文字'] ?? ''}]'
+          : '未找到目标 [$clickText]';
+      onStatusChanged?.call(ScriptStatus.failure, msg, null);
+      return const _StepExecutionResult(success: false);
+    }
   }
 
   Future<bool> _executeFormSubmit(
@@ -1557,7 +1634,7 @@ class ScriptExecutor {
             );
           }
         }
-        if (!hasText) return false;
+        if (!hasText) return JSON.stringify({ success: false, reason: 'trigger_not_met', isNavTrigger: false });
       }
 
       // 优先从常见可交互与文本容器节点中检索，避免扫描全量万级无关节点
@@ -1620,7 +1697,7 @@ class ScriptExecutor {
       // 若常规 DOM 树中未匹配到，自动无感触发 Canvas / 白鹭引擎虚拟穿透探针
       if (matchedLinks.length === 0) {
         const egretRes = _tryEgretFallback();
-        return JSON.stringify({ success: !!egretRes, isNavTrigger: false });
+        return JSON.stringify({ success: !!egretRes, reason: egretRes ? null : 'target_not_found', isNavTrigger: false });
       }
 
       // Apply selection index
@@ -1679,7 +1756,7 @@ class ScriptExecutor {
         return JSON.stringify({ success: true, isNavTrigger: isNav });
       }
       
-      return JSON.stringify({ success: false, isNavTrigger: false });
+      return JSON.stringify({ success: false, reason: 'target_not_found', isNavTrigger: false });
     ''';
   }
 
@@ -1715,11 +1792,23 @@ class ScriptExecutor {
   }
 
   Future<_StepExecutionResult> _executeClickImage(
-      InAppWebViewController controller, Script script) async {
+      InAppWebViewController controller, Script script,
+      {Function(ScriptStatus status, String? message, double? progress)?
+          onStatusChanged}) async {
     final imageSrc = script.params['图片地址'] as String? ?? '';
     final multipleSelection = script.params['多个筛选'] as int? ?? 1;
     final afterText = script.params['在此之后'] as String? ?? '';
     final beforeText = script.params['在此之前'] as String? ?? '';
+    final skipWhenNotFound = script.params['未找到时跳过'] as bool? ?? true;
+
+    if (imageSrc.isEmpty) {
+      if (skipWhenNotFound) {
+        onStatusChanged?.call(ScriptStatus.success, '图片地址为空，已跳过', 1.0);
+        return const _StepExecutionResult(
+            success: true, isSkipped: true, message: '图片地址为空，已跳过');
+      }
+      return const _StepExecutionResult(success: false);
+    }
 
     final imageSrcJson = jsonEncode(imageSrc);
     final afterTextJson = jsonEncode(afterText);
@@ -1831,10 +1920,25 @@ class ScriptExecutor {
       return false;
     }, timeout: _getStepTimeout(script));
 
-    return _StepExecutionResult(
-      success: success,
-      isNavTrigger: stepTriggeredNav,
-    );
+    if (success) {
+      return _StepExecutionResult(
+        success: true,
+        isNavTrigger: stepTriggeredNav,
+      );
+    }
+
+    if (skipWhenNotFound) {
+      final msg = '未找到图片目标 [$imageSrc]，已跳过';
+      onStatusChanged?.call(ScriptStatus.success, msg, 1.0);
+      return _StepExecutionResult(
+        success: true,
+        isSkipped: true,
+        message: msg,
+      );
+    } else {
+      onStatusChanged?.call(ScriptStatus.failure, '未找到图片目标 [$imageSrc]', null);
+      return const _StepExecutionResult(success: false);
+    }
   }
 
   Future<bool> _executeLogicScriptAppearText(
@@ -2396,7 +2500,13 @@ class ScriptExecutor {
       }
       return _StepExecutionResult(success: true, isNavTrigger: isNav);
     } else {
-      if (lastResult == 'not_found') {
+      final skipWhenNotFound = script.params['未找到时跳过'] as bool? ?? true;
+      if (skipWhenNotFound && lastResult == 'not_found') {
+        final msg = '未找到目标 [$clickText]，已跳过';
+        onStatusChanged?.call(ScriptStatus.success, msg, 1.0);
+        return _StepExecutionResult(
+            success: true, isSkipped: true, message: msg);
+      } else if (lastResult == 'not_found') {
         onStatusChanged?.call(ScriptStatus.failure, '未找到元素', null);
       } else if (lastResult == 'index_out_of_bounds') {
         onStatusChanged?.call(ScriptStatus.failure, '索引超出范围', null);

@@ -544,12 +544,17 @@ class RightScriptPanel extends StatelessWidget {
       if (!handledKeys.contains(key) &&
           key != '执行延迟' &&
           key != 'isEnabled' &&
+          key != '未找到时跳过' &&
           val != null &&
           val.toString().trim().isNotEmpty &&
           !key.startsWith('_')) {
         list.add(MapEntry(key, val.toString()));
       }
     });
+
+    if (params['未找到时跳过'] == false) {
+      list.add(const MapEntry('未找到', '阻断报错'));
+    }
 
     // 通用字段：执行延迟 (若设置且大于0)
     if (params['执行延迟'] != null && params['执行延迟'] is num && params['执行延迟'] > 0) {
