@@ -13,6 +13,31 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
+// 兼容 AGP 9.0+：全局拦截三方库插件调用已移除的 proguard-android.txt
+subprojects { subproject ->
+    subproject.beforeEvaluate {
+        ['com.android.build.gradle.BaseExtension',
+         'com.android.build.gradle.LibraryExtension',
+         'com.android.build.gradle.AppExtension'].each { clsName ->
+            try {
+                def clazz = Class.forName(clsName)
+                def orig = clazz.metaClass.getMetaMethod("getDefaultProguardFile", [String] as Class[])
+                if (orig != null && clazz.metaClass.getMetaMethod("getDefaultProguardFile_orig", [String] as Class[]) == null) {
+                    clazz.metaClass.getDefaultProguardFile_orig = { String name ->
+                        return orig.invoke(delegate, name)
+                    }
+                    clazz.metaClass.getDefaultProguardFile = { String name ->
+                        if (name == 'proguard-android.txt') {
+                            name = 'proguard-android-optimize.txt'
+                        }
+                        return delegate.getDefaultProguardFile_orig(name)
+                    }
+                }
+            } catch (Throwable ignored) {}
+        }
+    }
+}
+
 tasks.register("clean", Delete) {
     delete rootProject.buildDir
 }
