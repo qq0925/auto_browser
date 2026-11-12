@@ -47,3 +47,49 @@ gradle.beforeProject { p ->
 }
 
 include ":app"
+
+// 兼容 AGP 9.0+：在 Gradle 解析插件前，自动扫描三方库（如 flutter_inappwebview_android）中的 build.gradle
+// 将已被 AGP 9 移除的 'proguard-android.txt' 自动替换为 'proguard-android-optimize.txt'，彻底根治构建报错
+def patchPluginProguard = { File dir ->
+    if (dir == null || !dir.exists()) return
+    [new File(dir, "android/build.gradle"), new File(dir, "build.gradle")].each { f ->
+        if (f.exists()) {
+            try {
+                def content = f.getText("UTF-8")
+                if (content.contains("proguard-android.txt")) {
+                    f.write(content.replace("proguard-android.txt", "proguard-android-optimize.txt"), "UTF-8")
+                }
+            } catch (Throwable ignored) {}
+        }
+    }
+}
+
+try {
+    def pluginsJsonFile = new File(rootDir.parentFile, ".flutter-plugins-dependencies")
+    if (pluginsJsonFile.exists()) {
+        def json = new groovy.json.JsonSlurper().parse(pluginsJsonFile)
+        json?.plugins?.android?.each { plugin ->
+            if (plugin?.path) {
+                patchPluginProguard(new File(plugin.path))
+            }
+        }
+    }
+} catch (Throwable ignored) {}
+
+try {
+    def legacyFile = new File(rootDir.parentFile, ".flutter-plugins")
+    if (legacyFile.exists()) {
+        legacyFile.eachLine { line ->
+            if (line && !line.startsWith("#")) {
+                def parts = line.split("=")
+                if (parts.length == 2) {
+                    patchPluginProguard(new File(parts[1]))
+                }
+            }
+        }
+    }
+} catch (Throwable ignored) {}
+
+rootProject.children.each { child ->
+    patchPluginProguard(child.projectDir)
+}

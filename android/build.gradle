@@ -13,28 +13,42 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
-// 兼容 AGP 9.0+：全局拦截三方库插件调用已移除的 proguard-android.txt
-subprojects { subproject ->
-    subproject.beforeEvaluate {
-        ['com.android.build.gradle.BaseExtension',
-         'com.android.build.gradle.LibraryExtension',
-         'com.android.build.gradle.AppExtension'].each { clsName ->
+// 兼容 AGP 9.0+：在评估前自动替换所有三方库中的 proguard-android.txt
+def patchPluginProguard = { File dir ->
+    if (dir == null || !dir.exists()) return
+    [new File(dir, "android/build.gradle"), new File(dir, "build.gradle")].each { f ->
+        if (f.exists()) {
             try {
-                def clazz = Class.forName(clsName)
-                def orig = clazz.metaClass.getMetaMethod("getDefaultProguardFile", [String] as Class[])
-                if (orig != null && clazz.metaClass.getMetaMethod("getDefaultProguardFile_orig", [String] as Class[]) == null) {
-                    clazz.metaClass.getDefaultProguardFile_orig = { String name ->
-                        return orig.invoke(delegate, name)
-                    }
-                    clazz.metaClass.getDefaultProguardFile = { String name ->
-                        if (name == 'proguard-android.txt') {
-                            name = 'proguard-android-optimize.txt'
-                        }
-                        return delegate.getDefaultProguardFile_orig(name)
-                    }
+                def content = f.getText("UTF-8")
+                if (content.contains("proguard-android.txt")) {
+                    f.write(content.replace("proguard-android.txt", "proguard-android-optimize.txt"), "UTF-8")
                 }
             } catch (Throwable ignored) {}
         }
+    }
+}
+
+try {
+    def pluginsJsonFile = new File(rootDir, ".flutter-plugins-dependencies")
+    if (!pluginsJsonFile.exists()) pluginsJsonFile = new File(rootDir.parentFile, ".flutter-plugins-dependencies")
+    if (pluginsJsonFile.exists()) {
+        def json = new groovy.json.JsonSlurper().parse(pluginsJsonFile)
+        json?.plugins?.android?.each { plugin ->
+            if (plugin?.path) {
+                patchPluginProguard(new File(plugin.path))
+            }
+        }
+    }
+} catch (Throwable ignored) {}
+
+rootProject.children.each { child ->
+    patchPluginProguard(child.projectDir)
+}
+
+subprojects { subproject ->
+    patchPluginProguard(subproject.projectDir)
+    subproject.beforeEvaluate {
+        patchPluginProguard(subproject.projectDir)
     }
 }
 
