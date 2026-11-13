@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:auto_browser/models/browser_tab.dart';
 import 'package:auto_browser/models/script.dart';
 import 'package:auto_browser/services/script_executor.dart';
 
@@ -151,12 +152,90 @@ void main() {
       final params = {
         '点击文本': '全军出击',
       };
-      final js = executor.buildClickScriptLogic(params);
+      final js = executor.buildClickScriptLogic(params, navMark: 'nav_test_1');
       expect(js.contains("targetElement.closest('a')"), true);
       expect(js.contains("targetElement.closest('button, input[type=\"submit\"]')"), true);
       expect(js.contains('isNavTrigger: isNav'), true);
       expect(js.contains('_auokIsVisible'), true);
       expect(js.contains('_auokFilterByPosition'), true);
+      expect(js.contains('window.__auok_nav_mark'), true);
+      expect(js.contains('beforeunload'), true);
+    });
+
+    test('极速跳过策略：默认未找到目标时 0ms 即时跳过，不受 30s 保护超时阻塞', () {
+      final uiDefaultScript = Script(
+        type: '点击文字',
+        params: {
+          '点击文本': '不存在的按钮',
+          '超时时间': 30,
+          '超时单位': 's',
+        },
+      );
+      expect(executor.getElementWaitTimeout(uiDefaultScript), Duration.zero);
+
+      final customWaitScript = Script(
+        type: '点击文字',
+        params: {
+          '点击文本': '动态弹窗',
+          '超时时间': 30,
+          '目标等待': 500,
+        },
+      );
+      expect(executor.getElementWaitTimeout(customWaitScript),
+          const Duration(milliseconds: 500));
+
+      final strictScript = Script(
+        type: '点击文字',
+        params: {
+          '点击文本': '必须出现的按钮',
+          '未找到时跳过': false,
+          '超时时间': 8,
+          '超时单位': 's',
+        },
+      );
+      expect(executor.getElementWaitTimeout(strictScript),
+          const Duration(seconds: 8));
+    });
+
+    test('BrowserTab 事件驱动页面加载通知：onLoadStop 触发时零延迟唤醒', () async {
+      final tab = BrowserTab(id: 't1');
+      expect(tab.isLoading, false);
+      expect(tab.loadStartEpoch, 0);
+      expect(tab.loadStopEpoch, 0);
+
+      tab.markLoadStarted();
+      expect(tab.isLoading, true);
+      expect(tab.loadStartEpoch, 1);
+
+      bool wokenUp = false;
+      final waitFuture = tab
+          .waitForLoadStopEvent(timeout: const Duration(seconds: 5))
+          .then((_) {
+        wokenUp = true;
+      });
+
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(wokenUp, false);
+
+      tab.markLoadStopped();
+      await waitFuture;
+      expect(wokenUp, true);
+      expect(tab.isLoading, false);
+      expect(tab.loadStopEpoch, 1);
+    });
+
+    test('BrowserTab 完整循环轮次展示文本：支持有限次数与无限符号 ∞', () {
+      final tab = BrowserTab(id: 't_loop');
+      tab.originalLoopCount = 100;
+      tab.completedLoopCount = 0;
+      expect(tab.completedLoopProgressText, '0/100');
+
+      tab.completedLoopCount = 1;
+      expect(tab.completedLoopProgressText, '1/100');
+
+      tab.originalLoopCount = 0;
+      tab.completedLoopCount = 2;
+      expect(tab.completedLoopProgressText, '2/∞');
     });
   });
 }

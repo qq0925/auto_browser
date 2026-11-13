@@ -16,6 +16,7 @@ class BrowserTab {
   int remainingLoopCount = 1; // 剩余循环次数
   int originalLoopCount = 1; // 初始总循环次数（0为无限）
   int currentLoopIndex = 1; // 当前循环轮次（从1开始）
+  int completedLoopCount = 0; // 已执行的完整循环轮次
   int executionDelay = 0; // 全局执行延迟（毫秒）
   String delayTimeUnit = '毫秒'; // 延迟单位
   List<Script> scripts = []; // 添加每个标签页自己的脚本列表
@@ -25,6 +26,63 @@ class BrowserTab {
   bool canGoForward = false;
   String? customName; // 自定义窗口名称
   String? customUserAgent; // 自定义UA
+
+  int loadStartEpoch = 0; // 页面开始加载事件序号
+  int loadStopEpoch = 0; // 页面加载完成事件序号
+  Completer<void>? _loadStartCompleter;
+  Completer<void>? _loadStopCompleter;
+
+  /// 标记页面开始加载（由 WebView onLoadStart 调用）
+  void markLoadStarted() {
+    isLoading = true;
+    loadStartEpoch++;
+    if (_loadStartCompleter != null && !_loadStartCompleter!.isCompleted) {
+      _loadStartCompleter!.complete();
+    }
+    _loadStartCompleter = null;
+    if (_loadStopCompleter == null || _loadStopCompleter!.isCompleted) {
+      _loadStopCompleter = Completer<void>();
+    }
+  }
+
+  /// 标记页面加载完成（由 WebView onLoadStop / 主文档加载失败调用）
+  void markLoadStopped() {
+    isLoading = false;
+    loadStopEpoch++;
+    if (_loadStopCompleter != null && !_loadStopCompleter!.isCompleted) {
+      _loadStopCompleter!.complete();
+    }
+    _loadStopCompleter = null;
+  }
+
+  /// 等待下一次 onLoadStart 事件触发（用于点击链接后探测页面是否开始跳转）
+  Future<bool> waitForLoadStartEvent(
+      {Duration timeout = const Duration(milliseconds: 120)}) async {
+    if (isLoading) return true;
+    _loadStartCompleter ??= Completer<void>();
+    try {
+      await _loadStartCompleter!.future.timeout(timeout);
+      return true;
+    } catch (_) {
+      return isLoading;
+    }
+  }
+
+  /// 等待当前正在加载的页面触发 onLoadStop（0ms 事件驱动唤醒）
+  Future<void> waitForLoadStopEvent(
+      {Duration timeout = const Duration(seconds: 30)}) async {
+    if (!isLoading) return;
+    _loadStopCompleter ??= Completer<void>();
+    try {
+      await _loadStopCompleter!.future.timeout(timeout);
+    } catch (_) {}
+  }
+
+  /// 已执行完整循环轮次展示文本（如 1/100 或 2/∞）
+  String get completedLoopProgressText {
+    final totalLoopStr = originalLoopCount == 0 ? '∞' : '$originalLoopCount';
+    return '$completedLoopCount/$totalLoopStr';
+  }
 
   /// 格式化执行状态简报（如图片样式：延迟:1秒,全局:58/无限,列表:1/2）
   String get executionStatusSummary {
@@ -120,6 +178,7 @@ class ExecutionState {
   final int currentScriptIndex;
   final int remainingLoopCount;
   final int? currentLoopIndex;
+  final int? completedLoopCount;
   final String? scriptFilePath;
 
   ExecutionState({
@@ -127,6 +186,7 @@ class ExecutionState {
     required this.currentScriptIndex,
     required this.remainingLoopCount,
     this.currentLoopIndex,
+    this.completedLoopCount,
     this.scriptFilePath,
   });
 }

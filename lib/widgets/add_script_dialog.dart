@@ -231,6 +231,8 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   // 高级配置分层折叠与超时时间
   bool _isAdvancedExpanded = false;
   bool _skipWhenNotFound = true;
+  final TextEditingController _elementWaitController =
+      TextEditingController(text: '0');
   final TextEditingController _timeoutSecondsController =
       TextEditingController(text: '30');
   String _timeoutUnit = 's';
@@ -343,6 +345,12 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         }
       }
       _skipWhenNotFound = params['未找到时跳过'] as bool? ?? true;
+      if (params['目标等待'] != null) {
+        _elementWaitController.text = params['目标等待'].toString();
+        if ((params['目标等待'] is int) && (params['目标等待'] as int) > 0) {
+          _isAdvancedExpanded = true;
+        }
+      }
       if (params['未找到时跳过'] == false) {
         _isAdvancedExpanded = true;
       }
@@ -358,6 +366,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   void dispose() {
     _repeatCountController.dispose();
     _timeoutSecondsController.dispose();
+    _elementWaitController.dispose();
     _customJsController.dispose();
 
     _delayController.dispose();
@@ -1723,6 +1732,12 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                     _skipWhenNotFound,
                     (val) => setState(() => _skipWhenNotFound = val ?? true),
                   ),
+                  _buildFieldRow(
+                    '目标等待(ms)',
+                    _elementWaitController,
+                    '0',
+                    hint: '0为未找到立即跳过，动态弹窗可填如500',
+                  ),
                   const SizedBox(height: 12),
                   _buildNestedScriptTile('执行每个脚本前执行 (前置脚本)', 'beforeScript'),
                   const SizedBox(height: 10),
@@ -2111,6 +2126,11 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     }
 
     params['未找到时跳过'] = _skipWhenNotFound;
+
+    final elementWait = int.tryParse(_elementWaitController.text);
+    if (elementWait != null && elementWait > 0) {
+      params['目标等待'] = elementWait;
+    }
 
     final timeout = int.tryParse(_timeoutSecondsController.text);
     if (timeout != null && timeout >= 0) {

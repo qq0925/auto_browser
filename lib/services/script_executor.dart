@@ -15,11 +15,15 @@ class _StepExecutionResult {
   final bool isNavTrigger;
   final bool isSkipped;
   final String? message;
+  final String? navMark;
+  final String? preUrl;
   const _StepExecutionResult({
     required this.success,
     this.isNavTrigger = false,
     this.isSkipped = false,
     this.message,
+    this.navMark,
+    this.preUrl,
   });
 }
 
@@ -29,7 +33,16 @@ class ScriptExecutor {
       {int executionDelay = 1000,
       Function(ScriptStatus status, String? message, double? progress)?
           onStatusChanged,
-      Future<void> Function({String? preNavToken, String? preUrl})? waitForPageLoad,
+      Future<void> Function({
+        String? preNavToken,
+        String? preUrl,
+        int? preLoadStartEpoch,
+        int? preLoadStopEpoch,
+        int probeWindowMs,
+      })? waitForPageLoad,
+      ({bool isLoading, int startEpoch, int stopEpoch}) Function()?
+          getTabLoadState,
+      void Function(bool didExecuteAction)? onActionExecuted,
       List<Script>? scripts,
       Map<String, String>? variables}) async {
     if (!script.isEnabled) return false;
@@ -49,18 +62,24 @@ class ScriptExecutor {
     final repeatCount = resolvedScript.params['重复次数'] ?? 1;
     bool success = true;
     bool lastStepSkipped = false;
-    String? lastSkipMessage;
+    String? lastStepMessage;
 
     for (var i = 0; i < repeatCount; i++) {
-      // 1. 识别导航类动作（进入网址、刷新网页、网页后退、网页前进）
+      lastStepSkipped = false;
+      lastStepMessage = null;
+
+      // 1. 识别原生导航类动作（进入网址、刷新网页、网页后退、网页前进）
       final isNavAction = resolvedScript.type == '进入网址' ||
           resolvedScript.type == '刷新网页' ||
           resolvedScript.type == '网页后退' ||
           resolvedScript.type == '网页前进';
 
-      // 2. 步骤前智能等待：若用户显式勾选了【等待网页加载】或当前 WebView 确实处于加载中状态（如上一步交互引发了页面跳转）
+      // 2. 步骤前智能等待：若用户显式勾选了【等待网页加载】或当前 WebView 确实处于加载中状态
       if (waitForPageLoad != null) {
         bool needsWaitBefore = resolvedScript.params['等待网页加载'] == true;
+        if (!needsWaitBefore && getTabLoadState != null) {
+          needsWaitBefore = getTabLoadState().isLoading;
+        }
         if (!needsWaitBefore && controller != null) {
           try {
             needsWaitBefore = await controller.isLoading();
@@ -72,16 +91,17 @@ class ScriptExecutor {
         }
       }
 
-      // 3. 执行单步配置的延迟或全局延迟
-      int delay = executionDelay;
-      if (script.params.containsKey('执行延迟')) {
-        delay = script.params['执行延迟'] as int;
-      }
+      // 3. 单步显式配置的执行延迟（仅在明确设置【执行延迟】时在执行前等待；全局延迟留待真正命中操作后再节流）
+      final hasExplicitStepDelay = script.params.containsKey('执行延迟');
+      final int explicitStepDelay =
+          hasExplicitStepDelay ? (script.params['执行延迟'] as int? ?? 0) : 0;
 
-      if (delay > 0) {
-        onStatusChanged?.call(ScriptStatus.waiting, '等待延迟 ${delay}ms...', 0.0);
-        await Future.delayed(Duration(milliseconds: delay));
-        onStatusChanged?.call(ScriptStatus.waiting, '等待延迟 ${delay}ms...', 1.0);
+      if (hasExplicitStepDelay && explicitStepDelay > 0) {
+        onStatusChanged?.call(
+            ScriptStatus.waiting, '等待延迟 ${explicitStepDelay}ms...', 0.0);
+        await Future.delayed(Duration(milliseconds: explicitStepDelay));
+        onStatusChanged?.call(
+            ScriptStatus.waiting, '等待延迟 ${explicitStepDelay}ms...', 1.0);
       }
 
       onStatusChanged?.call(ScriptStatus.running, null, null);
@@ -89,10 +109,12 @@ class ScriptExecutor {
       bool result = false;
       bool lastStepTriggeredNav = false;
 
-      // 记录执行前的 URL，并为当前旧页面 DOM 注入唯一 Navigation Mark，用于精确探测旧文档卸载与新页面进入
+      // 仅对原生导航指令与表单提交提前采集 preUrl / 注入 navMark，点击类指令改由 JS 命中时零开销顺带写入
       String? preUrl;
       String? navToken;
-      if (controller != null) {
+      final preLoadState = getTabLoadState?.call();
+      if (controller != null &&
+          (isNavAction || resolvedScript.type == '输入框提交')) {
         try {
           preUrl = (await controller.getUrl())?.toString();
           navToken = 'nav_${DateTime.now().microsecondsSinceEpoch}';
@@ -115,6 +137,7 @@ class ScriptExecutor {
           await execute(controller, beforeScript,
               executionDelay: executionDelay,
               waitForPageLoad: waitForPageLoad,
+              getTabLoadState: getTabLoadState,
               onStatusChanged: (status, msg, prog) {
             if (status == ScriptStatus.running ||
                 status == ScriptStatus.waiting) {
@@ -126,7 +149,7 @@ class ScriptExecutor {
         }
       }
 
-      // 脚本超时时间（默认 30 秒，可在参数中自定义，支持 s/ms 单位）
+      // 脚本安全执行超时保护（默认 30 秒，防止单步 JS 卡死）
       Duration timeoutDuration = const Duration(seconds: 30);
       String timeoutDesc = '30 秒';
       if (resolvedScript.params.containsKey('超时时间')) {
@@ -161,10 +184,15 @@ class ScriptExecutor {
         ).timeout(timeoutDuration);
         result = stepResult.success;
         lastStepTriggeredNav = stepResult.isNavTrigger;
+        if (stepResult.navMark != null) navToken = stepResult.navMark;
+        if (stepResult.preUrl != null) preUrl = stepResult.preUrl;
         if (stepResult.isSkipped) {
           lastStepSkipped = true;
-          lastSkipMessage = stepResult.message;
         }
+        if (stepResult.message != null) {
+          lastStepMessage = stepResult.message;
+        }
+        onActionExecuted?.call(!stepResult.isSkipped);
       } on TimeoutException {
         final skipWhenNotFound =
             resolvedScript.params['未找到时跳过'] as bool? ?? true;
@@ -175,10 +203,10 @@ class ScriptExecutor {
               resolvedScript.params['图片地址'] ??
               '';
           final msg = '超时未找到目标 [$target]，已跳过';
-          onStatusChanged?.call(ScriptStatus.success, msg, 1.0);
           result = true;
           lastStepSkipped = true;
-          lastSkipMessage = msg;
+          lastStepMessage = msg;
+          onActionExecuted?.call(false);
         } else {
           onStatusChanged?.call(
               ScriptStatus.failure, '脚本执行超时 ($timeoutDesc)', null);
@@ -191,18 +219,27 @@ class ScriptExecutor {
         lastStepTriggeredNav = false;
       }
 
-      // 4. 关键：导航与跨页动作执行后置等待！
-      // 若是原生导航指令（进入网址/刷新/后退/前进）、或用户显式勾选了【等待网页加载】、
-      // 或点击了带跳转链接(<a>/表单提交)触发了页面导航，必须等待目标新页面真正加载并解析完毕！
-      // 彻底解决 iOS/移动端 100ms 全局延迟下旧页面 DOM 未卸载导致下一步抢跑误点旧页面元素的问题！
-      final needWaitAfter = isNavAction ||
-          lastStepTriggeredNav ||
-          resolvedScript.params['等待网页加载'] == true ||
-          resolvedScript.type == '输入框提交';
+      // 4. 关键：导航与跨页动作事件驱动等待！
+      // 跳过步骤不触发任何页面等待；仅在真正命中导航/跳转动作时等待目标新页面加载与 DOM 解析完成。
+      final needWaitAfter = !lastStepSkipped &&
+          (isNavAction ||
+              lastStepTriggeredNav ||
+              resolvedScript.params['等待网页加载'] == true ||
+              resolvedScript.type == '输入框提交');
 
       if (result && needWaitAfter && waitForPageLoad != null) {
         onStatusChanged?.call(ScriptStatus.waiting, '等待新网页加载完成...', null);
-        await waitForPageLoad(preNavToken: navToken, preUrl: preUrl);
+        await waitForPageLoad(
+          preNavToken: navToken,
+          preUrl: preUrl,
+          preLoadStartEpoch: preLoadState?.startEpoch,
+          preLoadStopEpoch: preLoadState?.stopEpoch,
+          probeWindowMs: isNavAction
+              ? 800
+              : ((lastStepTriggeredNav || resolvedScript.type == '输入框提交')
+                  ? 350
+                  : 80),
+        );
       }
 
       // 执行后置脚本
@@ -213,6 +250,7 @@ class ScriptExecutor {
           await execute(controller, afterScript,
               executionDelay: executionDelay,
               waitForPageLoad: waitForPageLoad,
+              getTabLoadState: getTabLoadState,
               variables: variables,
               onStatusChanged: (status, msg, prog) {
             if (status == ScriptStatus.running ||
@@ -230,6 +268,35 @@ class ScriptExecutor {
         onStatusChanged?.call(ScriptStatus.failure, '执行失败', null);
         break;
       }
+
+      const instantControlTypes = {
+        "跳转脚本",
+        "脚本替换",
+        "执行本地脚本集",
+        "脚本停止",
+        "脚本暂停",
+        "控制脚本开关",
+        "全局设置",
+      };
+
+      // 5. 全局延迟节流：仅对真正命中执行的交互步骤生效；未找到目标直接跳过及流程控制指令 0ms 放行
+      if (!lastStepSkipped &&
+          !hasExplicitStepDelay &&
+          !instantControlTypes.contains(resolvedScript.type)) {
+        if (executionDelay > 0) {
+          onStatusChanged?.call(
+              ScriptStatus.waiting, '等待延迟 ${executionDelay}ms...', 0.0);
+          await Future.delayed(Duration(milliseconds: executionDelay));
+          onStatusChanged?.call(
+              ScriptStatus.waiting, '等待延迟 ${executionDelay}ms...', 1.0);
+        } else if (!needWaitAfter &&
+            (resolvedScript.type == '点击文字' ||
+                resolvedScript.type == '点击图片' ||
+                resolvedScript.type == '数值对比-点击文字')) {
+          // 0ms 极速模式下对非显式导航点击保留 1 帧 (16ms) 跨通道让步，防止 JS 异步改写 location 尚未通知到原生 onLoadStart
+          await Future.delayed(const Duration(milliseconds: 16));
+        }
+      }
     }
 
     const flowControlTypes = {
@@ -240,11 +307,11 @@ class ScriptExecutor {
       "脚本暂停",
     };
     if (success && !flowControlTypes.contains(resolvedScript.type)) {
-      if (lastStepSkipped && lastSkipMessage != null) {
-        onStatusChanged?.call(ScriptStatus.success, lastSkipMessage, 1.0);
-      } else {
-        onStatusChanged?.call(ScriptStatus.success, null, 1.0);
-      }
+      onStatusChanged?.call(
+        lastStepSkipped ? ScriptStatus.skipped : ScriptStatus.success,
+        lastStepMessage,
+        1.0,
+      );
     }
 
     return success;
@@ -572,6 +639,24 @@ class ScriptExecutor {
       }
     }
     return Duration(milliseconds: defaultMs);
+  }
+
+  /// 解析点击目标未找到时的轮询等待时间：
+  /// - 若显式配置了【目标等待】（毫秒），直接使用该等待时长；
+  /// - 否则若开启了【未找到时跳过】（默认开启），使用 0ms 即时探测直接跳过（不拖慢循环，对齐 zdllq 极速响应）；
+  /// - 若关闭了【未找到时跳过】，才按【超时时间】轮询等待直至目标出现或超时失败。
+  Duration _getElementWaitTimeout(Script script) {
+    if (script.params.containsKey('目标等待')) {
+      final w = script.params['目标等待'];
+      if (w is int && w >= 0) {
+        return Duration(milliseconds: w);
+      }
+    }
+    final skipWhenNotFound = script.params['未找到时跳过'] as bool? ?? true;
+    if (skipWhenNotFound) {
+      return Duration.zero;
+    }
+    return _getStepTimeout(script);
   }
 
   /// 智能自适应微轮询（Action Auto-Wait）：
@@ -1240,37 +1325,44 @@ class ScriptExecutor {
 
     if (clickText.isEmpty) {
       if (skipWhenNotFound) {
-        onStatusChanged?.call(ScriptStatus.success, '点击文本为空，已跳过', 1.0);
         return const _StepExecutionResult(
             success: true, isSkipped: true, message: '点击文本为空，已跳过');
       }
       return const _StepExecutionResult(success: false);
     }
 
-    // Always handle delay if present, regardless of mode
-    final delay = params['执行延迟'] ?? 0;
-    if (delay > 0) {
-      final timeUnit = params['时间单位'] ?? '毫秒';
-      final multiplier = TimeUnit.values
-          .firstWhere(
-            (unit) => unit.label == timeUnit,
-            orElse: () => TimeUnit.milliseconds,
-          )
-          .multiplier;
-
-      await Future.delayed(Duration(milliseconds: delay * multiplier));
-    }
-
     bool stepTriggeredNav = false;
+    String? stepNavMark;
+    String? stepPreUrl;
     String? lastFailureReason;
 
-    final timeout = _getStepTimeout(script);
+    final navMark = 'nav_${DateTime.now().microsecondsSinceEpoch}';
+    final cfgJson = jsonEncode({
+      'triggerText': params['出现文字'] ?? '',
+      'clickText': clickText,
+      'exactMatch': params['完全匹配'] ?? false,
+      'afterText': params['在此之后'] ?? '',
+      'beforeText': params['在此之前'] ?? '',
+      'selectionIndex': params['多个筛选'] ?? 1,
+      'navMark': navMark,
+    });
+    // 优先使用页面内缓存函数（~150B 指令），仅首次加载或跨页后按需注入一次工具函数（~15KB）
+    final cachedCallJs =
+        'window.__auok_helpers_v===$_clickHelpersVersion?window._auokExecuteClick($cfgJson):"__NEED_INIT__"';
+    final initAndCallJs =
+        '(function(){$_installClickHelpersJs return window._auokExecuteClick($cfgJson);})()';
+
+    final timeout = _getElementWaitTimeout(script);
     final success = await _pollUntilSuccess(() async {
-      final rawResult = await controller.evaluateJavascript(source: '''
-        (function() {
-          ${_buildClickScriptLogic(params)}
-        })();
-      ''');
+      dynamic rawResult =
+          await controller.evaluateJavascript(source: cachedCallJs);
+      if (rawResult != null) {
+        final probeStr = rawResult.toString().trim();
+        if (probeStr == '__NEED_INIT__' || probeStr == '"__NEED_INIT__"' ) {
+          rawResult =
+              await controller.evaluateJavascript(source: initAndCallJs);
+        }
+      }
       if (rawResult == null) return false;
       final rawStr = rawResult.toString().trim();
       if (rawStr == 'true') {
@@ -1282,6 +1374,12 @@ class ScriptExecutor {
           if (parsed['success'] == true) {
             if (parsed['isNavTrigger'] == true) {
               stepTriggeredNav = true;
+            }
+            if (parsed['navMark'] != null) {
+              stepNavMark = parsed['navMark'].toString();
+            }
+            if (parsed['preUrl'] != null) {
+              stepPreUrl = parsed['preUrl'].toString();
             }
             return true;
           } else {
@@ -1298,6 +1396,8 @@ class ScriptExecutor {
       return _StepExecutionResult(
         success: true,
         isNavTrigger: stepTriggeredNav,
+        navMark: stepNavMark,
+        preUrl: stepPreUrl,
       );
     }
 
@@ -1306,7 +1406,6 @@ class ScriptExecutor {
       final msg = lastFailureReason == 'trigger_not_met'
           ? '前置条件未满足 [${params['出现文字'] ?? ''}]，已跳过'
           : '未找到目标 [$clickText]，已跳过';
-      onStatusChanged?.call(ScriptStatus.success, msg, 1.0);
       return _StepExecutionResult(
         success: true,
         isSkipped: true,
@@ -1548,19 +1647,65 @@ class ScriptExecutor {
     }
   }
 
-  String _buildClickScriptLogic(Map<String, dynamic> params) {
+  static const String _clickHelpersVersion = '2';
+
+  /// 页面级点击执行器缓存安装脚本：同一文档期内仅解析注入一次 _highlightJs 与 _egretCanvasProbeJs
+  String get _installClickHelpersJs => '''
+    (function() {
+      $_highlightJs
+      $_egretCanvasProbeJs
+      window._auokExecuteClick = function(cfg) {
+        ${_buildClickScriptBody(
+          triggerTextExpr: 'cfg.triggerText || ""',
+          clickTextExpr: 'cfg.clickText || ""',
+          exactMatchExpr: '!!cfg.exactMatch',
+          afterTextExpr: 'cfg.afterText || ""',
+          beforeTextExpr: 'cfg.beforeText || ""',
+          selectionIndexExpr: '(cfg.selectionIndex !== undefined && cfg.selectionIndex !== null) ? cfg.selectionIndex : 1',
+          navMarkExpr: 'cfg.navMark || ""',
+        )}
+      };
+      window.__auok_helpers_v = $_clickHelpersVersion;
+    })();
+  ''';
+
+  String _buildClickScriptLogic(Map<String, dynamic> params,
+      {String? navMark}) {
     final triggerTextJson = jsonEncode(params['出现文字'] ?? '');
     final clickTextJson = jsonEncode(params['点击文本'] ?? '');
     final exactMatch = params['完全匹配'] ?? false;
     final afterTextJson = jsonEncode(params['在此之后'] ?? '');
     final beforeTextJson = jsonEncode(params['在此之前'] ?? '');
     final selectionIndex = params['多个筛选'] ?? 1;
+    final navMarkJson = jsonEncode(navMark ?? '');
 
     // Unified logic: Always use Expert Mode features with Fuzzy Matching and Egret Canvas fallback
     return '''
       $_highlightJs
       $_egretCanvasProbeJs
+      ${_buildClickScriptBody(
+        triggerTextExpr: triggerTextJson,
+        clickTextExpr: clickTextJson,
+        exactMatchExpr: '$exactMatch',
+        afterTextExpr: afterTextJson,
+        beforeTextExpr: beforeTextJson,
+        selectionIndexExpr: '$selectionIndex',
+        navMarkExpr: navMarkJson,
+      )}
+    ''';
+  }
 
+  /// 生成点击匹配与导航检测核心 JS 逻辑（供内联注入与页面缓存函数共用）
+  String _buildClickScriptBody({
+    required String triggerTextExpr,
+    required String clickTextExpr,
+    required String exactMatchExpr,
+    required String afterTextExpr,
+    required String beforeTextExpr,
+    required String selectionIndexExpr,
+    required String navMarkExpr,
+  }) {
+    return '''
       function _tryEgretFallback() {
         const ctx = _auokGetEgretContext();
         if (!ctx) return false;
@@ -1597,7 +1742,7 @@ class ScriptExecutor {
         const clickables = matchedEgret.filter(item => item.isClickable);
         const candidatePool = clickables.length > 0 ? clickables : matchedEgret;
 
-        const selectionIndex = $selectionIndex;
+        const selectionIndex = $selectionIndexExpr;
         let targetIndex = 0;
         if (selectionIndex === 0) {
           targetIndex = Math.floor(Math.random() * candidatePool.length);
@@ -1615,11 +1760,11 @@ class ScriptExecutor {
       }
 
       // 目标文字判断
-      const clickTexts = ($clickTextJson).split(';').map(t => t.trim()).filter(t => t);
+      const clickTexts = ($clickTextExpr).split(';').map(t => t.trim()).filter(t => t);
       if (clickTexts.length === 0) return false;
 
       // 出现文字校验（同时检测普通 DOM 文本与 Canvas 白鹭游戏舞台）
-      const triggerTexts = ($triggerTextJson).split(';').filter(t => t.trim());
+      const triggerTexts = ($triggerTextExpr).split(';').filter(t => t.trim());
       if (triggerTexts.length > 0) {
         const pageText = document.body.textContent || '';
         let hasText = triggerTexts.some(text => 
@@ -1646,7 +1791,7 @@ class ScriptExecutor {
         const text = (typeof el.innerText === 'string' && (el.innerText.length > 0 || !_auokIsVisible(el)))
           ? el.innerText
           : (el.innerText || el.textContent || el.value || '');
-        const exactMatch = $exactMatch;
+        const exactMatch = $exactMatchExpr;
         
         return clickTexts.some(cText => {
           if (exactMatch) {
@@ -1687,8 +1832,8 @@ class ScriptExecutor {
       }
 
       // Filter by position constraints if specified
-      const afterText = ($afterTextJson).trim();
-      const beforeText = ($beforeTextJson).trim();
+      const afterText = ($afterTextExpr).trim();
+      const beforeText = ($beforeTextExpr).trim();
       
       if (afterText || beforeText) {
         matchedLinks = _auokFilterByPosition(matchedLinks, afterText, beforeText);
@@ -1701,7 +1846,7 @@ class ScriptExecutor {
       }
 
       // Apply selection index
-      const selectionIndex = $selectionIndex;
+      const selectionIndex = $selectionIndexExpr;
       let targetIndex = 0;
       
       if (selectionIndex === 0) {
@@ -1741,6 +1886,13 @@ class ScriptExecutor {
           }
         }
 
+        const _auokNavMark = $navMarkExpr;
+        const _auokPreHref = location.href;
+        if (_auokNavMark) window.__auok_nav_mark = _auokNavMark;
+        let _auokUnloading = false;
+        const _auokUnloadHandler = function() { _auokUnloading = true; };
+        window.addEventListener('beforeunload', _auokUnloadHandler, { once: true });
+
         _auokSimulateClick(clickTarget);
         // 若自身不是链接但父级或祖父级为 <a> 则联动触发（若 clickTarget 已是 anchor 则不重复触发）
         if (anchor && anchor !== clickTarget) {
@@ -1753,7 +1905,11 @@ class ScriptExecutor {
             }
           }
         }
-        return JSON.stringify({ success: true, isNavTrigger: isNav });
+        window.removeEventListener('beforeunload', _auokUnloadHandler);
+        if (_auokUnloading || location.href !== _auokPreHref) {
+          isNav = true;
+        }
+        return JSON.stringify({ success: true, isNavTrigger: isNav, navMark: _auokNavMark, preUrl: _auokPreHref });
       }
       
       return JSON.stringify({ success: false, reason: 'target_not_found', isNavTrigger: false });
@@ -1803,7 +1959,6 @@ class ScriptExecutor {
 
     if (imageSrc.isEmpty) {
       if (skipWhenNotFound) {
-        onStatusChanged?.call(ScriptStatus.success, '图片地址为空，已跳过', 1.0);
         return const _StepExecutionResult(
             success: true, isSkipped: true, message: '图片地址为空，已跳过');
       }
@@ -1813,8 +1968,12 @@ class ScriptExecutor {
     final imageSrcJson = jsonEncode(imageSrc);
     final afterTextJson = jsonEncode(afterText);
     final beforeTextJson = jsonEncode(beforeText);
+    final navMark = 'nav_${DateTime.now().microsecondsSinceEpoch}';
+    final navMarkJson = jsonEncode(navMark);
 
     bool stepTriggeredNav = false;
+    String? stepNavMark;
+    String? stepPreUrl;
     final success = await _pollUntilSuccess(() async {
       final rawResult = await controller.evaluateJavascript(source: '''
         (function() {
@@ -1882,6 +2041,13 @@ class ScriptExecutor {
                 }
               }
 
+              const _auokNavMark = $navMarkJson;
+              const _auokPreHref = location.href;
+              if (_auokNavMark) window.__auok_nav_mark = _auokNavMark;
+              let _auokUnloading = false;
+              const _auokUnloadHandler = function() { _auokUnloading = true; };
+              window.addEventListener('beforeunload', _auokUnloadHandler, { once: true });
+
               _auokSimulateClick(targetImg);
               // 若自身不是链接但父级为 <a> 则联动仿真触发
               if (anchor && anchor !== targetImg) {
@@ -1890,7 +2056,11 @@ class ScriptExecutor {
                   _auokSimulateClick(anchor);
                 }
               }
-              return JSON.stringify({ success: true, isNavTrigger: isNav });
+              window.removeEventListener('beforeunload', _auokUnloadHandler);
+              if (_auokUnloading || location.href !== _auokPreHref) {
+                isNav = true;
+              }
+              return JSON.stringify({ success: true, isNavTrigger: isNav, navMark: _auokNavMark, preUrl: _auokPreHref });
             }
             
             return JSON.stringify({ success: false, isNavTrigger: false });
@@ -1913,23 +2083,30 @@ class ScriptExecutor {
             if (parsed['isNavTrigger'] == true) {
               stepTriggeredNav = true;
             }
+            if (parsed['navMark'] != null) {
+              stepNavMark = parsed['navMark'].toString();
+            }
+            if (parsed['preUrl'] != null) {
+              stepPreUrl = parsed['preUrl'].toString();
+            }
             return true;
           }
         }
       } catch (_) {}
       return false;
-    }, timeout: _getStepTimeout(script));
+    }, timeout: _getElementWaitTimeout(script));
 
     if (success) {
       return _StepExecutionResult(
         success: true,
         isNavTrigger: stepTriggeredNav,
+        navMark: stepNavMark,
+        preUrl: stepPreUrl,
       );
     }
 
     if (skipWhenNotFound) {
       final msg = '未找到图片目标 [$imageSrc]，已跳过';
-      onStatusChanged?.call(ScriptStatus.success, msg, 1.0);
       return _StepExecutionResult(
         success: true,
         isSkipped: true,
@@ -2472,7 +2649,7 @@ class ScriptExecutor {
       })();
     ''';
 
-    final timeout = _getStepTimeout(script);
+    final timeout = _getElementWaitTimeout(script);
     String lastResult = 'not_found';
 
     final success = await _pollUntilSuccess(() async {
@@ -2493,17 +2670,15 @@ class ScriptExecutor {
 
     if (success) {
       final isNav = lastResult == 'clicked_nav';
-      if (lastResult == 'clicked' || lastResult == 'clicked_nav') {
-        onStatusChanged?.call(ScriptStatus.success, '已点击', null);
-      } else {
-        onStatusChanged?.call(ScriptStatus.success, '条件不满足，未点击 ($lastResult)', null);
-      }
-      return _StepExecutionResult(success: true, isNavTrigger: isNav);
+      final msg = (lastResult == 'clicked' || lastResult == 'clicked_nav')
+          ? '已点击'
+          : '条件不满足，未点击 ($lastResult)';
+      return _StepExecutionResult(
+          success: true, isNavTrigger: isNav, message: msg);
     } else {
       final skipWhenNotFound = script.params['未找到时跳过'] as bool? ?? true;
       if (skipWhenNotFound && lastResult == 'not_found') {
         final msg = '未找到目标 [$clickText]，已跳过';
-        onStatusChanged?.call(ScriptStatus.success, msg, 1.0);
         return _StepExecutionResult(
             success: true, isSkipped: true, message: msg);
       } else if (lastResult == 'not_found') {
@@ -2755,8 +2930,12 @@ class ScriptExecutor {
   }
 
   @visibleForTesting
-  String buildClickScriptLogic(Map<String, dynamic> params) =>
-      _buildClickScriptLogic(params);
+  String buildClickScriptLogic(Map<String, dynamic> params, {String? navMark}) =>
+      _buildClickScriptLogic(params, navMark: navMark);
+
+  @visibleForTesting
+  Duration getElementWaitTimeout(Script script) =>
+      _getElementWaitTimeout(script);
 
   @visibleForTesting
   Script resolveVariables(Script original, Map<String, String>? vars) =>

@@ -39,15 +39,17 @@ class _FloatingCapsuleState extends State<FloatingCapsule>
   Widget build(BuildContext context) {
     return Consumer2<BrowserProvider, ScriptProvider>(
       builder: (context, browser, scriptProvider, child) {
-        // 仅在“脚本正在运行”且“右侧面板收起”时显示
-        if (!scriptProvider.isExecuting || browser.isScriptPanelExpanded) {
+        // 仅在“脚本正在运行/暂停”且“右侧面板收起”时显示
+        if ((!scriptProvider.isExecuting && !scriptProvider.isPaused) ||
+            browser.isScriptPanelExpanded) {
           return const SizedBox.shrink();
         }
 
         final currentTab = browser.currentTab;
         final totalScripts = currentTab?.scripts.length ?? 0;
         final currentIndex = scriptProvider.currentScriptIndex;
-        final remainingLoops = scriptProvider.remainingLoopCount;
+        final loopText = currentTab?.completedLoopProgressText ??
+            scriptProvider.completedLoopProgressText;
         final isPaused = scriptProvider.isPaused;
 
         String stepName = '自动化执行中';
@@ -116,7 +118,9 @@ class _FloatingCapsuleState extends State<FloatingCapsule>
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            '步骤 ${currentIndex + 1}/$totalScripts · 循环 $remainingLoops',
+                            '步骤 ${currentIndex + 1}/$totalScripts · 循环 $loopText',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 11,

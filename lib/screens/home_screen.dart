@@ -140,112 +140,144 @@ class _BrowserHomePageState extends State<BrowserHomePage>
     final browserProvider = context.read<BrowserProvider>();
     final scriptProvider = context.read<ScriptProvider>();
 
-    // 全局设置智能网页加载等待回调（支持跨页 Token 与 URL 变更探测，防御 Stale DOM 旧页面误触）
-    scriptProvider.setWaitForPageLoadCallback(({preNavToken, preUrl}) async {
-      if (browserProvider.currentTab == null) return;
+    // 全局设置事件驱动智能网页加载等待回调（0ms 事件唤醒 + 首屏渲染门控 + 防 Stale DOM 旧页面误触）
+    scriptProvider.setWaitForPageLoadCallback((
+        {preNavToken,
+        preUrl,
+        preLoadStartEpoch,
+        preLoadStopEpoch,
+        probeWindowMs = 80}) async {
+      final tab = browserProvider.currentTab;
+      if (tab == null) return;
 
-      final tab = browserProvider.currentTab!;
       final controller = tab.controller;
-      const int timeout = 30000;
-      int elapsed = 0;
+      const int timeoutMs = 30000;
+      final stopwatch = Stopwatch()..start();
 
       // 1. 导航启动探测阶段：
-      // 当刚刚调用 loadUrl / reload / goBack，或点击了链接/提交表单时，
-      // WebKit 内核 (尤其在 iOS 上) 需要 20-200ms 发出网络请求并触发 onLoadStart。
-      // 我们在最多 800ms 窗口内以 40ms 高频微轮询探测导航是否真正启动：
-      // - tab.isLoading 为 true
-      // - controller.isLoading() 为 true
-      // - 当前 URL 相比 preUrl 发生变化
-      // - 当前 DOM 中的 window.__auok_nav_mark 发生变化/丢失（说明旧 DOM 正在被销毁）
-      bool hasNavStarted = false;
-      const int probeMax = 800;
-      const int probeStep = 40;
+      // 优先通过事件计数器(loadStartEpoch/loadStopEpoch)和 tab.isLoading 瞬间判定；
+      // 显式导航/点击跳转按 probeWindowMs 窗口监听 onLoadStart 事件，一旦触发 0ms 立即唤醒。
+      bool hasNavStarted = tab.isLoading ||
+          (preLoadStartEpoch != null && tab.loadStartEpoch > preLoadStartEpoch) ||
+          (preLoadStopEpoch != null && tab.loadStopEpoch > preLoadStopEpoch);
 
-      while (elapsed < probeMax) {
-        bool isStarting = tab.isLoading;
-        if (!isStarting && controller != null) {
-          try {
-            isStarting = await controller.isLoading();
-          } catch (_) {}
+      if (!hasNavStarted && (preNavToken != null || probeWindowMs > 80)) {
+        final int probeMaxMs = probeWindowMs;
+        while (stopwatch.elapsedMilliseconds < probeMaxMs) {
+          if (tab.isLoading ||
+              (preLoadStartEpoch != null &&
+                  tab.loadStartEpoch > preLoadStartEpoch) ||
+              (preLoadStopEpoch != null &&
+                  tab.loadStopEpoch > preLoadStopEpoch)) {
+            hasNavStarted = true;
+            break;
+          }
+
+          if (controller != null) {
+            try {
+              if (await controller.isLoading()) {
+                hasNavStarted = true;
+                break;
+              }
+              if (preUrl != null && preUrl.isNotEmpty) {
+                final curUrl = (await controller.getUrl())?.toString();
+                if (curUrl != null && curUrl.isNotEmpty && curUrl != preUrl) {
+                  hasNavStarted = true;
+                  break;
+                }
+              }
+              final token = await controller.evaluateJavascript(
+                source: 'window.__auok_nav_mark',
+              );
+              if (token == null || token.toString() != preNavToken) {
+                hasNavStarted = true;
+                break;
+              }
+            } catch (_) {}
+          }
+
+          final remainMs = probeMaxMs - stopwatch.elapsedMilliseconds;
+          if (remainMs <= 0) break;
+          await tab.waitForLoadStartEvent(
+            timeout: Duration(milliseconds: remainMs < 10 ? remainMs : 10),
+          );
         }
-
-        // 探测 URL 变更
-        if (!isStarting && preUrl != null && controller != null) {
-          try {
-            final curUrl = (await controller.getUrl())?.toString();
-            if (curUrl != null && curUrl.isNotEmpty && curUrl != preUrl) {
-              isStarting = true;
-            }
-          } catch (_) {}
-        }
-
-        // 探测旧 DOM 销毁与卸载（Navigation Mark 改变或清空）
-        if (!isStarting && preNavToken != null && controller != null) {
-          try {
-            final token = await controller.evaluateJavascript(
-              source: 'window.__auok_nav_mark',
-            );
-            // 若 token 变成 null，或者不再等于 preNavToken，说明旧文档已卸载或新文档已进入！
-            if (token == null || token.toString() != preNavToken) {
-              isStarting = true;
-            }
-          } catch (_) {}
-        }
-
-        if (isStarting) {
-          hasNavStarted = true;
-          break;
-        }
-
-        await Future.delayed(const Duration(milliseconds: probeStep));
-        elapsed += probeStep;
       }
 
-      // 2. 加载中等待阶段：双重检测（Flutter Tab 状态 + WebView Native 状态）
-      while (elapsed < timeout) {
-        bool currentlyLoading = tab.isLoading;
-        if (!currentlyLoading && controller != null) {
+      // 2. 加载等待阶段：事件驱动 0ms 瞬间唤醒，辅以原生状态兜底确认
+      if (tab.isLoading) {
+        final remainMs = timeoutMs - stopwatch.elapsedMilliseconds;
+        if (remainMs > 0) {
+          await tab.waitForLoadStopEvent(
+            timeout: Duration(milliseconds: remainMs),
+          );
+        }
+      }
+
+      if (controller != null) {
+        while (stopwatch.elapsedMilliseconds < timeoutMs) {
+          if (tab.isLoading) {
+            final remainMs = timeoutMs - stopwatch.elapsedMilliseconds;
+            if (remainMs <= 0) break;
+            await tab.waitForLoadStopEvent(
+              timeout: Duration(milliseconds: remainMs),
+            );
+          }
+          bool currentlyLoading = false;
           try {
             currentlyLoading = await controller.isLoading();
           } catch (_) {}
+          if (!currentlyLoading) break;
+          await Future.delayed(const Duration(milliseconds: 15));
         }
-        if (!currentlyLoading) break;
-        await Future.delayed(const Duration(milliseconds: 50));
-        elapsed += 50;
       }
 
-      // 3. DOM 就绪阶段：快速微轮询等待 document.readyState == 'complete'
-      // 严密防御：旧页面的 readyState == 'complete' 绝不能虚假放行！
-      if (controller != null && elapsed < timeout) {
+      // 3. DOM 与首屏渲染就绪阶段：单次 IPC 检查 readyState、主体渲染内容与旧页面标记销毁状态
+      // 新页面就绪且 DOM 已挂载内容后 0ms 直接放行；若尚为空壳骨架屏则短窗等待渲染完成
+      if (controller != null && stopwatch.elapsedMilliseconds < timeoutMs) {
         int domCheckCount = 0;
-        const maxDomChecks = 100; // 最多检查 5 秒 (100 * 50ms)
+        const maxDomChecks = 100; // 最多检查 1.5 秒 (100 * 15ms)
+        int readyButEmptyCount = 0;
+        const maxEmptyDomChecks = 25; // readyState=complete 但 body 仍为空时最多等待 ~375ms 等待首屏渲染
 
         while (domCheckCount < maxDomChecks) {
-          try {
-            final readyState = await controller.evaluateJavascript(
-              source: 'document.readyState',
+          // 若期间触发了重定向或二次加载，继续事件驱动等待加载结束
+          if (tab.isLoading) {
+            final remainMs = timeoutMs - stopwatch.elapsedMilliseconds;
+            if (remainMs <= 0) break;
+            await tab.waitForLoadStopEvent(
+              timeout: Duration(milliseconds: remainMs),
             );
-            if (readyState == 'complete') {
-              // 若曾经启动了导航，且设置了旧页面标记，必须确认此时已经是新页面（token 已经清除或重置）
-              if (hasNavStarted && preNavToken != null) {
-                final token = await controller.evaluateJavascript(
-                  source: 'window.__auok_nav_mark',
-                );
-                if (token == null || token.toString() != preNavToken) {
+          }
+          try {
+            final res = await controller.evaluateJavascript(
+              source:
+                  '(function(){var r=document.readyState==="complete"?"1":"0";var c=(document.body&&(document.body.children.length>0||(document.body.innerText||"").trim().length>0))?"1":"0";return r+":"+c+":"+(window.__auok_nav_mark||"");})()',
+            );
+            final str = res?.toString() ?? '';
+            final firstColon = str.indexOf(':');
+            final secondColon =
+                firstColon != -1 ? str.indexOf(':', firstColon + 1) : -1;
+            if (firstColon != -1 && secondColon != -1) {
+              final ready = str.substring(0, firstColon) == '1';
+              final hasContent =
+                  str.substring(firstColon + 1, secondColon) == '1';
+              final mark = str.substring(secondColon + 1);
+              final markChanged = !hasNavStarted ||
+                  preNavToken == null ||
+                  mark != preNavToken;
+              if (ready && markChanged) {
+                if (hasContent || readyButEmptyCount >= maxEmptyDomChecks) {
                   break;
                 }
-              } else {
-                break;
+                readyButEmptyCount++;
               }
             }
           } catch (_) {}
-          await Future.delayed(const Duration(milliseconds: 50));
+          await Future.delayed(const Duration(milliseconds: 15));
           domCheckCount++;
         }
       }
-
-      // 4. 渲染微缓冲：给页面重绘与微任务执行预留 60ms 极速缓冲
-      await Future.delayed(const Duration(milliseconds: 60));
     });
 
     if (browserProvider.tabs.isEmpty) {
@@ -1308,9 +1340,14 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                           browser.closeScriptPanel();
                           scriptProvider.startRecording();
                           if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('开始录制脚本...')),
-                            );
+                            ScaffoldMessenger.of(context)
+                              ..clearSnackBars()
+                              ..showSnackBar(
+                                const SnackBar(
+                                  content: Text('开始录制脚本...'),
+                                  duration: Duration(milliseconds: 1000),
+                                ),
+                              );
                           }
                         } else {
                           ScaffoldMessenger.of(context).showSnackBar(

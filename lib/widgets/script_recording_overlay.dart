@@ -44,9 +44,14 @@ class ScriptRecordingOverlay extends StatelessWidget {
                       onTap: () {
                         provider.cancelLastRecordingIfRecent();
                         provider.stopRecording();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('录制已结束')),
-                        );
+                        ScaffoldMessenger.of(context)
+                          ..clearSnackBars()
+                          ..showSnackBar(
+                            const SnackBar(
+                              content: Text('录制已结束'),
+                              duration: Duration(milliseconds: 900),
+                            ),
+                          );
                       },
                       child: Container(
                         padding: const EdgeInsets.all(4),

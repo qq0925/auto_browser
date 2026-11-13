@@ -87,7 +87,9 @@ class RightScriptPanel extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        '${scriptProvider.originalLoopCount}',
+                        (scriptProvider.isExecuting || scriptProvider.isPaused)
+                            ? scriptProvider.completedLoopProgressText
+                            : '${scriptProvider.originalLoopCount}',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 10.5,
@@ -545,6 +547,7 @@ class RightScriptPanel extends StatelessWidget {
           key != '执行延迟' &&
           key != 'isEnabled' &&
           key != '未找到时跳过' &&
+          key != '目标等待' &&
           val != null &&
           val.toString().trim().isNotEmpty &&
           !key.startsWith('_')) {
@@ -554,6 +557,10 @@ class RightScriptPanel extends StatelessWidget {
 
     if (params['未找到时跳过'] == false) {
       list.add(const MapEntry('未找到', '阻断报错'));
+    }
+
+    if (params['目标等待'] != null && params['目标等待'] is num && params['目标等待'] > 0) {
+      list.add(MapEntry('目标等待', '${params['目标等待']}ms'));
     }
 
     // 通用字段：执行延迟 (若设置且大于0)
@@ -1108,6 +1115,8 @@ class RightScriptPanel extends StatelessWidget {
     switch (status) {
       case ScriptStatus.success:
         return const Icon(Icons.check, color: Colors.green, size: 12);
+      case ScriptStatus.skipped:
+        return const Icon(Icons.skip_next, color: Colors.amber, size: 12);
       case ScriptStatus.failure:
         return const Icon(Icons.close, color: Colors.red, size: 12);
       case ScriptStatus.waiting:
@@ -1123,6 +1132,8 @@ class RightScriptPanel extends StatelessWidget {
     switch (status) {
       case ScriptStatus.success:
         return Colors.green;
+      case ScriptStatus.skipped:
+        return Colors.amber;
       case ScriptStatus.failure:
         return Colors.red;
       case ScriptStatus.waiting:
@@ -1141,6 +1152,8 @@ class RightScriptPanel extends StatelessWidget {
     switch (script.status) {
       case ScriptStatus.success:
         return '成功';
+      case ScriptStatus.skipped:
+        return '已跳过';
       case ScriptStatus.failure:
         return '失败';
       case ScriptStatus.waiting:

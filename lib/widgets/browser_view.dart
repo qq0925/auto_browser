@@ -741,10 +741,10 @@ class _BrowserViewState extends State<BrowserView> {
             },
             onLoadStart: (controller, url) {
               DebugLogManager.log('🚀 [onLoadStart] url=$url');
+              widget.tab.markLoadStarted();
               if (url != null) {
                 final urlString = url.toString();
                 widget.tab.url = urlString;
-                widget.tab.isLoading = true;
 
                 final index = browserProvider.tabs.indexOf(widget.tab);
                 if (index != -1) {
@@ -766,8 +766,8 @@ class _BrowserViewState extends State<BrowserView> {
             },
             onLoadStop: (controller, url) async {
               DebugLogManager.log('🏁 [onLoadStop] url=$url');
+              widget.tab.markLoadStopped();
               if (url != null) {
-                widget.tab.isLoading = false;
                 final index = browserProvider.tabs.indexOf(widget.tab);
 
                 if (index != -1) {
@@ -1108,6 +1108,9 @@ class _BrowserViewState extends State<BrowserView> {
             },
             onReceivedError: (controller, request, error) {
               DebugLogManager.log('❌ [onReceivedError] url=${request.url}, error=${error.description}');
+              if (request.isForMainFrame ?? false) {
+                widget.tab.markLoadStopped();
+              }
             },
             onReceivedHttpError: (controller, request, errorResponse) {
               DebugLogManager.log('⚠️ [onReceivedHttpError] url=${request.url}, statusCode=${errorResponse.statusCode}');

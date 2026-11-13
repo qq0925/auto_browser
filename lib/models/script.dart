@@ -32,6 +32,7 @@ enum ScriptStatus {
   idle,
   running,
   success,
+  skipped,
   failure,
   waiting,
   stopped,

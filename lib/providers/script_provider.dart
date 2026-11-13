@@ -70,7 +70,13 @@ class ScriptProvider extends ChangeNotifier {
   int _successCount = 0;
   int _failureCount = 0;
 
-  Future<void> Function({String? preNavToken, String? preUrl})? _waitForPageLoadCallback;
+  Future<void> Function({
+    String? preNavToken,
+    String? preUrl,
+    int? preLoadStartEpoch,
+    int? preLoadStopEpoch,
+    int probeWindowMs,
+  })? _waitForPageLoadCallback;
 
   // Get scripts from current tab
   List<Script> get scripts => _currentTab?.scripts ?? [];
@@ -78,11 +84,17 @@ class ScriptProvider extends ChangeNotifier {
   bool get isRecording => _isRecording;
 
   bool get isExecuting => _currentTab?.isExecutingScript ?? false;
-  bool get isPaused => _isPaused;
+  bool get isPaused => _currentTab?.isPaused ?? _isPaused;
   int get currentScriptIndex => _currentScriptIndex;
   int get executionDelay => _executionDelay;
   int get originalLoopCount => _originalLoopCount;
   int get remainingLoopCount => _remainingLoopCount;
+  int get completedLoopCount => _currentTab?.completedLoopCount ?? 0;
+  String get completedLoopProgressText {
+    final totalLoopStr =
+        _originalLoopCount == 0 ? '∞' : '$_originalLoopCount';
+    return '$completedLoopCount/$totalLoopStr';
+  }
   TimeUnit get delayTimeUnit => _delayTimeUnit;
   int get successCount => _successCount;
   int get failureCount => _failureCount;
@@ -103,7 +115,13 @@ class ScriptProvider extends ChangeNotifier {
   }
 
   void setWaitForPageLoadCallback(
-      Future<void> Function({String? preNavToken, String? preUrl}) callback) {
+      Future<void> Function({
+        String? preNavToken,
+        String? preUrl,
+        int? preLoadStartEpoch,
+        int? preLoadStopEpoch,
+        int probeWindowMs,
+      }) callback) {
     _waitForPageLoadCallback = callback;
   }
 
@@ -514,6 +532,7 @@ return false;
     executingTab.remainingLoopCount = _remainingLoopCount;
     executingTab.originalLoopCount = _originalLoopCount;
     executingTab.currentLoopIndex = 1;
+    executingTab.completedLoopCount = 0;
     executingTab.executionDelay = _executionDelay;
     executingTab.delayTimeUnit = _delayTimeUnit.label;
 
@@ -539,6 +558,8 @@ return false;
       // Inner loop for current script set
       while (executingTab.isExecutingScript &&
           (_originalLoopCount == 0 || _remainingLoopCount > 0)) {
+        bool executedActionInPass = false;
+        bool executedActionSinceLastJump = false;
         for (var i = startScriptIndex; i < executingTab.scripts.length; i++) {
           if (!executingTab.isExecutingScript) break;
 
@@ -558,6 +579,17 @@ return false;
               script,
               executionDelay: _executionDelay,
               variables: _variables,
+              getTabLoadState: () => (
+                isLoading: executingTab.isLoading,
+                startEpoch: executingTab.loadStartEpoch,
+                stopEpoch: executingTab.loadStopEpoch,
+              ),
+              onActionExecuted: (didExecute) {
+                if (didExecute) {
+                  executedActionInPass = true;
+                  executedActionSinceLastJump = true;
+                }
+              },
               onStatusChanged: (status, message, progress) async {
                 script.status = status;
                 script.statusMessage = message;
@@ -630,6 +662,7 @@ return false;
                     currentScriptIndex: i,
                     remainingLoopCount: _remainingLoopCount,
                     currentLoopIndex: executingTab.currentLoopIndex,
+                    completedLoopCount: executingTab.completedLoopCount,
                     scriptFilePath: executingTab.scriptFilePath,
                   ));
 
@@ -673,6 +706,11 @@ return false;
                 final adjustedIndex = targetIndex - 1;
                 if (adjustedIndex >= 0 &&
                     adjustedIndex < executingTab.scripts.length) {
+                  // 向回循环跳转且本轮跳转前全为跳过时微让步 30ms，避免未渲染期高速死循环抢占 WebView 渲染线程
+                  if (adjustedIndex <= i && !executedActionSinceLastJump) {
+                    await Future.delayed(const Duration(milliseconds: 30));
+                  }
+                  executedActionSinceLastJump = false;
                   // Set i to adjustedIndex - 1 because the loop will increment it
                   i = adjustedIndex - 1;
                   notifyListeners();
@@ -690,14 +728,22 @@ return false;
         // Reset startScriptIndex for next loop iteration
         startScriptIndex = 0;
 
-        // 循环轮次递增
-        executingTab.currentLoopIndex++;
-
-        // Only decrement if not in infinite loop mode (0 = infinite)
-        if (executingTab.isExecutingScript && _originalLoopCount > 0) {
-          _remainingLoopCount--;
-          executingTab.remainingLoopCount = _remainingLoopCount;
+        // 一轮完整循环正常执行结束（未中途停止）后再累加完整循环计数并刷新界面
+        if (executingTab.isExecutingScript) {
+          executingTab.completedLoopCount++;
+          executingTab.currentLoopIndex++;
+          if (_originalLoopCount > 0) {
+            _remainingLoopCount--;
+            executingTab.remainingLoopCount = _remainingLoopCount;
+          }
           notifyListeners();
+        }
+
+        // 若整轮扫描没有任何步骤命中操作（全跳过）且即将进入下一轮循环，微让步 30ms 避免空转打满 CPU
+        if (executingTab.isExecutingScript &&
+            !executedActionInPass &&
+            (_originalLoopCount == 0 || _remainingLoopCount > 0)) {
+          await Future.delayed(const Duration(milliseconds: 30));
         }
       }
 
@@ -710,6 +756,9 @@ return false;
         executingTab.remainingLoopCount = state.remainingLoopCount;
         if (state.currentLoopIndex != null) {
           executingTab.currentLoopIndex = state.currentLoopIndex!;
+        }
+        if (state.completedLoopCount != null) {
+          executingTab.completedLoopCount = state.completedLoopCount!;
         }
         executingTab.scriptFilePath = state.scriptFilePath;
 
