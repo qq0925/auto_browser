@@ -210,6 +210,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   String _selectedScriptType = scriptTypes[0];
   bool _exactMatch = true;
   bool _enableRegex = false;
+  bool _submitCurrentWhenEmpty = false;
   bool _enableNotification = false;
 
   // New Window fields
@@ -235,7 +236,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       TextEditingController(text: '0');
   final TextEditingController _timeoutSecondsController =
       TextEditingController(text: '30');
-  String _timeoutUnit = 's';
+  String _timeoutUnit = 's';
 
   Script? _beforeScript;
   Script? _afterScript;
@@ -267,6 +268,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       _exactMatch = params['完全匹配'] ??
           (_selectedScriptType == '点击文字' ? true : false);
       _enableRegex = params['启用正则'] ?? false;
+      _submitCurrentWhenEmpty = params['输入空以当前值提交'] ?? false;
       _enableNotification = params['执行完成提醒'] ?? false;
 
       _windowNameController.text = params['窗口名称'] ?? '';
@@ -338,9 +340,9 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
       if (params['超时时间'] != null) {
         _timeoutSecondsController.text = params['超时时间'].toString();
-        final unit = params['超时单位']?.toString().toLowerCase();
-        _timeoutUnit = (unit == 'ms') ? 'ms' : 's';
-        if (params['超时时间'] != 30 || _timeoutUnit != 's') {
+        final unit = params['超时单位']?.toString().toLowerCase();
+        _timeoutUnit = (unit == 'ms') ? 'ms' : 's';
+        if (params['超时时间'] != 30 || _timeoutUnit != 's') {
           _isAdvancedExpanded = true;
         }
       }
@@ -614,7 +616,8 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       case '点击文字':
         return [
           _buildFieldRow('出现文字', _appearTextController, ''),
-          _buildFieldRow('点击文本', _clickTextController, '', required: true),
+          _buildFieldRow('点击文本', _clickTextController, '',
+              hint: '留空则匹配所有链接；多个用 ; 分隔'),
           _buildFieldRow('在...之后搜索', _afterSearchController, ''),
           _buildFieldRow('在...之前搜索', _beforeSearchController, ''),
           _buildFieldRow('多个筛选', _multipleSelectionController, '1',
@@ -653,14 +656,39 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           _buildFieldRow('提交按钮文字', _submitButtonTextController, ''),
           _buildFieldRow('多个筛选', _multipleSelectionController, '1',
               hint: '0:随机, >0:第几个, <0:倒数第几个'),
-          _buildCheckboxRow('启用正则', _enableRegex, (value) {
-            setState(() => _enableRegex = value ?? false);
-          }),
+          _buildCheckboxRow(
+            '启用正则',
+            _enableRegex,
+            (value) {
+              setState(() => _enableRegex = value ?? false);
+            },
+            helpTooltip:
+                '*勾起代表输入内容为正则表达式，提交时会生成匹配的一个随机字符串\n例如：输入 [0-9]{6} 代表6位随机数字\n输入 [a-z]{3} 代表3位随机小写字母\n输入 ab[a-zA-Z]{2}[0-9]{3} 代表ab跟上2个字母和3个数字',
+          ),
           if (_enableRegex)
             Padding(
               padding: const EdgeInsets.only(bottom: 12.0),
               child: Text(
                 '*勾起代表输入内容为正则表达式，提交时会生成匹配的一个随机字符串\n例如：输入 [0-9]{6} 代表6位随机数字\n输入 [a-z]{3} 代表3位随机小写字母\n输入 ab[a-zA-Z]{2}[0-9]{3} 代表ab跟上2个字母和3个数字',
+                style: TextStyle(
+                  color: Colors.grey[400],
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          _buildCheckboxRow(
+            '输入空以当前值提交',
+            _submitCurrentWhenEmpty,
+            (value) {
+              setState(() => _submitCurrentWhenEmpty = value ?? false);
+            },
+            helpTooltip: '*勾起则当输入内容为空时，将页面上当前选中的值作为提交的值',
+          ),
+          if (_submitCurrentWhenEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12.0),
+              child: Text(
+                '*勾起则当输入内容为空时，将页面上当前选中的值作为提交的值',
                 style: TextStyle(
                   color: Colors.grey[400],
                   fontSize: 12,
@@ -884,13 +912,14 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   }
 
   Widget _buildCheckboxRow(
-      String label, bool value, ValueChanged<bool?> onChanged) {
+      String label, bool value, ValueChanged<bool?> onChanged,
+      {String? helpTooltip}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Row(
         children: [
           SizedBox(
-            width: 120,
+            width: 132,
             child: Text(
               label,
               style: TextStyle(color: _theme.textColor, fontSize: 13),
@@ -908,6 +937,31 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                   borderRadius: BorderRadius.circular(4)),
             ),
           ),
+          if (helpTooltip != null) ...[
+            const SizedBox(width: 8),
+            Tooltip(
+              message: helpTooltip,
+              triggerMode: TooltipTriggerMode.tap,
+              child: Container(
+                width: 22,
+                height: 22,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: _theme.inputFillColor,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: _theme.borderColor),
+                ),
+                child: Text(
+                  '?',
+                  style: TextStyle(
+                    color: _theme.labelColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -1625,7 +1679,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                   const SizedBox(width: 8),
                   if (_beforeScript != null ||
                       _afterScript != null ||
-                      _timeoutSecondsController.text != '30' || _timeoutUnit != 's')
+                      _timeoutSecondsController.text != '30' || _timeoutUnit != 's')
                     Container(
                       padding:
                           const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -1660,72 +1714,72 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 16),
-                    child: Row(
-                      children: [
-                        SizedBox(
-                          width: 120,
-                          child: Text(
-                            '超时时间',
-                            style: TextStyle(color: _theme.textColor, fontSize: 13),
-                          ),
-                        ),
-                        Expanded(
-                          child: _buildTextField(
-                            _timeoutSecondsController,
-                            _timeoutUnit == 'ms' ? '5000' : '30',
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        SizedBox(
-                          width: 72,
-                          child: DropdownButtonFormField<String>(
-                            value: _timeoutUnit,
-                            isExpanded: true,
-                            decoration: InputDecoration(
-                              contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 12),
-                              filled: true,
-                              fillColor: _theme.inputFillColor,
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                borderSide: BorderSide(color: _theme.borderColor),
-                              ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                borderSide: BorderSide(color: _theme.borderColor),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                borderSide: const BorderSide(color: Colors.blue),
-                              ),
-                            ),
-                            dropdownColor: _theme.dropdownColor,
-                            style: TextStyle(fontSize: 13, color: _theme.textColor),
-                            icon: Icon(Icons.arrow_drop_down, color: _theme.iconColor, size: 20),
-                            items: const [
-                              DropdownMenuItem<String>(
-                                value: 's',
-                                child: Text('s'),
-                              ),
-                              DropdownMenuItem<String>(
-                                value: 'ms',
-                                child: Text('ms'),
-                              ),
-                            ],
-                            onChanged: (String? val) {
-                              if (val != null) {
-                                setState(() {
-                                  _timeoutUnit = val;
-                                });
-                              }
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 120,
+                          child: Text(
+                            '超时时间',
+                            style: TextStyle(color: _theme.textColor, fontSize: 13),
+                          ),
+                        ),
+                        Expanded(
+                          child: _buildTextField(
+                            _timeoutSecondsController,
+                            _timeoutUnit == 'ms' ? '5000' : '30',
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: 72,
+                          child: DropdownButtonFormField<String>(
+                            value: _timeoutUnit,
+                            isExpanded: true,
+                            decoration: InputDecoration(
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 12),
+                              filled: true,
+                              fillColor: _theme.inputFillColor,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide(color: _theme.borderColor),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide(color: _theme.borderColor),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: const BorderSide(color: Colors.blue),
+                              ),
+                            ),
+                            dropdownColor: _theme.dropdownColor,
+                            style: TextStyle(fontSize: 13, color: _theme.textColor),
+                            icon: Icon(Icons.arrow_drop_down, color: _theme.iconColor, size: 20),
+                            items: const [
+                              DropdownMenuItem<String>(
+                                value: 's',
+                                child: Text('s'),
+                              ),
+                              DropdownMenuItem<String>(
+                                value: 'ms',
+                                child: Text('ms'),
+                              ),
+                            ],
+                            onChanged: (String? val) {
+                              if (val != null) {
+                                setState(() {
+                                  _timeoutUnit = val;
+                                });
+                              }
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   _buildCheckboxRow(
                     '未找到时跳过',
@@ -1851,7 +1905,6 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         break;
 
       case '点击文字':
-        if (_clickTextController.text.isEmpty) return;
         params['点击文本'] = _clickTextController.text;
         params['出现文字'] = _appearTextController.text;
         if (_delayController.text.isNotEmpty) {
@@ -1940,6 +1993,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         }
         params['多个筛选'] = int.tryParse(_multipleSelectionController.text) ?? 1;
         params['启用正则'] = _enableRegex;
+        params['输入空以当前值提交'] = _submitCurrentWhenEmpty;
         // Reconstruct formData from _formItems
         if (_formItems.isNotEmpty) {
           final formDataMap = <String, String>{};
@@ -2135,7 +2189,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     final timeout = int.tryParse(_timeoutSecondsController.text);
     if (timeout != null && timeout >= 0) {
       params['超时时间'] = timeout;
-      params['超时单位'] = _timeoutUnit;
+      params['超时单位'] = _timeoutUnit;
     }
 
     final newScript = Script(

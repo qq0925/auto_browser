@@ -318,8 +318,11 @@ class RightScriptPanel extends StatelessWidget {
 
       case '点击文字':
         final clickText = params['点击文本'] ?? params['文本'];
-        if (clickText != null && clickText.toString().isNotEmpty) {
+        if (clickText != null && clickText.toString().trim().isNotEmpty) {
           list.add(MapEntry('点击文本', clickText.toString()));
+          handledKeys.addAll(['点击文本', '文本']);
+        } else {
+          list.add(const MapEntry('点击文本', '(留空: 匹配所有链接)'));
           handledKeys.addAll(['点击文本', '文本']);
         }
         if (params['多个筛选'] != null) {
@@ -387,6 +390,10 @@ class RightScriptPanel extends StatelessWidget {
         if (params['启用正则'] == true) {
           list.add(const MapEntry('正则匹配', '是'));
           handledKeys.add('启用正则');
+        }
+        if (params['输入空以当前值提交'] == true) {
+          list.add(const MapEntry('输入空以当前值提交', '是'));
+          handledKeys.add('输入空以当前值提交');
         }
         break;
 
@@ -1066,6 +1073,9 @@ class RightScriptPanel extends StatelessWidget {
         final formData = params['表单数据'];
         if (formData is Map && formData.isNotEmpty) {
           parts.addAll(formData.entries.map((e) => '${e.key}: ${e.value}'));
+        }
+        if (parts.isEmpty && params['输入空以当前值提交'] == true) {
+          return '以当前值提交';
         }
         return parts.join('\n');
       case '进入网址':

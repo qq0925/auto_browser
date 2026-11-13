@@ -237,6 +237,32 @@ void main() {
       tab.completedLoopCount = 2;
       expect(tab.completedLoopProgressText, '2/∞');
     });
+
+    test('点击文字 JS 逻辑生成：留空匹配所有链接并优先筛选可点击元素', () {
+      final js = executor.buildClickScriptLogic({'点击文本': ''});
+      expect(js.contains('a[href], a[onclick]'), true);
+      expect(js.contains('_auokIsClickableElement'), true);
+      expect(js.contains('clickableMatched'), true);
+      expect(js.contains('split(/[;；]/)'), true);
+    });
+
+    test('输入框提交 JS 逻辑生成：支持输入空以当前值提交且不覆盖页面选中值', () {
+      final jsKeep = executor.buildFormSubmitScriptLogic({
+        '提交按钮文字': '确定',
+        '输入空以当前值提交': true,
+        '表单数据': {'roleId': '', 'count': '2'},
+      });
+      expect(jsKeep.contains('const submitCurrentWhenEmpty = true;'), true);
+      expect(jsKeep.contains('if (submitCurrentWhenEmpty && isEmptyValue)'), true);
+      expect(jsKeep.contains('findCurrentTarget'), true);
+      expect(jsKeep.contains("entries.length === 0"), true);
+
+      final jsDefault = executor.buildFormSubmitScriptLogic({
+        '提交按钮文字': '提交',
+        '表单数据': {'username': 'hero'},
+      });
+      expect(jsDefault.contains('const submitCurrentWhenEmpty = false;'), true);
+    });
   });
 }
 

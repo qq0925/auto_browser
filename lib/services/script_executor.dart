@@ -130,14 +130,16 @@ class ScriptExecutor {
       }
 
       // 执行前置脚本
-      if (script.params['执行每个脚本前执行'] != null) {
-        final beforeScriptMap = script.params['执行每个脚本前执行'];
-        if (beforeScriptMap is Map<String, dynamic>) {
-          final beforeScript = Script.fromUserMap(beforeScriptMap);
+      if (resolvedScript.params['执行每个脚本前执行'] != null) {
+        final beforeScriptMap = resolvedScript.params['执行每个脚本前执行'];
+        if (beforeScriptMap is Map) {
+          final beforeScript =
+              Script.fromUserMap(Map<String, dynamic>.from(beforeScriptMap));
           await execute(controller, beforeScript,
               executionDelay: executionDelay,
               waitForPageLoad: waitForPageLoad,
               getTabLoadState: getTabLoadState,
+              variables: variables,
               onStatusChanged: (status, msg, prog) {
             if (status == ScriptStatus.running ||
                 status == ScriptStatus.waiting) {
@@ -181,7 +183,7 @@ class ScriptExecutor {
           onStatusChanged,
           scripts,
           variables: variables,
-        ).timeout(timeoutDuration);
+        ).timeout(timeoutDuration + const Duration(milliseconds: 200));
         result = stepResult.success;
         lastStepTriggeredNav = stepResult.isNavTrigger;
         if (stepResult.navMark != null) navToken = stepResult.navMark;
@@ -199,9 +201,14 @@ class ScriptExecutor {
         if (skipWhenNotFound &&
             (resolvedScript.type == '点击文字' ||
                 resolvedScript.type == '点击图片')) {
-          final target = resolvedScript.params['点击文本'] ??
-              resolvedScript.params['图片地址'] ??
-              '';
+          final rawTarget = (resolvedScript.params['点击文本'] ??
+                  resolvedScript.params['图片地址'] ??
+                  '')
+              .toString();
+          final target =
+              rawTarget.trim().isEmpty && resolvedScript.type == '点击文字'
+                  ? '任意链接'
+                  : rawTarget;
           final msg = '超时未找到目标 [$target]，已跳过';
           result = true;
           lastStepSkipped = true;
@@ -245,8 +252,9 @@ class ScriptExecutor {
       // 执行后置脚本
       if (resolvedScript.params['执行每个脚本后执行'] != null) {
         final afterScriptMap = resolvedScript.params['执行每个脚本后执行'];
-        if (afterScriptMap is Map<String, dynamic>) {
-          final afterScript = Script.fromUserMap(afterScriptMap);
+        if (afterScriptMap is Map) {
+          final afterScript =
+              Script.fromUserMap(Map<String, dynamic>.from(afterScriptMap));
           await execute(controller, afterScript,
               executionDelay: executionDelay,
               waitForPageLoad: waitForPageLoad,
@@ -674,9 +682,12 @@ class ScriptExecutor {
         final success = await action();
         if (success) return true;
       } catch (_) {}
-      if (stopwatch.elapsed >= timeout) break;
+      final remainingMs =
+          timeout.inMilliseconds - stopwatch.elapsedMilliseconds;
+      if (remainingMs <= 0) break;
       final stepDelay = attempts < 3 ? 25 : (attempts < 10 ? 50 : 100);
-      await Future.delayed(Duration(milliseconds: stepDelay));
+      await Future.delayed(
+          Duration(milliseconds: min(stepDelay, remainingMs)));
       attempts++;
     }
     return false;
@@ -1323,14 +1334,6 @@ class ScriptExecutor {
     final clickText = params['点击文本'] ?? '';
     final skipWhenNotFound = params['未找到时跳过'] as bool? ?? true;
 
-    if (clickText.isEmpty) {
-      if (skipWhenNotFound) {
-        return const _StepExecutionResult(
-            success: true, isSkipped: true, message: '点击文本为空，已跳过');
-      }
-      return const _StepExecutionResult(success: false);
-    }
-
     bool stepTriggeredNav = false;
     String? stepNavMark;
     String? stepPreUrl;
@@ -1402,10 +1405,11 @@ class ScriptExecutor {
     }
 
     // 未找到点击目标
+    final targetDesc = clickText.trim().isEmpty ? '任意链接' : clickText;
     if (skipWhenNotFound) {
       final msg = lastFailureReason == 'trigger_not_met'
           ? '前置条件未满足 [${params['出现文字'] ?? ''}]，已跳过'
-          : '未找到目标 [$clickText]，已跳过';
+          : '未找到目标 [$targetDesc]，已跳过';
       return _StepExecutionResult(
         success: true,
         isSkipped: true,
@@ -1414,30 +1418,25 @@ class ScriptExecutor {
     } else {
       final msg = lastFailureReason == 'trigger_not_met'
           ? '前置条件未满足 [${params['出现文字'] ?? ''}]'
-          : '未找到目标 [$clickText]';
+          : '未找到目标 [$targetDesc]';
       onStatusChanged?.call(ScriptStatus.failure, msg, null);
       return const _StepExecutionResult(success: false);
     }
   }
 
-  Future<bool> _executeFormSubmit(
-      InAppWebViewController controller, Script script) async {
-    final params = script.params;
-    if (params.isEmpty) return false;
-
-    // Get formData map and button text
+  /// 生成「输入框提交」脚本的 JS 执行代码
+  String buildFormSubmitScriptLogic(Map<String, dynamic> params) {
     final formData = params['表单数据'] as Map<String, dynamic>? ?? {};
     final buttonText = params['提交按钮文字'] as String? ?? '提交';
     final multipleSelection = params['多个筛选'] as int? ?? 1;
     final enableRegex = params['启用正则'] as bool? ?? false;
+    final submitCurrentWhenEmpty = params['输入空以当前值提交'] as bool? ?? false;
 
-    if (formData.isEmpty) return false;
-
-    // Process Regex if enabled
-    Map<String, dynamic> processedFormData = Map.from(formData);
+    // 启用正则时，仅对非空输入值按规则生成随机字符串
+    final Map<String, dynamic> processedFormData = Map.from(formData);
     if (enableRegex) {
       processedFormData.forEach((key, value) {
-        if (value is String) {
+        if (value is String && value.isNotEmpty) {
           processedFormData[key] = _generateStringFromPattern(value);
         }
       });
@@ -1446,50 +1445,77 @@ class ScriptExecutor {
     final jsonFormData = jsonEncode(processedFormData);
     final jsonButtonText = jsonEncode(buttonText);
 
-    return await _pollUntilSuccess(() async {
-      final result = await controller.evaluateJavascript(source: '''
+    return '''
         (function() {
           $_highlightJs
           try {
             const formData = $jsonFormData;
             const buttonText = $jsonButtonText;
             const multipleSelection = $multipleSelection;
+            const submitCurrentWhenEmpty = $submitCurrentWhenEmpty;
             let filledCount = 0;
             
-            // Find target form based on multipleSelection
+            // 按多个筛选参数查找目标表单
             const forms = document.querySelectorAll('form');
             let targetForm = null;
             
             if (forms.length > 0) {
               if (multipleSelection === 0) {
-                // Random
+                // 随机选择
                 const randomIndex = Math.floor(Math.random() * forms.length);
                 targetForm = forms[randomIndex];
               } else if (multipleSelection > 0) {
-                // Index (1-based)
+                // 正向索引 (从 1 开始)
                 const index = multipleSelection - 1;
                 if (index < forms.length) targetForm = forms[index];
               } else {
-                // Reverse Index
+                // 倒数索引
                 const index = forms.length + multipleSelection;
                 if (index >= 0) targetForm = forms[index];
               }
             }
             
-            // Helper to find input within scope (form or document)
+            function escapeAttr(val) {
+              return String(val).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, "\\\\'");
+            }
+
+            // 在指定作用域内查找表单控件 (name / id / placeholder)
             function findInput(fieldName, scope) {
-              return scope.querySelector("[name='" + fieldName + "']") || 
-                     scope.querySelector("#" + fieldName) ||
-                     scope.querySelector("[placeholder='" + fieldName + "']");
+              const escaped = escapeAttr(fieldName);
+              return scope.querySelector("[name='" + escaped + "']") || 
+                     scope.querySelector("[id='" + escaped + "']") ||
+                     scope.querySelector("[placeholder='" + escaped + "']");
+            }
+
+            // 查找单选组当前已选中的元素（若无选中则回退第一个）
+            function findCurrentTarget(fieldName, defaultInput, scope) {
+              if (defaultInput && defaultInput.type === 'radio' && defaultInput.name) {
+                const escapedName = escapeAttr(defaultInput.name);
+                const checkedRadio = scope.querySelector("input[type='radio'][name='" + escapedName + "']:checked") ||
+                                     document.querySelector("input[type='radio'][name='" + escapedName + "']:checked");
+                if (checkedRadio) return checkedRadio;
+              }
+              return defaultInput;
             }
 
             const scope = targetForm || document;
             let lastFilledInput = null;
+            const entries = Object.entries(formData);
 
-            for (const [fieldName, value] of Object.entries(formData)) {
+            for (const [fieldName, value] of entries) {
               let input = findInput(fieldName, scope) || (scope !== document ? findInput(fieldName, document) : null);
               
               if (input && input.type !== 'hidden' && input.type !== 'submit') {
+                const isEmptyValue = (value === null || value === undefined || String(value) === '');
+                if (submitCurrentWhenEmpty && isEmptyValue) {
+                  // 输入为空且勾选“输入空以当前值提交”：保留页面原有/当前选中值不覆盖
+                  const currentEl = findCurrentTarget(fieldName, input, scope);
+                  _auokHighlight(currentEl);
+                  lastFilledInput = currentEl;
+                  filledCount++;
+                  continue;
+                }
+
                 try { if (typeof input.focus === 'function') input.focus(); } catch(_) {}
                 try {
                   const proto = Object.getPrototypeOf(input);
@@ -1511,14 +1537,17 @@ class ScriptExecutor {
               }
             }
             
-            if (filledCount > 0) {
-              // 若指定为 Enter键提交，优先在最后填入的输入框上派发回车键事件
-              if (buttonText === 'Enter键提交' && lastFilledInput) {
+            // 当已处理字段或勾选“输入空以当前值提交”且未指定字段时，直接按页面当前值提交
+            const canSubmit = filledCount > 0 || (submitCurrentWhenEmpty && entries.length === 0);
+            if (canSubmit) {
+              const enterTarget = lastFilledInput || scope.querySelector('input:not([type="hidden"]):not([type="submit"]), textarea, select');
+              // 若指定为 Enter键提交，优先在目标输入框上派发回车键事件
+              if (buttonText === 'Enter键提交' && enterTarget) {
                 try {
                   const keyOpts = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
-                  lastFilledInput.dispatchEvent(new KeyboardEvent('keydown', keyOpts));
-                  lastFilledInput.dispatchEvent(new KeyboardEvent('keypress', keyOpts));
-                  lastFilledInput.dispatchEvent(new KeyboardEvent('keyup', keyOpts));
+                  enterTarget.dispatchEvent(new KeyboardEvent('keydown', keyOpts));
+                  enterTarget.dispatchEvent(new KeyboardEvent('keypress', keyOpts));
+                  enterTarget.dispatchEvent(new KeyboardEvent('keyup', keyOpts));
                 } catch(_) {}
               }
 
@@ -1562,7 +1591,7 @@ class ScriptExecutor {
                   } catch (e2) {}
                 }
                 return true;
-              } else if (buttonText === 'Enter键提交' && lastFilledInput) {
+              } else if (buttonText === 'Enter键提交' && enterTarget) {
                 return true;
               }
             }
@@ -1573,7 +1602,23 @@ class ScriptExecutor {
             return false;
           }
         })();
-      ''');
+      ''';
+  }
+
+  Future<bool> _executeFormSubmit(
+      InAppWebViewController controller, Script script) async {
+    final params = script.params;
+    if (params.isEmpty) return false;
+
+    final formData = params['表单数据'] as Map<String, dynamic>? ?? {};
+    final submitCurrentWhenEmpty = params['输入空以当前值提交'] as bool? ?? false;
+
+    if (formData.isEmpty && !submitCurrentWhenEmpty) return false;
+
+    final jsSource = buildFormSubmitScriptLogic(params);
+
+    return await _pollUntilSuccess(() async {
+      final result = await controller.evaluateJavascript(source: jsSource);
 
       return result.toString() == 'true';
     }, timeout: _getStepTimeout(script));
@@ -1647,7 +1692,7 @@ class ScriptExecutor {
     }
   }
 
-  static const String _clickHelpersVersion = '2';
+  static const String _clickHelpersVersion = '3';
 
   /// 页面级点击执行器缓存安装脚本：同一文档期内仅解析注入一次 _highlightJs 与 _egretCanvasProbeJs
   String get _installClickHelpersJs => '''
@@ -1716,17 +1761,19 @@ class ScriptExecutor {
           return (s || '').replace(/\\s+/g, '');
         }
 
-        // 阶段一：去空格全等匹配
-        let matchedEgret = egretNodes.filter(item => {
-          const itemClean = normalize(item.text);
-          return clickTexts.some(cText => {
-            const targetClean = normalize(cText);
-            return itemClean === targetClean;
-          });
-        });
+        // 阶段一：去空格全等匹配（若点击文本留空，则退化为全部可见白鹭节点）
+        let matchedEgret = clickTexts.length === 0
+          ? egretNodes
+          : egretNodes.filter(item => {
+              const itemClean = normalize(item.text);
+              return clickTexts.some(cText => {
+                const targetClean = normalize(cText);
+                return itemClean === targetClean;
+              });
+            });
 
         // 阶段二：若全等未中，自动回退到模糊包含匹配（无论是否勾选完全匹配，确保游戏按钮不因多空格/换行失败）
-        if (matchedEgret.length === 0) {
+        if (clickTexts.length > 0 && matchedEgret.length === 0) {
           matchedEgret = egretNodes.filter(item => {
             const itemClean = normalize(item.text);
             return clickTexts.some(cText => {
@@ -1759,12 +1806,28 @@ class ScriptExecutor {
         return false;
       }
 
-      // 目标文字判断
-      const clickTexts = ($clickTextExpr).split(';').map(t => t.trim()).filter(t => t);
-      if (clickTexts.length === 0) return false;
+      function _auokIsClickableElement(el) {
+        if (!el) return false;
+        try {
+          const clickableAncestor = el.closest
+            ? el.closest('a[href], a[onclick], button:not([disabled]), input[type="button"]:not([disabled]), input[type="submit"]:not([disabled]), input[type="reset"]:not([disabled]), [role="button"], [onclick]')
+            : null;
+          if (clickableAncestor && _auokIsVisible(clickableAncestor)) return true;
+          if (typeof el.onclick === 'function') return true;
+          if (el.tagName === 'A' && el.hasAttribute && el.hasAttribute('href')) return true;
+          if (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') {
+            const st = window.getComputedStyle(el);
+            if (st && st.cursor === 'pointer') return true;
+          }
+        } catch(_) {}
+        return false;
+      }
+
+      // 目标文字判断（支持半角 ; 与全角 ； 分隔；留空时匹配页面所有链接）
+      const clickTexts = ($clickTextExpr).split(/[;；]/).map(t => t.trim()).filter(t => t);
 
       // 出现文字校验（同时检测普通 DOM 文本与 Canvas 白鹭游戏舞台）
-      const triggerTexts = ($triggerTextExpr).split(';').filter(t => t.trim());
+      const triggerTexts = ($triggerTextExpr).split(/[;；]/).filter(t => t.trim());
       if (triggerTexts.length > 0) {
         const pageText = document.body.textContent || '';
         let hasText = triggerTexts.some(text => 
@@ -1782,52 +1845,71 @@ class ScriptExecutor {
         if (!hasText) return JSON.stringify({ success: false, reason: 'trigger_not_met', isNavTrigger: false });
       }
 
-      // 优先从常见可交互与文本容器节点中检索，避免扫描全量万级无关节点
-      const candidateSelectors = 'a, button, input, [role="button"], [onclick], label, span, p, h1, h2, h3, h4, h5, h6, li, td, th, b, strong, em, div';
-      const allElements = Array.from(document.querySelectorAll(candidateSelectors));
-      
-      // Filter by text content
-      let matchedLinks = allElements.filter(el => {
-        const text = (typeof el.innerText === 'string' && (el.innerText.length > 0 || !_auokIsVisible(el)))
-          ? el.innerText
-          : (el.innerText || el.textContent || el.value || '');
-        const exactMatch = $exactMatchExpr;
-        
-        return clickTexts.some(cText => {
-          if (exactMatch) {
-            return text.trim() === cText;
-          } else {
-            return text.includes(cText);
-          }
+      let matchedLinks = [];
+      if (clickTexts.length === 0) {
+        // 留空模式：匹配页面上所有可见链接（按文档流顺序，后续仍受位置筛选与多个筛选控制）
+        matchedLinks = Array.from(document.querySelectorAll('a[href], a[onclick]')).filter(el => {
+          if (!_auokIsVisible(el)) return false;
+          const href = (el.getAttribute('href') || '').trim();
+          const hasOnclick = el.hasAttribute('onclick') || typeof el.onclick === 'function';
+          return hasOnclick || href.length > 0;
         });
-      });
+      } else {
+        // 优先从常见可交互与文本容器节点中检索，避免扫描全量万级无关节点
+        const candidateSelectors = 'a, button, input, [role="button"], [onclick], label, span, p, h1, h2, h3, h4, h5, h6, li, td, th, b, strong, em, div';
+        const allElements = Array.from(document.querySelectorAll(candidateSelectors));
+        
+        // Filter by text content
+        matchedLinks = allElements.filter(el => {
+          const text = (typeof el.innerText === 'string' && (el.innerText.length > 0 || !_auokIsVisible(el)))
+            ? el.innerText
+            : (el.innerText || el.textContent || el.value || '');
+          const exactMatch = $exactMatchExpr;
+          
+          return clickTexts.some(cText => {
+            if (exactMatch) {
+              return text.trim() === cText;
+            } else {
+              return text.includes(cText);
+            }
+          });
+        });
 
-      // 优先保留可见元素（防止 display:none 隐藏弹窗/响应式隐藏按钮抢占点击）
-      if (matchedLinks.length > 0) {
-        const visibleMatched = matchedLinks.filter(_auokIsVisible);
-        if (visibleMatched.length > 0) {
-          matchedLinks = visibleMatched;
+        // 优先保留可见元素（防止 display:none 隐藏弹窗/响应式隐藏按钮抢占点击）
+        if (matchedLinks.length > 0) {
+          const visibleMatched = matchedLinks.filter(_auokIsVisible);
+          if (visibleMatched.length > 0) {
+            matchedLinks = visibleMatched;
+          }
         }
-      }
-      
-      // 高效剪枝：优先保留最深层匹配节点（避免误点外层大包裹容器）
-      if (matchedLinks.length > 1) {
-        const leafMatched = [];
-        for (let i = 0; i < matchedLinks.length; i++) {
-          const el = matchedLinks[i];
-          let isContainerOfOther = false;
-          for (let j = 0; j < matchedLinks.length; j++) {
-            if (i !== j && el.contains(matchedLinks[j])) {
-              isContainerOfOther = true;
-              break;
+        
+        // 高效剪枝：优先保留最深层匹配节点（避免误点外层大包裹容器）
+        if (matchedLinks.length > 1) {
+          const leafMatched = [];
+          for (let i = 0; i < matchedLinks.length; i++) {
+            const el = matchedLinks[i];
+            let isContainerOfOther = false;
+            for (let j = 0; j < matchedLinks.length; j++) {
+              if (i !== j && el.contains(matchedLinks[j])) {
+                isContainerOfOther = true;
+                break;
+              }
+            }
+            if (!isContainerOfOther) {
+              leafMatched.push(el);
             }
           }
-          if (!isContainerOfOther) {
-            leafMatched.push(el);
+          if (leafMatched.length > 0) {
+            matchedLinks = leafMatched;
           }
         }
-        if (leafMatched.length > 0) {
-          matchedLinks = leafMatched;
+
+        // 优先过滤真正可点击的文字元素（防止上方纯文本说明文字抢占后方真实链接/按钮）
+        if (matchedLinks.length > 0) {
+          const clickableMatched = matchedLinks.filter(_auokIsClickableElement);
+          if (clickableMatched.length > 0) {
+            matchedLinks = clickableMatched;
+          }
         }
       }
 
@@ -2922,7 +3004,8 @@ class ScriptExecutor {
       });
       return str;
     } else if (val is Map) {
-      return val.map((k, v) => MapEntry(k, _replaceVarInValue(v, vars)));
+      return val.map<String, dynamic>(
+          (k, v) => MapEntry(k.toString(), _replaceVarInValue(v, vars)));
     } else if (val is List) {
       return val.map((e) => _replaceVarInValue(e, vars)).toList();
     }

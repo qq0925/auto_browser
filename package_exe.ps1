@@ -58,7 +58,7 @@ class Program {
             string appDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "AuokBrowser",
-                "v1.1.16_24_$stamp"
+                "v1.1.17_25_$stamp"
             );
             string exePath = Path.Combine(appDir, "auto_browser.exe");
             if (!File.Exists(exePath)) {
