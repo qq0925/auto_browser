@@ -81,8 +81,7 @@ class ScriptExecutor {
         bool needsWaitBefore = resolvedScript.params['等待网页加载'] == true;
         if (!needsWaitBefore && getTabLoadState != null) {
           needsWaitBefore = getTabLoadState().isLoading;
-        }
-        if (!needsWaitBefore && controller != null) {
+        } else if (!needsWaitBefore && controller != null) {
           try {
             needsWaitBefore = await controller.isLoading();
           } catch (_) {}
@@ -320,8 +319,8 @@ class ScriptExecutor {
             (resolvedScript.type == '点击文字' ||
                 resolvedScript.type == '点击图片' ||
                 resolvedScript.type == '数值对比-点击文字')) {
-          // 0ms 极速模式下对非显式导航点击保留 1 帧 (16ms) 跨通道让步，防止 JS 异步改写 location 尚未通知到原生 onLoadStart
-          await Future.delayed(const Duration(milliseconds: 16));
+          // 0ms 极速模式下仅让出事件循环微任务，不阻塞 16ms
+          await Future.delayed(Duration.zero);
         }
       }
     }
@@ -539,10 +538,6 @@ class ScriptExecutor {
       case "跳转脚本":
         final ok = await _executeJumpScript(script, onStatusChanged);
         return _StepExecutionResult(success: ok);
-
-      case "数值对比-点击文字":
-        return await _executeValueComparisonClickText(
-            controller!, script, onStatusChanged);
 
       case "滑动页面":
         final ok = await _executeScrollPage(controller!, script, onStatusChanged);
@@ -1754,11 +1749,12 @@ class ScriptExecutor {
     }
   }
 
-  static const String _clickHelpersVersion = '3';
+  static const String _clickHelpersVersion = '4';
 
-  /// 页面级点击执行器缓存安装脚本：同一文档期内仅解析注入一次 _highlightJs 与 _egretCanvasProbeJs
-  String get _installClickHelpersJs => '''
+  /// 页面级点击执行器缓存安装脚本：支持 AT_DOCUMENT_END 预注入及执行前按需幂等补强注入
+  static String get clickHelpersInstallJs => '''
     (function() {
+      if (window.__auok_helpers_v === $_clickHelpersVersion && typeof window._auokExecuteClick === 'function') return;
       $_highlightJs
       $_egretCanvasProbeJs
       window._auokExecuteClick = function(cfg) {
@@ -1775,6 +1771,8 @@ class ScriptExecutor {
       window.__auok_helpers_v = $_clickHelpersVersion;
     })();
   ''';
+
+  String get _installClickHelpersJs => clickHelpersInstallJs;
 
   String _buildClickScriptLogic(Map<String, dynamic> params,
       {String? navMark}) {
@@ -1803,7 +1801,7 @@ class ScriptExecutor {
   }
 
   /// 生成点击匹配与导航检测核心 JS 逻辑（供内联注入与页面缓存函数共用）
-  String _buildClickScriptBody({
+  static String _buildClickScriptBody({
     required String triggerTextExpr,
     required String clickTextExpr,
     required String exactMatchExpr,
@@ -1907,6 +1905,10 @@ class ScriptExecutor {
         if (!hasText) return JSON.stringify({ success: false, reason: 'trigger_not_met', isNavTrigger: false });
       }
 
+      const afterText = ($afterTextExpr).trim();
+      const beforeText = ($beforeTextExpr).trim();
+      const exactMatch = $exactMatchExpr;
+      let usedFastPath = false;
       let matchedLinks = [];
       if (clickTexts.length === 0) {
         // 留空模式：匹配页面上所有可见链接（按文档流顺序，后续仍受位置筛选与多个筛选控制）
@@ -1917,35 +1919,27 @@ class ScriptExecutor {
           return hasOnclick || href.length > 0;
         });
       } else {
-        // 优先从常见可交互与文本容器节点中检索，避免扫描全量万级无关节点
-        const candidateSelectors = 'a, button, input, [role="button"], [onclick], label, span, p, h1, h2, h3, h4, h5, h6, li, td, th, b, strong, em, div';
-        const allElements = Array.from(document.querySelectorAll(candidateSelectors));
-        
-        // Filter by text content
-        matchedLinks = allElements.filter(el => {
-          const text = (typeof el.innerText === 'string' && (el.innerText.length > 0 || !_auokIsVisible(el)))
-            ? el.innerText
-            : (el.innerText || el.textContent || el.value || '');
-          const exactMatch = $exactMatchExpr;
-          
-          return clickTexts.some(cText => {
-            if (exactMatch) {
-              return text.trim() === cText;
-            } else {
-              return text.includes(cText);
+        // 零回流快速通道：先只查原生可交互元素，用 textContent 匹配后再对极少数命中节点做可见性与位置校验
+        const fastSelectors = 'a, button, input[type="submit"], input[type="button"], input[type="reset"], [role="button"], [onclick]';
+        const fastNodes = document.querySelectorAll(fastSelectors);
+        for (let i = 0; i < fastNodes.length; i++) {
+          const el = fastNodes[i];
+          const raw = el.tagName === 'INPUT' ? (el.value || '') : (el.textContent || '');
+          const trimmed = raw.trim();
+          if (!trimmed) continue;
+          let hit = false;
+          for (let k = 0; k < clickTexts.length; k++) {
+            const cText = clickTexts[k];
+            if (exactMatch ? trimmed === cText : trimmed.includes(cText)) {
+              hit = true;
+              break;
             }
-          });
-        });
-
-        // 优先保留可见元素（防止 display:none 隐藏弹窗/响应式隐藏按钮抢占点击）
-        if (matchedLinks.length > 0) {
-          const visibleMatched = matchedLinks.filter(_auokIsVisible);
-          if (visibleMatched.length > 0) {
-            matchedLinks = visibleMatched;
+          }
+          if (hit && _auokIsVisible(el)) {
+            matchedLinks.push(el);
           }
         }
-        
-        // 高效剪枝：优先保留最深层匹配节点（避免误点外层大包裹容器）
+
         if (matchedLinks.length > 1) {
           const leafMatched = [];
           for (let i = 0; i < matchedLinks.length; i++) {
@@ -1966,20 +1960,73 @@ class ScriptExecutor {
           }
         }
 
-        // 优先过滤真正可点击的文字元素（防止上方纯文本说明文字抢占后方真实链接/按钮）
+        if (matchedLinks.length > 0 && (afterText || beforeText)) {
+          matchedLinks = _auokFilterByPosition(matchedLinks, afterText, beforeText);
+        }
+
         if (matchedLinks.length > 0) {
-          const clickableMatched = matchedLinks.filter(_auokIsClickableElement);
-          if (clickableMatched.length > 0) {
-            matchedLinks = clickableMatched;
+          usedFastPath = true;
+        } else {
+          // 兜底通道：优先从常见可交互与文本容器节点中检索，兼容 cursor:pointer 普通标签或 innerText 差异场景
+          const candidateSelectors = 'a, button, input, [role="button"], [onclick], label, span, p, h1, h2, h3, h4, h5, h6, li, td, th, b, strong, em, div';
+          const allElements = Array.from(document.querySelectorAll(candidateSelectors));
+
+          // Filter by text content
+          matchedLinks = allElements.filter(el => {
+            const text = (typeof el.innerText === 'string' && (el.innerText.length > 0 || !_auokIsVisible(el)))
+              ? el.innerText
+              : (el.innerText || el.textContent || el.value || '');
+
+            return clickTexts.some(cText => {
+              if (exactMatch) {
+                return text.trim() === cText;
+              } else {
+                return text.includes(cText);
+              }
+            });
+          });
+
+          // 优先保留可见元素（防止 display:none 隐藏弹窗/响应式隐藏按钮抢占点击）
+          if (matchedLinks.length > 0) {
+            const visibleMatched = matchedLinks.filter(_auokIsVisible);
+            if (visibleMatched.length > 0) {
+              matchedLinks = visibleMatched;
+            }
+          }
+
+          // 高效剪枝：优先保留最深层匹配节点（避免误点外层大包裹容器）
+          if (matchedLinks.length > 1) {
+            const leafMatched = [];
+            for (let i = 0; i < matchedLinks.length; i++) {
+              const el = matchedLinks[i];
+              let isContainerOfOther = false;
+              for (let j = 0; j < matchedLinks.length; j++) {
+                if (i !== j && el.contains(matchedLinks[j])) {
+                  isContainerOfOther = true;
+                  break;
+                }
+              }
+              if (!isContainerOfOther) {
+                leafMatched.push(el);
+              }
+            }
+            if (leafMatched.length > 0) {
+              matchedLinks = leafMatched;
+            }
+          }
+
+          // 优先过滤真正可点击的文字元素（防止上方纯文本说明文字抢占后方真实链接/按钮）
+          if (matchedLinks.length > 0) {
+            const clickableMatched = matchedLinks.filter(_auokIsClickableElement);
+            if (clickableMatched.length > 0) {
+              matchedLinks = clickableMatched;
+            }
           }
         }
       }
 
       // Filter by position constraints if specified
-      const afterText = ($afterTextExpr).trim();
-      const beforeText = ($beforeTextExpr).trim();
-      
-      if (afterText || beforeText) {
+      if (!usedFastPath && (afterText || beforeText)) {
         matchedLinks = _auokFilterByPosition(matchedLinks, afterText, beforeText);
       }
       
@@ -2017,7 +2064,8 @@ class ScriptExecutor {
         let isNav = false;
         if (anchor) {
           const href = (anchor.getAttribute('href') || '').trim();
-          if (href && !href.startsWith('#') && !href.startsWith('javascript:void') && !href.startsWith('javascript:;')) {
+          const hrefLower = href.toLowerCase();
+          if (href && !href.startsWith('#') && !hrefLower.startsWith('javascript:')) {
             isNav = true;
           }
         }
@@ -2283,8 +2331,12 @@ class ScriptExecutor {
     Map<String, String>? variables,
   }) async {
     if (branchAction is Map) {
-      final childScript =
-          Script.fromUserMap(Map<String, dynamic>.from(branchAction));
+      final rawMap = Map<String, dynamic>.from(branchAction);
+      final childScript = (rawMap.containsKey('params') &&
+              rawMap['params'] is Map &&
+              rawMap.containsKey('type'))
+          ? Script.fromMap(rawMap)
+          : Script.fromUserMap(rawMap);
       return await execute(
         controller,
         childScript,
@@ -2853,195 +2905,6 @@ class ScriptExecutor {
     final random = Random();
     return String.fromCharCodes(Iterable.generate(
         length, (_) => chars.codeUnitAt(random.nextInt(chars.length))));
-  }
-
-  Future<_StepExecutionResult> _executeValueComparisonClickText(
-      InAppWebViewController controller,
-      Script script,
-      Function(ScriptStatus status, String? message, double? progress)?
-          onStatusChanged) async {
-    final params = script.params;
-    final clickText = params['点击文本'] ?? '';
-    final targetValueStr = params['目标值'] ?? '';
-    final compareMethod = params['对比方式'] ?? '>';
-    final multipleSelection = params['多个筛选'] as int? ?? 1;
-    final afterSearch = params['在此之后'] ?? '';
-    final beforeSearch = params['在此之前'] ?? '';
-
-    if (clickText.isEmpty || targetValueStr.isEmpty) {
-      onStatusChanged?.call(ScriptStatus.failure, '缺少必要参数', null);
-      return const _StepExecutionResult(success: false);
-    }
-
-    final targetValue = num.tryParse(targetValueStr);
-    if (targetValue == null) {
-      onStatusChanged?.call(ScriptStatus.failure, '目标值无效', null);
-      return const _StepExecutionResult(success: false);
-    }
-
-    final clickTextJson = jsonEncode(clickText);
-    final afterSearchJson = jsonEncode(afterSearch);
-    final beforeSearchJson = jsonEncode(beforeSearch);
-    final compareMethodJson = jsonEncode(compareMethod);
-
-    // JavaScript logic to find elements, extract value, compare, and click
-    final jsCode = '''
-      (function() {
-        $_highlightJs
-        function getElementByXpath(path) {
-          return document.evaluate(path, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-        }
-
-        var clickTexts = ($clickTextJson).split(';').map(t => t.trim()).filter(t => t);
-        if (clickTexts.length === 0) return "not_found";
-
-        var allElements = Array.from(document.querySelectorAll('*')).filter(el => {
-          const tag = el.tagName.toLowerCase();
-          return !['html', 'head', 'style', 'script', 'meta', 'link', 'noscript', 'title', 'body'].includes(tag);
-        });
-
-        var elements = allElements.filter(el => {
-          const text = el.innerText || el.textContent || el.value || '';
-          return clickTexts.some(cText => text.includes(cText));
-        });
-
-        // Keep only the deepest elements
-        elements = elements.filter(el => {
-          return !elements.some(otherEl => otherEl !== el && el.contains(otherEl));
-        });
-
-        // Filter by 'afterSearch' and 'beforeSearch' if provided
-        var afterSearchText = ($afterSearchJson).trim();
-        var beforeSearchText = ($beforeSearchJson).trim();
-
-        if (afterSearchText || beforeSearchText) {
-          elements = _auokFilterByPosition(elements, afterSearchText, beforeSearchText);
-        }
-
-        if (elements.length === 0) return "not_found";
-
-        // Select specific element based on 'multipleSelection'
-        var targetElement = null;
-        var selection = $multipleSelection;
-        if (selection === 0) {
-           // Random
-           targetElement = elements[Math.floor(Math.random() * elements.length)];
-        } else if (selection > 0) {
-           // 1-based index
-           if (selection <= elements.length) {
-             targetElement = elements[selection - 1];
-           }
-        } else {
-           // Negative index (from end)
-           if (Math.abs(selection) <= elements.length) {
-             targetElement = elements[elements.length + selection];
-           }
-        }
-
-        if (!targetElement) return "index_out_of_bounds";
-
-        // Extract value from text (simple regex to find number)
-        var text = targetElement.innerText || targetElement.textContent || '';
-        var match = text.match(/-?\\d+(\\.\\d+)?/);
-        if (!match) return "no_number_found";
-        
-        var value = parseFloat(match[0]);
-        var target = $targetValue;
-        var method = $compareMethodJson;
-        var result = false;
-
-        switch (method) {
-          case '>': result = value > target; break;
-          case '<': result = value < target; break;
-          case '=': result = value == target; break;
-          case '>=': result = value >= target; break;
-          case '<=': result = value <= target; break;
-        }
-
-        if (result) {
-          const closestBtn = targetElement.closest
-            ? targetElement.closest('button, input[type="submit"], input[type="button"], input[type="reset"], [role="button"]')
-            : null;
-          const clickTarget = closestBtn || targetElement;
-          _auokHighlight(clickTarget);
-
-          const anchor = targetElement.closest('a');
-          let isNav = false;
-          if (anchor) {
-            const href = (anchor.getAttribute('href') || '').trim();
-            if (href && !href.startsWith('#') && !href.startsWith('javascript:void') && !href.startsWith('javascript:;')) {
-              isNav = true;
-            }
-          }
-          if (!isNav) {
-            const submitEl = targetElement.closest('button, input[type="submit"]') || targetElement;
-            const form = submitEl.closest ? submitEl.closest('form') : null;
-            const isSubmit = submitEl.type === 'submit' || (submitEl.getAttribute && submitEl.getAttribute('type') === 'submit');
-            if (form && isSubmit) {
-              isNav = true;
-            }
-          }
-
-          _auokSimulateClick(clickTarget);
-          if (anchor && anchor !== clickTarget) {
-            const anchorHref = (anchor.getAttribute('href') || '').trim();
-            if (anchorHref && !anchorHref.startsWith('#') && !anchorHref.startsWith('javascript:')) {
-              const isNativeBtn = clickTarget.tagName === 'BUTTON' || clickTarget.tagName === 'INPUT';
-              if (!isNativeBtn) {
-                _auokSimulateClick(anchor);
-              }
-            }
-          }
-          return isNav ? "clicked_nav" : "clicked";
-        } else {
-          return "condition_not_met: " + value;
-        }
-      })();
-    ''';
-
-    final timeout = _getElementWaitTimeout(script);
-    String lastResult = 'not_found';
-
-    final success = await _pollUntilSuccess(() async {
-      try {
-        final result = await controller.evaluateJavascript(source: jsCode);
-        lastResult = result?.toString() ?? 'not_found';
-        // 若已成功点击，或数值条件判断不满足（属于正常决策分支），均视为判定成功终态！
-        if (lastResult == 'clicked' || lastResult == 'clicked_nav' || lastResult.startsWith('condition_not_met')) {
-          return true;
-        }
-        // 若未找到元素或元素中未找到数值（可能处于页面异步渲染中），继续微轮询探测
-        return false;
-      } catch (e) {
-        lastResult = e.toString();
-        return false;
-      }
-    }, timeout: timeout);
-
-    if (success) {
-      final isNav = lastResult == 'clicked_nav';
-      final msg = (lastResult == 'clicked' || lastResult == 'clicked_nav')
-          ? '已点击'
-          : '条件不满足，未点击 ($lastResult)';
-      return _StepExecutionResult(
-          success: true, isNavTrigger: isNav, message: msg);
-    } else {
-      final skipWhenNotFound = script.params['未找到时跳过'] as bool? ?? true;
-      if (skipWhenNotFound && lastResult == 'not_found') {
-        final msg = '未找到目标 [$clickText]，已跳过';
-        return _StepExecutionResult(
-            success: true, isSkipped: true, message: msg);
-      } else if (lastResult == 'not_found') {
-        onStatusChanged?.call(ScriptStatus.failure, '未找到元素', null);
-      } else if (lastResult == 'index_out_of_bounds') {
-        onStatusChanged?.call(ScriptStatus.failure, '索引超出范围', null);
-      } else if (lastResult == 'no_number_found') {
-        onStatusChanged?.call(ScriptStatus.failure, '未在元素中找到数值', null);
-      } else {
-        onStatusChanged?.call(ScriptStatus.failure, '未知错误: $lastResult', null);
-      }
-      return const _StepExecutionResult(success: false);
-    }
   }
 
   Future<bool> _executeScrollPage(

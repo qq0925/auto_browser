@@ -14,6 +14,7 @@ import 'package:auto_browser/providers/script_provider.dart';
 import 'package:auto_browser/services/script_executor.dart';
 import 'package:auto_browser/widgets/add_script_dialog.dart';
 import 'package:auto_browser/widgets/right_script_panel.dart';
+import 'package:auto_browser/widgets/window_settings_dialog.dart';
 
 /// 轻量级模拟 WebView 控制器：捕获所有 JS 注入与页面导航指令
 class _FakeWebViewController implements InAppWebViewController {
@@ -745,11 +746,12 @@ void main() {
       String? executedChildScript;
       final emittedStatuses = <ScriptStatus>[];
       controller.onEvaluateJavascript = (src) {
+        if (src.contains('window._auokVars')) return null;
         if (src.contains('searchAreaText') || src.contains('bodyText.includes')) {
           return 'true';
         }
         executedChildScript = src;
-        return 'clicked_no_nav';
+        return jsonEncode({'success': true, 'isNavTrigger': false});
       };
       final inlineOk = await executor.execute(
         controller,
@@ -974,84 +976,6 @@ void main() {
         await executor.execute(
           controller,
           Script(type: '逻辑脚本-数值对比', params: {'目标值': 'abc'}),
-          executionDelay: 0,
-        ),
-        false,
-      );
-    });
-
-    test('19. 数值对比-点击文字：条件满足点击/不满足放行/未找到跳过与失败', () async {
-      // A. 条件满足且触发点击导航
-      bool navWaited = false;
-      controller.onEvaluateJavascript = (_) => 'clicked_nav';
-      expect(
-        await executor.execute(
-          controller,
-          Script(type: '数值对比-点击文字', params: {
-            '点击文本': '购买体力',
-            '目标值': '50',
-            '对比方式': '<=',
-            '多个筛选': 1,
-            '在此之后': '体力:',
-            '在此之前': '金币:',
-          }),
-          executionDelay: 0,
-          waitForPageLoad: ({
-            preNavToken,
-            preUrl,
-            preLoadStartEpoch,
-            preLoadStopEpoch,
-            probeWindowMs = 60,
-          }) async {
-            navWaited = true;
-          },
-        ),
-        true,
-      );
-      expect(navWaited, true);
-
-      // B. 条件不满足属于正常分支判断，返回 true
-      controller.onEvaluateJavascript = (_) => 'condition_not_met: 99';
-      expect(
-        await executor.execute(
-          controller,
-          Script(type: '数值对比-点击文字', params: {
-            '点击文本': '购买体力',
-            '目标值': '50',
-            '对比方式': '<',
-          }),
-          executionDelay: 0,
-        ),
-        true,
-      );
-
-      // C. not_found 时：跳过 vs 失败
-      ScriptStatus? st;
-      controller.onEvaluateJavascript = (_) => 'not_found';
-      expect(
-        await executor.execute(
-          controller,
-          Script(type: '数值对比-点击文字', params: {
-            '点击文本': '补给',
-            '目标值': '10',
-            '未找到时跳过': true,
-          }),
-          executionDelay: 0,
-          onStatusChanged: (s, m, p) => st = s,
-        ),
-        true,
-      );
-      expect(st, ScriptStatus.skipped);
-
-      expect(
-        await executor.execute(
-          controller,
-          Script(type: '数值对比-点击文字', params: {
-            '点击文本': '补给',
-            '目标值': '10',
-            '未找到时跳过': false,
-            '超时时间': 0,
-          }),
           executionDelay: 0,
         ),
         false,
@@ -1316,7 +1240,6 @@ void main() {
         Script(type: '逻辑脚本-时间对比', params: {'目标值': '12:00:00'}),
         Script(type: '逻辑脚本-数值对比', params: {'目标值': '10', '对比方式': '>='}),
         Script(type: '延时脚本', params: {'执行延迟': 500}),
-        Script(type: '数值对比-点击文字', params: {'点击文本': '购买', '目标值': '100', '对比方式': '<'}),
         Script(type: '新建窗口并执行脚本', params: {'窗口名称': '小号1', '窗口UA': 'Desktop', '网址': 'https://a.com', '立即执行': true}),
         Script(type: '跳转脚本', params: {'跳转的脚本序号': '2'}),
         Script(type: '设置Cookie', params: {'账号存档名称': 'main', '设置后刷新页面': true}),
@@ -1689,9 +1612,192 @@ void main() {
       expect(savedScript!.params['出现时执行'], isA<Map<String, dynamic>>());
       final trueBranch =
           savedScript!.params['出现时执行'] as Map<String, dynamic>;
-      expect(trueBranch['type'], '点击文字');
+      expect(trueBranch['脚本类型'], '点击文字');
       expect(trueBranch['点击文本'], '去付款');
       expect(savedScript!.params.containsKey('未出现时执行'), false);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('32. AddScriptDialog：已移除数值对比-点击文字，超时时间锁定为ms文本并自动换算',
+        (tester) async {
+      final browserProvider = BrowserProvider();
+      final scriptProvider = ScriptProvider();
+      Script? savedScript;
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: browserProvider),
+            ChangeNotifierProvider.value(value: scriptProvider),
+          ],
+          child: MaterialApp(
+            home: Builder(
+              builder: (ctx) => Scaffold(
+                body: ElevatedButton(
+                  onPressed: () async {
+                    savedScript = await showDialog<Script>(
+                      context: ctx,
+                      builder: (_) => AddScriptDialog(
+                        script: Script(
+                          type: '点击文字',
+                          params: {
+                            '点击文本': '去结算',
+                            '超时时间': 12,
+                            '超时单位': 's',
+                          },
+                        ),
+                      ),
+                    );
+                  },
+                  child: const Text('打开弹窗'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      });
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('打开弹窗'));
+      await tester.pumpAndSettle();
+
+      // 验证历史 12s 已自动换算为 12000ms，且“超时时间”行无 s/ms 单位下拉框，显示固定 ms 文本
+      expect(find.text('12000'), findsOneWidget);
+      final timeoutRow = find
+          .ancestor(
+            of: find.text('超时时间'),
+            matching: find.byType(Row),
+          )
+          .first;
+      expect(
+        find.descendant(
+          of: timeoutRow,
+          matching: find.byType(DropdownButtonFormField<String>),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: timeoutRow, matching: find.text('ms')),
+        findsOneWidget,
+      );
+
+      // 打开脚本类型选择列表，验证已移除 '数值对比-点击文字'
+      await tester.tap(find.text('点击文字').first);
+      await tester.pumpAndSettle();
+      expect(find.text('数值对比-点击文字'), findsNothing);
+      await tester.tap(find.text('点击文字').last);
+      await tester.pumpAndSettle();
+
+      // 保存后校验 超时时间=12000 且 超时单位='ms'
+      await tester.tap(find.text('确认'));
+      await tester.pumpAndSettle();
+      expect(savedScript, isNotNull);
+      expect(savedScript!.params['超时时间'], 12000);
+      expect(savedScript!.params['超时单位'], 'ms');
+    });
+
+    testWidgets('33. WindowSettingsDialog：窗口名称/代理服务器/UA默认继承与自定义及恢复默认',
+        (tester) async {
+      final browserProvider = BrowserProvider();
+      final scriptProvider = ScriptProvider();
+
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        browserProvider.setUserAgent('Desktop');
+        if (browserProvider.tabs.isEmpty) {
+          await browserProvider.addTab(initialUrl: 'https://example.com');
+        }
+      });
+
+      Finder fieldByHint(String hint) => find.byWidgetPredicate(
+          (w) => w is TextField && w.decoration?.hintText == hint);
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: browserProvider),
+            ChangeNotifierProvider.value(value: scriptProvider),
+          ],
+          child: MaterialApp(
+            home: Builder(
+              builder: (ctx) => Scaffold(
+                body: ElevatedButton(
+                  onPressed: () {
+                    showDialog<bool>(
+                      context: ctx,
+                      builder: (_) => const WindowSettingsDialog(tabIndex: 0),
+                    );
+                  },
+                  child: const Text('打开窗口设置'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('打开窗口设置'));
+      await tester.pumpAndSettle();
+
+      // 1. 默认继承总设置的 UA
+      expect(find.text('窗口设置'), findsOneWidget);
+      expect(find.text('继承总设置 (电脑)'), findsOneWidget);
+      expect(find.text('应用(窗口1)'), findsOneWidget);
+
+      // 修改窗口名称
+      await tester.enterText(fieldByHint('选填，默认显示网页标题'), '我的小号1');
+      await tester.pump();
+
+      // 切换代理服务器为自定义并填写 IP:端口 与认证
+      await tester.tap(find.text('关闭'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('自定义').last);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(fieldByHint('0.0.0.0'), '192.168.1.10');
+      await tester.enterText(fieldByHint('端口'), '8080');
+      await tester.enterText(fieldByHint('选填,代理的登录'), 'user1');
+      await tester.enterText(fieldByHint('选填,代理的密码'), 'pass1');
+      await tester.pump();
+
+      // 编辑自定义 UA
+      final uaField = fieldByHint('输入自定义浏览器标识 (UA)');
+      await tester.ensureVisible(uaField);
+      await tester.enterText(uaField, 'CustomTestUA/2.0');
+      await tester.pump();
+
+      // 点击 应用(窗口1)
+      await tester.tap(find.text('应用(窗口1)'));
+      await tester.pumpAndSettle();
+
+      final tabAfterApply = browserProvider.tabs[0];
+      expect(tabAfterApply.customName, '我的小号1');
+      expect(tabAfterApply.proxyMode, '自定义');
+      expect(tabAfterApply.proxyHost, '192.168.1.10');
+      expect(tabAfterApply.proxyPort, '8080');
+      expect(tabAfterApply.proxyUsername, 'user1');
+      expect(tabAfterApply.proxyPassword, 'pass1');
+      expect(tabAfterApply.customUserAgent, 'CustomTestUA/2.0');
+
+      // 重新打开并点击 恢复默认 -> 再点击 应用(窗口1) 提交恢复
+      await tester.tap(find.text('打开窗口设置'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('恢复默认'));
+      await tester.pumpAndSettle();
+      expect(find.text('我的小号1'), findsNothing);
+
+      await tester.tap(find.text('应用(窗口1)'));
+      await tester.pumpAndSettle();
+
+      final tabAfterReset = browserProvider.tabs[0];
+      expect(tabAfterReset.customName, isNull);
+      expect(tabAfterReset.proxyMode, '关闭');
+      expect(tabAfterReset.customUserAgent, isNull);
     });
   });
 }

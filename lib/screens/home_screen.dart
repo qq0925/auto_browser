@@ -28,6 +28,7 @@ import '../widgets/bottom_grid_menu.dart';
 import '../widgets/bookmarks_history_dialog.dart';
 import '../widgets/auto_refresh_dialog.dart';
 import '../widgets/browser_settings_dialog.dart';
+import '../widgets/window_settings_dialog.dart';
 import '../widgets/script_recording_overlay.dart';
 import '../widgets/cookie_manager_dialog.dart';
 import '../widgets/floating_capsule.dart';
@@ -163,7 +164,21 @@ class _BrowserHomePageState extends State<BrowserHomePage>
 
       if (!hasNavStarted && (preNavToken != null || probeWindowMs > 80)) {
         final int probeMaxMs = probeWindowMs;
-        while (stopwatch.elapsedMilliseconds < probeMaxMs) {
+        // 先通过事件信号零轮询等待 onLoadStart 触发，避免一上来连发多次原生 IPC
+        if (probeMaxMs > 40) {
+          hasNavStarted = await tab.waitForLoadStartEvent(
+            timeout: Duration(milliseconds: probeMaxMs < 40 ? probeMaxMs : 40),
+          );
+          if (!hasNavStarted &&
+              (tab.isLoading ||
+                  (preLoadStartEpoch != null &&
+                      tab.loadStartEpoch > preLoadStartEpoch) ||
+                  (preLoadStopEpoch != null &&
+                      tab.loadStopEpoch > preLoadStopEpoch))) {
+            hasNavStarted = true;
+          }
+        }
+        while (!hasNavStarted && stopwatch.elapsedMilliseconds < probeMaxMs) {
           if (tab.isLoading ||
               (preLoadStartEpoch != null &&
                   tab.loadStartEpoch > preLoadStartEpoch) ||
@@ -199,7 +214,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
           final remainMs = probeMaxMs - stopwatch.elapsedMilliseconds;
           if (remainMs <= 0) break;
           await tab.waitForLoadStartEvent(
-            timeout: Duration(milliseconds: remainMs < 10 ? remainMs : 10),
+            timeout: Duration(milliseconds: remainMs < 40 ? remainMs : 40),
           );
         }
       }
@@ -215,7 +230,8 @@ class _BrowserHomePageState extends State<BrowserHomePage>
       }
 
       if (controller != null) {
-        while (stopwatch.elapsedMilliseconds < timeoutMs) {
+        final alreadyStoppedByEvent = hasNavStarted && preLoadStopEpoch != null && tab.loadStopEpoch > preLoadStopEpoch && !tab.isLoading;
+        while (!alreadyStoppedByEvent && stopwatch.elapsedMilliseconds < timeoutMs) {
           if (tab.isLoading) {
             final remainMs = timeoutMs - stopwatch.elapsedMilliseconds;
             if (remainMs <= 0) break;
@@ -252,7 +268,9 @@ class _BrowserHomePageState extends State<BrowserHomePage>
           try {
             final res = await controller.evaluateJavascript(
               source:
-                  '(function(){var r=document.readyState==="complete"?"1":"0";var c=(document.body&&(document.body.children.length>0||(document.body.innerText||"").trim().length>0))?"1":"0";return r+":"+c+":"+(window.__auok_nav_mark||"");})()',
+                  (tab.loadStopEpoch > (preLoadStopEpoch ?? -1) && !tab.isLoading)
+                      ? '(function(){var r=(document.readyState==="complete"||document.readyState==="interactive")?"1":"0";var c=(document.body&&(document.body.children.length>0||(document.body.textContent||"").trim().length>0))?"1":"0";return r+":"+c+":"+(window.__auok_nav_mark||"");})()'
+                      : '(function(){var r=document.readyState==="complete"?"1":"0";var c=(document.body&&(document.body.children.length>0||(document.body.textContent||"").trim().length>0))?"1":"0";return r+":"+c+":"+(window.__auok_nav_mark||"");})()',
             );
             final str = res?.toString() ?? '';
             final firstColon = str.indexOf(':');
@@ -2376,76 +2394,10 @@ class _BrowserHomePageState extends State<BrowserHomePage>
 
   void _showEditTabDialog(
       BuildContext context, BrowserProvider browser, int index) {
-    final tab = browser.tabs[index];
-    final nameController = TextEditingController(text: tab.customName);
-    String selectedUa = tab.customUserAgent ?? browser.userAgent;
-
     showDialog(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          backgroundColor: Colors.grey[900],
-          title: const Text('编辑窗口信息', style: TextStyle(color: Colors.white)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
-                  labelText: '窗口名称',
-                  labelStyle: TextStyle(color: Colors.white70),
-                  enabledBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: Colors.white38),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                value: selectedUa,
-                dropdownColor: Colors.grey[800],
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
-                  labelText: '用户代理 (User Agent)',
-                  labelStyle: TextStyle(color: Colors.white70),
-                  enabledBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: Colors.white38),
-                  ),
-                ),
-                items: const [
-                  DropdownMenuItem(value: 'Mobile', child: Text('手机')),
-                  DropdownMenuItem(value: 'Desktop', child: Text('电脑')),
-                  DropdownMenuItem(value: 'Tablet', child: Text('平板')),
-                ],
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() {
-                      selectedUa = value;
-                    });
-                  }
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('取消', style: TextStyle(color: Colors.white70)),
-            ),
-            TextButton(
-              onPressed: () {
-                browser.updateTabCustomSettings(
-                    index, nameController.text, selectedUa);
-                Navigator.pop(context);
-              },
-              child: const Text('保存', style: TextStyle(color: Colors.blue)),
-            ),
-          ],
-        ),
-      ),
-    ).then((_) {
-      nameController.dispose();
-    });
+      builder: (_) => WindowSettingsDialog(tabIndex: index),
+    );
   }
 
   void _showLoadScriptDialog(

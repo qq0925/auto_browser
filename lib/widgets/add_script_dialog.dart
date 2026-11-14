@@ -94,7 +94,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     '逻辑脚本-时间对比',
     '逻辑脚本-数值对比',
     '延时脚本',
-    '数值对比-点击文字',
+
     '新建窗口并执行脚本',
     '跳转脚本',
     '设置Cookie',
@@ -122,7 +122,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     '逻辑脚本-时间对比': _ScriptTypeMeta('逻辑判断', Icons.schedule_rounded, 'sjdb,time,compare,shijian'),
     '逻辑脚本-数值对比': _ScriptTypeMeta('逻辑判断', Icons.analytics_outlined, 'szdb,number,compare,shuzhi'),
     '延时脚本': _ScriptTypeMeta('脚本控制', Icons.hourglass_empty_rounded, 'ysjb,delay,yanshi'),
-    '数值对比-点击文字': _ScriptTypeMeta('逻辑判断', Icons.ads_click_rounded, 'szdbdj,compare,click,shuzhi'),
+
     '新建窗口并执行脚本': _ScriptTypeMeta('网页导航', Icons.open_in_new_rounded, 'xjck,newtab,window,chuangkou'),
     '跳转脚本': _ScriptTypeMeta('脚本控制', Icons.redo_rounded, 'tzjb,jump,goto,tiaozhuan'),
     '设置Cookie': _ScriptTypeMeta('数据管理', Icons.cookie_outlined, 'szcookie,setcookie,shezhi'),
@@ -237,8 +237,8 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   final TextEditingController _elementWaitController =
       TextEditingController(text: '0');
   final TextEditingController _timeoutSecondsController =
-      TextEditingController(text: '30');
-  String _timeoutUnit = 's';
+      TextEditingController(text: '30000');
+
 
   Script? _beforeScript;
   Script? _afterScript;
@@ -361,10 +361,18 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       }
 
       if (params['超时时间'] != null) {
-        _timeoutSecondsController.text = params['超时时间'].toString();
-        final unit = params['超时单位']?.toString().toLowerCase();
-        _timeoutUnit = (unit == 'ms') ? 'ms' : 's';
-        if (params['超时时间'] != 30 || _timeoutUnit != 's') {
+        final rawTimeout = int.tryParse(params['超时时间'].toString()) ?? 30000;
+        final rawUnit = params['超时单位']?.toString().toLowerCase();
+        // 统一换算为毫秒，兼容历史“秒”或无单位的小数值配置
+        final int timeoutMs = rawUnit == 'ms'
+            ? rawTimeout
+            : (rawUnit == 's' || rawTimeout <= 120)
+                ? rawTimeout * 1000
+                : rawTimeout;
+        _timeoutSecondsController.text = timeoutMs.toString();
+
+
+        if (int.tryParse(_timeoutSecondsController.text) != 30000) {
           _isAdvancedExpanded = true;
         }
       }
@@ -801,7 +809,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           _buildFieldRow(
               '跳转至序号', _targetScriptIndicesController, '请输入要跳转到的脚本序号'),
         ];
-      case '数值对比-点击文字':
+      /* 已移除脚本类型: 数值对比-点击文字
         return [
           _buildFieldRow('点击文本', _clickTextController, '', required: true),
           _buildFieldRow('目标值', _targetValueController, '', required: true),
@@ -818,6 +826,10 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       case '控制脚本开关':
         return [
           _buildFieldRow(
+      */
+      case '控制脚本开关':
+        return [
+          _buildFieldRow(
               '脚本序号', _targetScriptIndicesController, '例如: 1 3 5 (空格隔开)',
               required: true),
           _buildDropdownRow('更改为', _switchAction, ['禁用', '启用', '反相'], (val) {
@@ -1904,7 +1916,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                   const SizedBox(width: 8),
                   if (_beforeScript != null ||
                       _afterScript != null ||
-                      _timeoutSecondsController.text != '30' || _timeoutUnit != 's')
+                      _timeoutSecondsController.text != '30000')
                     Container(
                       padding:
                           const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -1932,7 +1944,45 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
               ),
             ),
           ),
-          if (_isAdvancedExpanded) ...[
+          if (_isAdvancedExpanded) ...[
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.all(14.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 92,
+                          child: Text(
+                            '超时时间',
+                            style:
+                                TextStyle(color: _theme.textColor, fontSize: 13),
+                          ),
+                        ),
+                        Expanded(
+                          child: _buildTextField(
+                            _timeoutSecondsController,
+                            '30000',
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'ms',
+                          style: TextStyle(
+                            color: _theme.labelColor,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  /* 以下旧版超时时间+单位下拉框已替换为上方固定 ms 输入框
             const Divider(height: 1),
             Padding(
               padding: const EdgeInsets.all(14.0),
@@ -2007,6 +2057,8 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                   ),
                   const SizedBox(height: 12),
                   _buildCheckboxRow(
+                  */
+                  _buildCheckboxRow(
                     '未找到时跳过',
                     _skipWhenNotFound,
                     (val) => setState(() => _skipWhenNotFound = val ?? true),
@@ -2348,7 +2400,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         params['跳转的脚本序号'] = _targetScriptIndicesController.text;
         break;
 
-      case '数值对比-点击文字':
+      /* 已移除脚本类型: 数值对比-点击文字
         if (_clickTextController.text.isEmpty) return;
         if (_targetValueController.text.isEmpty) return;
         if (_delayController.text.isNotEmpty) {
@@ -2363,6 +2415,8 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         break;
 
       case '通知栏提醒':
+      */
+      case '通知栏提醒':
         if (_notificationContentController.text.isEmpty) return;
         if (_delayController.text.isNotEmpty) {
           params['执行延迟'] = _convertDelayToMilliseconds();
@@ -2432,7 +2486,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     final timeout = int.tryParse(_timeoutSecondsController.text);
     if (timeout != null && timeout >= 0) {
       params['超时时间'] = timeout;
-      params['超时单位'] = _timeoutUnit;
+      params['超时单位'] = 'ms';
     }
 
     final newScript = Script(
@@ -2441,6 +2495,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       isEnabled: true,
     );
 
+    FocusManager.instance.primaryFocus?.unfocus();
     if (widget.isNested) {
       Navigator.pop(context, newScript);
       return;
@@ -2801,7 +2856,7 @@ class _ScriptTypePopupMenuDialog extends StatelessWidget {
       '逻辑脚本-数值对比',
       '验证码图片识别',
       '数值对比',
-      '数值对比-点击文字',
+
       '网页文字替换',
       '提取文字',
       '设置Cookie',

@@ -81,9 +81,10 @@ class Script {
 
   // Convert from User JSON (flat structure)
   factory Script.fromUserMap(Map<String, dynamic> map) {
-    final type = map['脚本类型'] as String? ?? '未知类型';
+    final type = (map['脚本类型'] ?? map['type']) as String? ?? '未知类型';
     final params = Map<String, dynamic>.from(map);
-    params.remove('脚本类型'); // Remove type from params
+    params.remove('脚本类型'); // Remove type from params
+    params.remove('type');
 
     String? targetScriptPath;
     if ((type == '脚本替换' || type == '执行本地脚本集') && params.containsKey('脚本集')) {

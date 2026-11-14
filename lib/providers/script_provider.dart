@@ -78,6 +78,25 @@ class ScriptProvider extends ChangeNotifier {
     int probeWindowMs,
   })? _waitForPageLoadCallback;
 
+  Timer? _executionNotifyTimer;
+  int _lastExecutionNotifyMs = 0;
+
+  void _notifyExecutionThrottled() {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (nowMs - _lastExecutionNotifyMs >= 80) {
+      _executionNotifyTimer?.cancel();
+      _executionNotifyTimer = null;
+      _lastExecutionNotifyMs = nowMs;
+      notifyListeners();
+      return;
+    }
+    _executionNotifyTimer ??= Timer(const Duration(milliseconds: 80), () {
+      _executionNotifyTimer = null;
+      _lastExecutionNotifyMs = DateTime.now().millisecondsSinceEpoch;
+      notifyListeners();
+    });
+  }
+
   // Get scripts from current tab
   List<Script> get scripts => _currentTab?.scripts ?? [];
   BrowserTab? get currentTab => _currentTab;
@@ -523,6 +542,8 @@ return false;
     // Mark tab as executing (use tab-specific state)
     executingTab.isExecutingScript = true;
     executingTab.isPaused = false;
+    _executionNotifyTimer?.cancel();
+    _executionNotifyTimer = null;
     _isPaused = false;
     _currentScriptIndex = 0;
     _remainingLoopCount = _originalLoopCount;
@@ -596,6 +617,18 @@ return false;
                 script.status = status;
                 script.statusMessage = message;
                 script.progress = progress;
+                if (status != ScriptStatus.stopped &&
+                    status != ScriptStatus.paused &&
+                    status != ScriptStatus.failure &&
+                    status != ScriptStatus.notification) {
+                  if (status == ScriptStatus.success) {
+                    _successCount++;
+                    executingTab.successCount++;
+                  }
+                  // 高频执行状态走节流通知，避免每步触发 3~5 次全量 UI 重建
+                  _notifyExecutionThrottled();
+                  return;
+                }
 
                 if (status == ScriptStatus.success) {
                   _successCount++;
@@ -781,6 +814,8 @@ return false;
     _currentScriptIndex = 0;
     executingTab.isExecutingScript = false;
     executingTab.currentScriptIndex = 0;
+    _executionNotifyTimer?.cancel();
+    _executionNotifyTimer = null;
     executingTab.executionStack.clear(); // Clear stack
     notifyListeners();
 
@@ -796,6 +831,8 @@ return false;
       targetTab.isExecutingScript = false;
       targetTab.isPaused = false;
     }
+    _executionNotifyTimer?.cancel();
+    _executionNotifyTimer = null;
     _isPaused = false;
     notifyListeners();
 
@@ -819,6 +856,8 @@ return false;
     if (targetTab != null) {
       targetTab.isPaused = false;
     }
+    _executionNotifyTimer?.cancel();
+    _executionNotifyTimer = null;
     _isPaused = false;
     notifyListeners();
   }

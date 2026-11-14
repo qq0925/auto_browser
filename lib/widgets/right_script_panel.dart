@@ -492,7 +492,6 @@ class RightScriptPanel extends StatelessWidget {
         break;
 
       case '逻辑脚本-数值对比':
-      case '数值对比-点击文字':
         if (params['点击文本'] != null && params['点击文本'].toString().isNotEmpty) {
           list.add(MapEntry('点击文本', params['点击文本'].toString()));
           handledKeys.add('点击文本');
@@ -745,6 +744,7 @@ class RightScriptPanel extends StatelessWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
+      isScrollControlled: true,
       builder: (sheetContext) {
         return SafeArea(
           child: Column(
@@ -875,58 +875,12 @@ class RightScriptPanel extends StatelessWidget {
     final script = scriptProvider.scripts[index];
     final rawRepeat = int.tryParse((script.params['重复次数'] ?? 1).toString()) ?? 1;
     final currentRepeat = rawRepeat > 0 ? rawRepeat : 1;
-    final controller = TextEditingController(text: '$currentRepeat');
 
     final result = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: const Color(0xFF2C2C2C),
-        title: const Text('设置循环次数', style: TextStyle(color: Colors.white)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '设置该脚本单次执行时的循环次数（至少为 1）',
-              style: TextStyle(color: Colors.white70, fontSize: 12),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                hintText: '默认 1 次',
-                hintStyle: TextStyle(color: Colors.white54),
-                suffixText: '次',
-                suffixStyle: TextStyle(color: Colors.white54),
-                enabledBorder: UnderlineInputBorder(
-                  borderSide: BorderSide(color: Colors.white54),
-                ),
-                focusedBorder: UnderlineInputBorder(
-                  borderSide: BorderSide(color: Colors.blue),
-                ),
-              ),
-              onSubmitted: (val) => Navigator.pop(dialogContext, val),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('取消', style: TextStyle(color: Colors.white54)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, controller.text),
-            child: const Text('确定', style: TextStyle(color: Colors.blue)),
-          ),
-        ],
-      ),
+      builder: (_) => _RepeatCountDialog(initialCount: currentRepeat),
     );
 
-    controller.dispose();
     if (result == null || index >= scriptProvider.scripts.length) return;
 
     final parsed = int.tryParse(result.trim());
@@ -1604,5 +1558,88 @@ class RightScriptPanel extends StatelessWidget {
 
   void _showSaveDialog(BuildContext context, ScriptProvider scriptProvider) {
     _handleSaveScript(context, scriptProvider);
+  }
+}
+
+/// 单个脚本循环次数设置弹窗，由内部 State 管理输入控制器生命周期，避免关闭动画期间提前释放
+class _RepeatCountDialog extends StatefulWidget {
+  final int initialCount;
+
+  const _RepeatCountDialog({required this.initialCount});
+
+  @override
+  State<_RepeatCountDialog> createState() => _RepeatCountDialogState();
+}
+
+class _RepeatCountDialogState extends State<_RepeatCountDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: '${widget.initialCount}');
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit([String? value]) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    Navigator.pop(context, value ?? _controller.text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: const Color(0xFF2C2C2C),
+      title: const Text('设置循环次数', style: TextStyle(color: Colors.white)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '设置该脚本单次执行时的循环次数（至少为 1）',
+            style: TextStyle(color: Colors.white70, fontSize: 12),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            style: const TextStyle(color: Colors.white),
+            decoration: const InputDecoration(
+              hintText: '默认 1 次',
+              hintStyle: TextStyle(color: Colors.white54),
+              suffixText: '次',
+              suffixStyle: TextStyle(color: Colors.white54),
+              enabledBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: Colors.white54),
+              ),
+              focusedBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: Colors.blue),
+              ),
+            ),
+            onSubmitted: _submit,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            FocusManager.instance.primaryFocus?.unfocus();
+            Navigator.pop(context);
+          },
+          child: const Text('取消', style: TextStyle(color: Colors.white54)),
+        ),
+        TextButton(
+          onPressed: () => _submit(),
+          child: const Text('确定', style: TextStyle(color: Colors.blue)),
+        ),
+      ],
+    );
   }
 }

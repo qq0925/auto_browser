@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import '../models/browser_tab.dart';
@@ -32,6 +33,32 @@ class BrowserProvider extends ChangeNotifier {
     '较小': 85,
     '最小': 75,
   };
+
+  Timer? _saveBookmarksAndHistoryTimer;
+  Timer? _saveTabsStateTimer;
+
+  void _scheduleSaveBookmarksAndHistory() {
+    _saveBookmarksAndHistoryTimer?.cancel();
+    _saveBookmarksAndHistoryTimer = Timer(const Duration(milliseconds: 1200), () {
+      _saveBookmarksAndHistoryTimer = null;
+      _saveBookmarksAndHistory();
+    });
+  }
+
+  void _scheduleSaveTabsState() {
+    _saveTabsStateTimer?.cancel();
+    _saveTabsStateTimer = Timer(const Duration(milliseconds: 1200), () {
+      _saveTabsStateTimer = null;
+      _saveTabsState();
+    });
+  }
+
+  @override
+  void dispose() {
+    _saveBookmarksAndHistoryTimer?.cancel();
+    _saveTabsStateTimer?.cancel();
+    super.dispose();
+  }
 
   // Hardcoded fallback CSS for Night Mode (High Specificity)
   static const String _fallbackNightCss = '''
@@ -270,14 +297,7 @@ class BrowserProvider extends ChangeNotifier {
     _saveTabsState();
   }
 
-  bool _isDebugModeEnabled = false;
-  bool get isDebugModeEnabled => _isDebugModeEnabled;
-
-  void toggleDebugMode(bool value) {
-    _isDebugModeEnabled = value;
-    notifyListeners();
-    _saveTabsState();
-  }
+  // 已移除调试模式开关（_isDebugModeEnabled / toggleDebugMode）
 
   /// 设置网页字体大小并立即应用到所有打开的标签页
   void setFontSize(String size) async {
@@ -412,34 +432,108 @@ class BrowserProvider extends ChangeNotifier {
 
   void updateTabInfo(int index, String url, String title) {
     if (index >= 0 && index < _tabs.length) {
-      _tabs[index].url = url;
-      _tabs[index].title = title;
+      final tab = _tabs[index];
+      if (tab.url == url && tab.title == title) return;
+      tab.url = url;
+      tab.title = title;
       notifyListeners();
-      _saveTabsState();
+      _scheduleSaveTabsState();
     }
   }
 
-  void updateTabCustomSettings(
-      int index, String? customName, String? customUserAgent) {
-    if (index >= 0 && index < _tabs.length) {
-      _tabs[index].customName = customName;
-      _tabs[index].customUserAgent = customUserAgent;
-      notifyListeners();
-      _saveTabsState();
+  /// 应用指定标签页的代理规则（Android 通过 WebView ProxyController 进程级接管）
+  Future<void> applyProxyForTab(BrowserTab tab) async {
+    if (!Platform.isAndroid) return;
+    try {
+      final supported =
+          await WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE);
+      if (!supported) return;
+      final proxyAddr = tab.resolvedProxyAddress;
+      if (proxyAddr != null && proxyAddr.isNotEmpty) {
+        await ProxyController.instance().setProxyOverride(
+          settings: ProxySettings(
+            proxyRules: [ProxyRule(url: 'http://$proxyAddr')],
+          ),
+        );
+      } else {
+        await ProxyController.instance().clearProxyOverride();
+      }
+    } catch (e) {
+      debugPrint('applyProxyForTab error: $e');
     }
+  }
+
+  /// 更新单个标签窗口的自定义设置（窗口名称、UA、代理信息）
+  Future<void> updateTabCustomSettings(
+    int index,
+    String? customName,
+    String? customUserAgent, {
+    String? proxyMode,
+    String? proxyHost,
+    String? proxyPort,
+    String? proxyUsername,
+    String? proxyPassword,
+    bool reloadIfNeeded = false,
+  }) async {
+    if (index < 0 || index >= _tabs.length) return;
+    final tab = _tabs[index];
+    final normalizedName = customName?.trim();
+    tab.customName =
+        (normalizedName != null && normalizedName.isNotEmpty)
+            ? normalizedName
+            : null;
+
+    final normalizedUa = customUserAgent?.trim();
+    tab.customUserAgent =
+        (normalizedUa != null && normalizedUa.isNotEmpty) ? normalizedUa : null;
+
+    final prevProxySignature = tab.proxySignature;
+    if (proxyMode != null) tab.proxyMode = proxyMode;
+    if (proxyHost != null) tab.proxyHost = proxyHost.trim();
+    if (proxyPort != null) tab.proxyPort = proxyPort.trim();
+    if (proxyUsername != null) tab.proxyUsername = proxyUsername.trim();
+    if (proxyPassword != null) tab.proxyPassword = proxyPassword;
+    final proxyChanged = tab.proxySignature != prevProxySignature;
+
+    if (index == _currentIndex) {
+      await applyProxyForTab(tab);
+    }
+
+    if (tab.controller != null) {
+      try {
+        await tab.controller!.setSettings(
+          settings: InAppWebViewSettings(
+            userAgent: getUserAgentString(tab.customUserAgent),
+            preferredContentMode: getPreferredContentModeForTab(tab),
+            supportMultipleWindows: false,
+          ),
+        );
+        // Windows 切换代理会通过 BrowserView 重建 WebView2 环境，无需在旧控制器上重复 reload
+        if (reloadIfNeeded && (!Platform.isWindows || !proxyChanged)) {
+          await tab.controller!.reload();
+        }
+      } catch (_) {}
+    }
+
+    notifyListeners();
+    _saveTabsState();
   }
 
   void updateTabNavigationState(int index, bool canGoBack, bool canGoForward) {
     if (index >= 0 && index < _tabs.length) {
-      _tabs[index].canGoBack = canGoBack;
-      _tabs[index].canGoForward = canGoForward;
+      final tab = _tabs[index];
+      if (tab.canGoBack == canGoBack && tab.canGoForward == canGoForward) return;
+      tab.canGoBack = canGoBack;
+      tab.canGoForward = canGoForward;
       notifyListeners();
     }
   }
 
   void updateTabProgress(double progress) {
     if (_currentIndex >= 0 && _currentIndex < _tabs.length) {
-      _tabs[_currentIndex].progress = progress;
+      final tab = _tabs[_currentIndex];
+      if ((tab.progress - progress).abs() < 0.001) return;
+      tab.progress = progress;
       notifyListeners();
     }
   }
@@ -447,6 +541,7 @@ class BrowserProvider extends ChangeNotifier {
   void setCurrentIndex(int index) {
     if (index >= 0 && index < _tabs.length) {
       _currentIndex = index;
+      applyProxyForTab(_tabs[index]);
       notifyListeners();
       _saveTabsState();
     }
@@ -470,7 +565,7 @@ class BrowserProvider extends ChangeNotifier {
         ));
     _cleanExpiredHistory();
     notifyListeners();
-    _saveBookmarksAndHistory();
+    _scheduleSaveBookmarksAndHistory();
   }
 
   void updateHistoryTitle(String url, String title) {
@@ -479,13 +574,14 @@ class BrowserProvider extends ChangeNotifier {
     // Check if the most recent item matches the URL
     if (_history.first.url == url) {
       final oldItem = _history.first;
+      if (oldItem.title == title) return;
       _history[0] = HistoryItem(
         title: title,
         url: oldItem.url,
         visitedAt: oldItem.visitedAt,
       );
       notifyListeners();
-      _saveBookmarksAndHistory();
+      _scheduleSaveBookmarksAndHistory();
     }
   }
 
@@ -691,7 +787,6 @@ class BrowserProvider extends ChangeNotifier {
         'fontSize': _fontSize, // Save FontSize
         'autoLeaveMode': _autoLeaveMode,
         'isAdBlockEnabled': _isAdBlockEnabled,
-        'isDebugModeEnabled': _isDebugModeEnabled,
       };
 
       await prefs.setString('last_tabs', jsonEncode(dataToSave));
@@ -711,7 +806,6 @@ class BrowserProvider extends ChangeNotifier {
         _keepScreenOn = data['keepScreenOn'] ?? false;
         _autoLeaveMode = data['autoLeaveMode'] ?? false;
         _isAdBlockEnabled = data['isAdBlockEnabled'] ?? true;
-        _isDebugModeEnabled = data['isDebugModeEnabled'] ?? false;
         _searchEngine = data['searchEngine'] ?? 'Baidu';
         _userAgent = data['userAgent'] ?? defaultUserAgentType;
         _fontSize = data['fontSize'] ?? '普通';
@@ -776,11 +870,48 @@ class BrowserProvider extends ChangeNotifier {
     'Desktop': desktopUserAgentString,
   };
 
-  String getUserAgentString(String? type) {
-    if (type == 'Desktop') return desktopUserAgentString;
-    if (type == 'Tablet') return tabletUserAgentString;
-    if (type == 'Mobile') return mobileUserAgentString;
-    return uaMap[_userAgent] ?? (Platform.isWindows || Platform.isMacOS || Platform.isLinux ? desktopUserAgentString : mobileUserAgentString);
+  String getUserAgentString(String? typeOrCustom) {
+    final trimmed = typeOrCustom?.trim();
+    if (trimmed == null ||
+        trimmed.isEmpty ||
+        trimmed == '默认' ||
+        trimmed == '跟随总设置') {
+      return uaMap[_userAgent] ??
+          (Platform.isWindows || Platform.isMacOS || Platform.isLinux
+              ? desktopUserAgentString
+              : mobileUserAgentString);
+    }
+    if (trimmed == 'Desktop') return desktopUserAgentString;
+    if (trimmed == 'Tablet') return tabletUserAgentString;
+    if (trimmed == 'Mobile') return mobileUserAgentString;
+    return trimmed;
+  }
+
+  /// 获取标签页应使用的视图模式（尊重标签独立自定义 UA，未自定义则继承总设置）
+  UserPreferredContentMode getPreferredContentModeForTab(BrowserTab tab) {
+    final custom = tab.customUserAgent?.trim();
+    if (custom == null || custom.isEmpty) {
+      return _getPreferredContentMode(_userAgent);
+    }
+    if (custom == 'Desktop') return UserPreferredContentMode.DESKTOP;
+    if (custom == 'Mobile' || custom == 'Tablet') {
+      return UserPreferredContentMode.MOBILE;
+    }
+    final lower = custom.toLowerCase();
+    if (lower.contains('mobile') ||
+        lower.contains('android') ||
+        lower.contains('iphone') ||
+        lower.contains('ucweb') ||
+        lower.contains('symbian') ||
+        lower.contains('nokia')) {
+      return UserPreferredContentMode.MOBILE;
+    }
+    if (lower.contains('windows nt') ||
+        lower.contains('macintosh') ||
+        lower.contains('x11')) {
+      return UserPreferredContentMode.DESKTOP;
+    }
+    return _getPreferredContentMode(_userAgent);
   }
 
   void setUserAgent(String type) async {
@@ -792,14 +923,23 @@ class BrowserProvider extends ChangeNotifier {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('browser_user_agent', type);
       } catch (_) {}
-      // Apply to current tab if exists
-      if (currentTab != null && currentTab!.controller != null) {
-        currentTab!.controller!.setSettings(
-            settings: InAppWebViewSettings(
+      // 仅对未单独覆盖 UA（默认继承总设置）的标签应用全局变更
+      for (final tab in _tabs) {
+        if (tab.controller != null &&
+            (tab.customUserAgent == null || tab.customUserAgent!.trim().isEmpty)) {
+          try {
+            tab.controller!.setSettings(
+              settings: InAppWebViewSettings(
                 userAgent: getUserAgentString(type),
                 preferredContentMode: _getPreferredContentMode(type),
-                supportMultipleWindows: false));
-        currentTab!.controller!.reload();
+                supportMultipleWindows: false,
+              ),
+            );
+            if (tab == currentTab) {
+              tab.controller!.reload();
+            }
+          } catch (_) {}
+        }
       }
     }
   }

@@ -12,32 +12,6 @@ import '../services/script_executor.dart';
 import 'download_confirm_dialog.dart';
 import '../utils/welcome_manager.dart';
 
-/// 全局 WebView 调试日志管理器（支持打包 APK 后在设备端直接查看与一键复制）
-class DebugLogManager {
-  static final List<String> logs = [];
-  static final ValueNotifier<int> logCountNotifier = ValueNotifier<int>(0);
-
-  static void log(String msg) {
-    final now = DateTime.now();
-    final timeStr =
-        "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}.${now.millisecond.toString().padLeft(3, '0')}";
-    final entry = '[$timeStr] $msg';
-    debugPrint('🔥 $entry');
-    logs.add(entry);
-    if (logs.length > 500) {
-      logs.removeAt(0);
-    }
-    logCountNotifier.value = logs.length;
-  }
-
-  static void clear() {
-    logs.clear();
-    logCountNotifier.value = 0;
-  }
-
-  static String getAllLogs() => logs.join('\n');
-}
-
 class BrowserView extends StatefulWidget {
   final BrowserTab tab;
   final bool isActive;
@@ -53,6 +27,65 @@ class BrowserView extends StatefulWidget {
 }
 
 class _BrowserViewState extends State<BrowserView> {
+  WebViewEnvironment? _proxyEnvironment;
+  String _activeProxyAddr = '';
+  bool _isPreparingProxyEnv = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncProxyEnvironment();
+  }
+
+  @override
+  void dispose() {
+    _proxyEnvironment?.dispose();
+    _proxyEnvironment = null;
+    super.dispose();
+  }
+
+  void _syncProxyEnvironment() {
+    if (!Platform.isWindows) return;
+    final targetProxy = widget.tab.resolvedProxyAddress ?? '';
+    if (targetProxy == _activeProxyAddr) return;
+
+    _activeProxyAddr = targetProxy;
+    final oldEnv = _proxyEnvironment;
+    _proxyEnvironment = null;
+    oldEnv?.dispose();
+
+    if (targetProxy.isEmpty) {
+      _isPreparingProxyEnv = false;
+      return;
+    }
+
+    _isPreparingProxyEnv = true;
+    final safeTag = targetProxy.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+    final userDataDir =
+        '${Directory.systemTemp.path}${Platform.pathSeparator}auok_wv2_proxy_$safeTag';
+    WebViewEnvironment.create(
+      settings: WebViewEnvironmentSettings(
+        userDataFolder: userDataDir,
+        additionalBrowserArguments: '--proxy-server=$targetProxy',
+      ),
+    ).then((env) {
+      if (!mounted || _activeProxyAddr != targetProxy) {
+        env.dispose();
+        return;
+      }
+      setState(() {
+        _proxyEnvironment = env;
+        _isPreparingProxyEnv = false;
+      });
+    }).catchError((e) {
+      if (!mounted || _activeProxyAddr != targetProxy) return;
+      setState(() {
+        _proxyEnvironment = null;
+        _isPreparingProxyEnv = false;
+      });
+    });
+  }
+
   String _normalizeUrl(String input) {
     var url = input.trim();
     if (url.isEmpty) return 'about:blank';
@@ -72,6 +105,7 @@ class _BrowserViewState extends State<BrowserView> {
   @override
   void didUpdateWidget(covariant BrowserView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _syncProxyEnvironment();
     // 当该标签页从后台切换到前台显示时，检测页面是否处于空白/未加载状态并补救触发加载
     if (widget.isActive && !oldWidget.isActive) {
       _checkAndEnsurePageLoaded();
@@ -142,6 +176,12 @@ class _BrowserViewState extends State<BrowserView> {
     initialScripts.add(UserScript(
       source: ScriptExecutor.egretCanvasProbeJs,
       injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+    ));
+
+    // 预注入点击辅助函数（AT_DOCUMENT_END），省去自动化执行点击文字时的首次 __NEED_INIT__ 双重 IPC
+    initialScripts.add(UserScript(
+      source: ScriptExecutor.clickHelpersInstallJs,
+      injectionTime: UserScriptInjectionTime.AT_DOCUMENT_END,
     ));
 
     // 通用/桌面端浮窗广告安全拦截脚本（欢迎页与官方起始页严格加入白名单免拦截）
@@ -328,7 +368,13 @@ class _BrowserViewState extends State<BrowserView> {
       color: browserProvider.isDarkMode ? Colors.black : Colors.white,
       child: Stack(
         children: [
-          InAppWebView(
+          if (Platform.isWindows && _isPreparingProxyEnv)
+            const Center(child: CircularProgressIndicator())
+          else
+            InAppWebView(
+              key: ValueKey('${widget.tab.id}_$_activeProxyAddr'),
+              webViewEnvironment:
+                  Platform.isWindows ? _proxyEnvironment : null,
             initialUrlRequest: (widget.tab.url != 'about:blank' &&
                     widget.tab.url.isNotEmpty &&
                     !widget.tab.url.endsWith('welcome.html'))
@@ -565,16 +611,10 @@ class _BrowserViewState extends State<BrowserView> {
               supportMultipleWindows: false,
               geolocationEnabled: true,
               safeBrowsingEnabled: false,
-              userAgent: widget.tab.customUserAgent != null
-                  ? browserProvider.getUserAgentString(widget.tab.customUserAgent)
-                  : browserProvider.currentUserAgentString,
-              preferredContentMode: widget.tab.customUserAgent != null
-                  ? (widget.tab.customUserAgent == 'Desktop'
-                      ? UserPreferredContentMode.DESKTOP
-                      : UserPreferredContentMode.MOBILE)
-                  : (browserProvider.userAgent == 'Desktop'
-                      ? UserPreferredContentMode.DESKTOP
-                      : UserPreferredContentMode.MOBILE),
+              userAgent:
+                  browserProvider.getUserAgentString(widget.tab.customUserAgent),
+              preferredContentMode:
+                  browserProvider.getPreferredContentModeForTab(widget.tab),
               useHybridComposition: true,
               useOnDownloadStart: true,
               allowsLinkPreview: false, // 禁用 iOS 链接预览
@@ -641,16 +681,10 @@ class _BrowserViewState extends State<BrowserView> {
               // 关键加固：在 WebView 内核创建完成的第一时间显式调用 setSettings
               // 解决 Windows WebView2 等平台冷启动时 initialSettings.userAgent 未能立即生效导致的 UA 错乱问题
               try {
-                final targetUa = widget.tab.customUserAgent != null
-                    ? browserProvider.getUserAgentString(widget.tab.customUserAgent)
-                    : browserProvider.currentUserAgentString;
-                final targetMode = widget.tab.customUserAgent != null
-                    ? (widget.tab.customUserAgent == 'Desktop'
-                        ? UserPreferredContentMode.DESKTOP
-                        : UserPreferredContentMode.MOBILE)
-                    : (browserProvider.userAgent == 'Desktop'
-                        ? UserPreferredContentMode.DESKTOP
-                        : UserPreferredContentMode.MOBILE);
+                final targetUa =
+                    browserProvider.getUserAgentString(widget.tab.customUserAgent);
+                final targetMode =
+                    browserProvider.getPreferredContentModeForTab(widget.tab);
                 await controller.setSettings(
                   settings: InAppWebViewSettings(
                     userAgent: targetUa,
@@ -740,7 +774,6 @@ class _BrowserViewState extends State<BrowserView> {
               }
             },
             onLoadStart: (controller, url) {
-              DebugLogManager.log('🚀 [onLoadStart] url=$url');
               widget.tab.markLoadStarted();
               if (url != null) {
                 final urlString = url.toString();
@@ -765,7 +798,6 @@ class _BrowserViewState extends State<BrowserView> {
               }
             },
             onLoadStop: (controller, url) async {
-              DebugLogManager.log('🏁 [onLoadStop] url=$url');
               widget.tab.markLoadStopped();
               if (url != null) {
                 final index = browserProvider.tabs.indexOf(widget.tab);
@@ -775,14 +807,17 @@ class _BrowserViewState extends State<BrowserView> {
                     browserProvider.updateTabProgress(1.0);
                   }
 
+                  final isScriptExecuting =
+                      widget.tab.isExecutingScript || scriptProvider.isExecuting;
+
                   // Fallback injection for Night Mode (especially for PC/Desktop)
                   if (browserProvider.isDarkMode) {
                     try {
                       browserProvider.injectNightMode(controller);
                     } catch (_) {}
 
-                    // Windows: Poll for Night Mode injection to fight dynamic content/CSP
-                    if (Platform.isWindows) {
+                    // 自动化执行期间跳过长达数秒的夜间模式重试轮询，避免争抢 WebView 线程
+                    if (Platform.isWindows && !isScriptExecuting) {
                       for (int i = 0; i < 4; i++) {
                         await Future.delayed(const Duration(milliseconds: 800));
                         if (!mounted) break;
@@ -798,12 +833,6 @@ class _BrowserViewState extends State<BrowserView> {
                   }
 
                   if (!mounted) return;
-
-                  // 页面加载完成时补强注入白鹭引擎全局探针
-                  try {
-                    await controller.evaluateJavascript(
-                        source: ScriptExecutor.egretCanvasProbeJs);
-                  } catch (_) {}
 
                   // 补强注入网页字体缩放
                   if (browserProvider.textZoom != 100) {
@@ -837,8 +866,10 @@ class _BrowserViewState extends State<BrowserView> {
                     }
                   } catch (_) {}
 
-                  // Retry getting title if empty (common on Desktop/fast loads)
-                  if ((title == null || title.isEmpty) && mounted) {
+                  // Retry getting title if empty (common on Desktop/fast loads); 自动化执行期间跳过延时轮询
+                  if ((title == null || title.isEmpty) &&
+                      mounted &&
+                      !isScriptExecuting) {
                     await Future.delayed(const Duration(milliseconds: 500));
                     if (mounted) {
                       try {
@@ -855,8 +886,8 @@ class _BrowserViewState extends State<BrowserView> {
 
                   if (!mounted) return;
 
-                  // Polling for title updates (SPA support) - Windows only
-                  if (Platform.isWindows) {
+                  // Polling for title updates (SPA support) - Windows only; 自动化执行期间跳过
+                  if (Platform.isWindows && !isScriptExecuting) {
                     for (int i = 0; i < 6; i++) {
                       await Future.delayed(const Duration(milliseconds: 500));
                       if (!mounted) break;
@@ -894,17 +925,6 @@ class _BrowserViewState extends State<BrowserView> {
                   }
 
                   if (title != null && mounted) {
-                    DebugLogManager.log('📄 [确定标题] $title, url=$url');
-                    try {
-                      controller.evaluateJavascript(
-                        source: "document.body ? (document.body.innerText || '').substring(0, 120).replace(/\\n/g, ' ') : ''",
-                      ).then((snippet) {
-                        if (snippet != null && snippet.toString().isNotEmpty) {
-                          DebugLogManager.log('📝 [正文前120字] $snippet');
-                        }
-                      });
-                    } catch (_) {}
-
                     final currentIndex =
                         browserProvider.tabs.indexOf(widget.tab);
                     if (currentIndex != -1) {
@@ -946,7 +966,6 @@ class _BrowserViewState extends State<BrowserView> {
               }
             },
             onTitleChanged: (controller, title) {
-              DebugLogManager.log('🏷️ [onTitleChanged] title=$title');
               if (title != null) {
                 String displayTitle = title;
                 if (displayTitle.isEmpty) {
@@ -966,7 +985,6 @@ class _BrowserViewState extends State<BrowserView> {
               }
             },
             onUpdateVisitedHistory: (controller, url, androidIsReload) async {
-              DebugLogManager.log('📜 [onUpdateHistory] url=$url, androidIsReload=$androidIsReload');
               final index = browserProvider.tabs.indexOf(widget.tab);
               if (index != -1 && mounted) {
                 try {
@@ -991,6 +1009,10 @@ class _BrowserViewState extends State<BrowserView> {
                       );
                     });
                     browserProvider.updateTabInfo(index, urlStr, '欢迎使用');
+                  } else if (widget.tab.isExecutingScript) {
+                    // 自动化执行期间直接沿用当前标题，避免额外 evaluateJavascript('document.title') 争抢 IPC
+                    browserProvider.updateTabInfo(
+                        index, urlStr, widget.tab.title);
                   } else {
                     String? title;
                     try {
@@ -1014,7 +1036,6 @@ class _BrowserViewState extends State<BrowserView> {
             },
             onCreateWindow: (controller, createWindowAction) async {
               String? targetUrl = createWindowAction.request.url?.toString();
-              DebugLogManager.log('🪟 [onCreateWindow] targetUrl=$targetUrl');
               if (targetUrl == null ||
                   targetUrl.isEmpty ||
                   targetUrl == 'about:blank') {
@@ -1037,8 +1058,6 @@ class _BrowserViewState extends State<BrowserView> {
             shouldOverrideUrlLoading: (controller, navigationAction) async {
               final uri = navigationAction.request.url;
               final method = navigationAction.request.method;
-              DebugLogManager.log(
-                  '🔍 [shouldOverrideUrl] uri=$uri, method=$method, isMainFrame=${navigationAction.isForMainFrame}');
               
               // 1. 表单 POST 请求必须直接放行，杜绝 Android 重载导致丢 Body 或被降级为 GET
               if (method == 'POST') {
@@ -1056,7 +1075,6 @@ class _BrowserViewState extends State<BrowserView> {
                     scheme != 'javascript' &&
                     scheme != 'data' &&
                     scheme != 'blob') {
-                  DebugLogManager.log('🚫 [shouldOverrideUrl] 拦截外部应用私有协议: $uri');
                   return NavigationActionPolicy.CANCEL;
                 }
 
@@ -1075,7 +1093,6 @@ class _BrowserViewState extends State<BrowserView> {
                         host == 'zqwan.cn' ||
                         host.endsWith('.zqwan.cn'))) {
                   final httpUrl = uri.replace(scheme: 'http').toString();
-                  DebugLogManager.log('🛡️ [拦截HTTPS升级] 强制重定向至 HTTP: $httpUrl');
                   controller.loadUrl(urlRequest: URLRequest(url: WebUri(httpUrl)));
                   return NavigationActionPolicy.CANCEL;
                 }
@@ -1083,10 +1100,22 @@ class _BrowserViewState extends State<BrowserView> {
               return NavigationActionPolicy.ALLOW;
             },
             onPermissionRequest: (controller, request) async {
-              DebugLogManager.log('🛡️ [onPermissionRequest] resources=${request.resources}');
               return PermissionResponse(
                 resources: request.resources,
                 action: PermissionResponseAction.GRANT,
+              );
+            },
+            onReceivedHttpAuthRequest: (controller, challenge) async {
+              if (widget.tab.hasProxy && widget.tab.proxyUsername.isNotEmpty) {
+                return HttpAuthResponse(
+                  username: widget.tab.proxyUsername,
+                  password: widget.tab.proxyPassword,
+                  permanentPersistence: false,
+                  action: HttpAuthResponseAction.PROCEED,
+                );
+              }
+              return HttpAuthResponse(
+                action: HttpAuthResponseAction.CANCEL,
               );
             },
             onReceivedServerTrustAuthRequest: (controller, challenge) async {
@@ -1107,16 +1136,9 @@ class _BrowserViewState extends State<BrowserView> {
               );
             },
             onReceivedError: (controller, request, error) {
-              DebugLogManager.log('❌ [onReceivedError] url=${request.url}, error=${error.description}');
               if (request.isForMainFrame ?? false) {
                 widget.tab.markLoadStopped();
               }
-            },
-            onReceivedHttpError: (controller, request, errorResponse) {
-              DebugLogManager.log('⚠️ [onReceivedHttpError] url=${request.url}, statusCode=${errorResponse.statusCode}');
-            },
-            onConsoleMessage: (controller, consoleMessage) {
-              DebugLogManager.log('💬 [Console-${consoleMessage.messageLevel}] ${consoleMessage.message}');
             },
             onJsAlert: (controller, jsAlertRequest) async {
               await showDialog(
@@ -1200,170 +1222,7 @@ class _BrowserViewState extends State<BrowserView> {
               );
             },
           ),
-          // 悬浮调试胶囊（仅在设置中开启调试开关时显示）
-          if (browserProvider.isDebugModeEnabled)
-            Positioned(
-              bottom: 80,
-              right: 12,
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: () => _showDebugLogModal(context),
-                borderRadius: BorderRadius.circular(20),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.redAccent.withValues(alpha: 0.9),
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Colors.black45,
-                        blurRadius: 4,
-                        offset: Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.bug_report, size: 16, color: Colors.white),
-                      const SizedBox(width: 4),
-                      ValueListenableBuilder<int>(
-                        valueListenable: DebugLogManager.logCountNotifier,
-                        builder: (context, count, _) => Text(
-                          '调试 ($count)',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
         ],
-      ),
-    );
-  }
-
-  /// 打开在屏调试日志弹窗（可滑动浏览、一键复制全部、清空）
-  void _showDebugLogModal(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        height: MediaQuery.of(ctx).size.height * 0.78,
-        decoration: const BoxDecoration(
-          color: Color(0xFF1E1E1E),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-        ),
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: const BoxDecoration(
-                border: Border(bottom: BorderSide(color: Colors.white12)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.bug_report, color: Colors.amber, size: 20),
-                  const SizedBox(width: 8),
-                  const Text(
-                    'WebView 调试日志',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const Spacer(),
-                  TextButton.icon(
-                    style: TextButton.styleFrom(
-                      foregroundColor: Colors.white70,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                    ),
-                    icon: const Icon(Icons.delete_outline, size: 16),
-                    label: const Text('清空', style: TextStyle(fontSize: 12)),
-                    onPressed: () {
-                      DebugLogManager.clear();
-                    },
-                  ),
-                  const SizedBox(width: 4),
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blueAccent,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    ),
-                    icon: const Icon(Icons.copy, size: 14),
-                    label: const Text('复制全部', style: TextStyle(fontSize: 12)),
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: DebugLogManager.getAllLogs()));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('已复制所有调试日志到剪贴板！'),
-                          duration: Duration(seconds: 2),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: ValueListenableBuilder<int>(
-                valueListenable: DebugLogManager.logCountNotifier,
-                builder: (context, count, _) {
-                  if (DebugLogManager.logs.isEmpty) {
-                    return const Center(
-                      child: Text(
-                        '暂无日志\\n请在网页中点击“使用其它物品”触发操作',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.white38, fontSize: 13),
-                      ),
-                    );
-                  }
-                  return ListView.builder(
-                    padding: const EdgeInsets.all(12),
-                    itemCount: DebugLogManager.logs.length,
-                    itemBuilder: (context, index) {
-                      final log = DebugLogManager.logs[index];
-                      Color textColor = Colors.white70;
-                      if (log.contains('shouldOverrideUrl')) {
-                        textColor = Colors.amberAccent;
-                      } else if (log.contains('onLoadStart')) {
-                        textColor = Colors.lightBlueAccent;
-                      } else if (log.contains('onLoadStop')) {
-                        textColor = Colors.lightGreenAccent;
-                      } else if (log.contains('Error') || log.contains('❌') || log.contains('⚠️')) {
-                        textColor = Colors.redAccent;
-                      } else if (log.contains('标题') || log.contains('正文')) {
-                        textColor = Colors.purpleAccent;
-                      }
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 3),
-                        child: SelectableText(
-                          log,
-                          style: TextStyle(
-                            color: textColor,
-                            fontSize: 11,
-                            fontFamily: 'monospace',
-                            height: 1.3,
-                          ),
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
