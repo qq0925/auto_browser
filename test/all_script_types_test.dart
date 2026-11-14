@@ -874,8 +874,7 @@ void main() {
       }
 
       // 2) 完整日期（历史时刻 -> 触发时间后内联子脚本）与 +02:00:00（未到 -> 触发时间前内联子脚本）
-      String? loadedUrl;
-      controller.onLoadUrl = (url) => loadedUrl = url;
+      controller.loadedUrls.clear();
       expect(
         await executor.execute(
           controller,
@@ -887,7 +886,7 @@ void main() {
         ),
         true,
       );
-      expect(loadedUrl, 'https://after.example.com');
+      expect(controller.loadedUrls, ['https://after.example.com']);
 
       final relScript = Script(type: '逻辑脚本-时间对比', params: {
         '目标值': '+02:00:00',
@@ -897,7 +896,7 @@ void main() {
         await executor.execute(controller, relScript, executionDelay: 0),
         true,
       );
-      expect(loadedUrl, 'https://before.example.com');
+      expect(controller.loadedUrls.last, 'https://before.example.com');
       expect(relScript.runtimeTargetTime, isNotNull);
 
       expect(
