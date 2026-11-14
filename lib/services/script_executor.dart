@@ -62,10 +62,12 @@ class ScriptExecutor {
     final repeatCount = resolvedScript.params['重复次数'] ?? 1;
     bool success = true;
     bool lastStepSkipped = false;
+    bool triggeredFlowControl = false;
     String? lastStepMessage;
 
     for (var i = 0; i < repeatCount; i++) {
       lastStepSkipped = false;
+      triggeredFlowControl = false;
       lastStepMessage = null;
 
       // 1. 识别原生导航类动作（进入网址、刷新网页、网页后退、网页前进）
@@ -176,13 +178,30 @@ class ScriptExecutor {
           }
         }
       }
+      void emitStepStatus(
+          ScriptStatus status, String? message, double? progress) {
+        if (status == ScriptStatus.jump ||
+            status == ScriptStatus.replaced ||
+            status == ScriptStatus.callSubroutine ||
+            status == ScriptStatus.stopped ||
+            status == ScriptStatus.paused) {
+          triggeredFlowControl = true;
+        }
+        onStatusChanged?.call(status, message, progress);
+      }
+
       try {
         final stepResult = await _executeSingleStep(
           controller,
           resolvedScript,
-          onStatusChanged,
+          emitStepStatus,
           scripts,
           variables: variables,
+          originalScript: script,
+          executionDelay: executionDelay,
+          waitForPageLoad: waitForPageLoad,
+          getTabLoadState: getTabLoadState,
+          onActionExecuted: onActionExecuted,
         ).timeout(timeoutDuration + const Duration(milliseconds: 200));
         result = stepResult.success;
         lastStepTriggeredNav = stepResult.isNavTrigger;
@@ -314,7 +333,9 @@ class ScriptExecutor {
       "脚本停止",
       "脚本暂停",
     };
-    if (success && !flowControlTypes.contains(resolvedScript.type)) {
+    if (success &&
+        !triggeredFlowControl &&
+        !flowControlTypes.contains(resolvedScript.type)) {
       onStatusChanged?.call(
         lastStepSkipped ? ScriptStatus.skipped : ScriptStatus.success,
         lastStepMessage,
@@ -332,6 +353,18 @@ class ScriptExecutor {
         onStatusChanged,
     List<Script>? scripts, {
     Map<String, String>? variables,
+    Script? originalScript,
+    int executionDelay = 1000,
+    Future<void> Function({
+      String? preNavToken,
+      String? preUrl,
+      int? preLoadStartEpoch,
+      int? preLoadStopEpoch,
+      int probeWindowMs,
+    })? waitForPageLoad,
+    ({bool isLoading, int startEpoch, int stopEpoch}) Function()?
+        getTabLoadState,
+    void Function(bool didExecuteAction)? onActionExecuted,
   }) async {
     const nonControllerTypes = {
       "控制脚本开关",
@@ -343,6 +376,7 @@ class ScriptExecutor {
       "执行本地脚本集",
       "通知栏提醒",
       "新建窗口并执行脚本",
+      "逻辑脚本-时间对比",
     };
     if (controller == null && !nonControllerTypes.contains(script.type)) {
       onStatusChanged?.call(ScriptStatus.failure, 'WebView 控制器未就绪', null);
@@ -457,17 +491,45 @@ class ScriptExecutor {
 
       case "逻辑脚本-出现文字":
         final ok = await _executeLogicScriptAppearText(
-            controller!, script, onStatusChanged);
+          controller!,
+          script,
+          onStatusChanged,
+          executionDelay: executionDelay,
+          waitForPageLoad: waitForPageLoad,
+          getTabLoadState: getTabLoadState,
+          onActionExecuted: onActionExecuted,
+          scripts: scripts,
+          variables: variables,
+        );
         return _StepExecutionResult(success: ok);
 
       case "逻辑脚本-时间对比":
         final ok = await _executeLogicScriptTimeComparison(
-            controller!, script, onStatusChanged);
+          controller,
+          script,
+          onStatusChanged,
+          cacheOwner: originalScript ?? script,
+          executionDelay: executionDelay,
+          waitForPageLoad: waitForPageLoad,
+          getTabLoadState: getTabLoadState,
+          onActionExecuted: onActionExecuted,
+          scripts: scripts,
+          variables: variables,
+        );
         return _StepExecutionResult(success: ok);
 
       case "逻辑脚本-数值对比":
         final ok = await _executeLogicScriptValueComparison(
-            controller!, script, onStatusChanged);
+          controller!,
+          script,
+          onStatusChanged,
+          executionDelay: executionDelay,
+          waitForPageLoad: waitForPageLoad,
+          getTabLoadState: getTabLoadState,
+          onActionExecuted: onActionExecuted,
+          scripts: scripts,
+          variables: variables,
+        );
         return _StepExecutionResult(success: ok);
 
       case "新建窗口并执行脚本":
@@ -2200,16 +2262,192 @@ class ScriptExecutor {
     }
   }
 
+  /// 统一执行逻辑脚本分支动作：支持子弹窗内联子脚本 (Map) 与旧版脚本集路径 (String)
+  Future<bool> _executeLogicBranchAction(
+    InAppWebViewController? controller,
+    dynamic branchAction, {
+    required int executionDelay,
+    Function(ScriptStatus status, String? message, double? progress)?
+        onStatusChanged,
+    Future<void> Function({
+      String? preNavToken,
+      String? preUrl,
+      int? preLoadStartEpoch,
+      int? preLoadStopEpoch,
+      int probeWindowMs,
+    })? waitForPageLoad,
+    ({bool isLoading, int startEpoch, int stopEpoch}) Function()?
+        getTabLoadState,
+    void Function(bool didExecuteAction)? onActionExecuted,
+    List<Script>? scripts,
+    Map<String, String>? variables,
+  }) async {
+    if (branchAction is Map) {
+      final childScript =
+          Script.fromUserMap(Map<String, dynamic>.from(branchAction));
+      return await execute(
+        controller,
+        childScript,
+        executionDelay: 0,
+        waitForPageLoad: waitForPageLoad,
+        getTabLoadState: getTabLoadState,
+        onActionExecuted: onActionExecuted,
+        scripts: scripts,
+        variables: variables,
+        onStatusChanged: (status, msg, prog) {
+          if (status == ScriptStatus.jump ||
+              status == ScriptStatus.replaced ||
+              status == ScriptStatus.callSubroutine ||
+              status == ScriptStatus.stopped ||
+              status == ScriptStatus.paused ||
+              status == ScriptStatus.notification) {
+            onStatusChanged?.call(status, msg, prog);
+          } else if (status == ScriptStatus.running ||
+              status == ScriptStatus.waiting) {
+            onStatusChanged?.call(
+                status, '分支(${childScript.type}): ${msg ?? "执行中..."}', prog);
+          } else if (status == ScriptStatus.failure) {
+            onStatusChanged?.call(
+                status, '分支(${childScript.type})失败: ${msg ?? ""}', prog);
+          }
+        },
+      );
+    }
+    if (branchAction is String && branchAction.trim().isNotEmpty) {
+      onStatusChanged?.call(
+          ScriptStatus.callSubroutine, branchAction.trim(), null);
+      return true;
+    }
+    return true;
+  }
+
+  /// 解析时间对比目标时刻，支持：
+  /// 1) 完整日期时间: yyyy-MM-dd HH:mm:ss (如 2013-01-01 09:30:58)
+  /// 2) 仅时分秒: HH:mm:ss (默认今天)
+  /// 3) 相对偏移: +HH:mm:ss (首次运行自动按当前时间累加并缓存在脚本实例中)
+  DateTime? _resolveComparisonTargetTime(
+    String rawTime, {
+    Script? cacheOwner,
+    DateTime? now,
+  }) {
+    final trimmed = rawTime.trim();
+    if (trimmed.isEmpty) return null;
+    final current = now ?? DateTime.now();
+
+    if (trimmed.startsWith('+')) {
+      final relMatch =
+          RegExp(r'^\+(\d+):(\d{1,2}):(\d{1,2})$').firstMatch(trimmed);
+      if (relMatch == null) return null;
+      final hours = int.tryParse(relMatch.group(1)!);
+      final minutes = int.tryParse(relMatch.group(2)!);
+      final seconds = int.tryParse(relMatch.group(3)!);
+      if (hours == null ||
+          minutes == null ||
+          seconds == null ||
+          hours < 0 ||
+          minutes < 0 ||
+          minutes > 59 ||
+          seconds < 0 ||
+          seconds > 59) {
+        return null;
+      }
+      if (cacheOwner != null &&
+          cacheOwner.runtimeTargetTime != null &&
+          cacheOwner.runtimeTargetTimeSource == trimmed) {
+        return cacheOwner.runtimeTargetTime!;
+      }
+      final target = current.add(
+          Duration(hours: hours, minutes: minutes, seconds: seconds));
+      if (cacheOwner != null) {
+        cacheOwner.runtimeTargetTime = target;
+        cacheOwner.runtimeTargetTimeSource = trimmed;
+      }
+      return target;
+    }
+
+    final fullMatch = RegExp(
+            r'^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{1,2}):(\d{1,2})$')
+        .firstMatch(trimmed);
+    if (fullMatch != null) {
+      final year = int.tryParse(fullMatch.group(1)!);
+      final month = int.tryParse(fullMatch.group(2)!);
+      final day = int.tryParse(fullMatch.group(3)!);
+      final hour = int.tryParse(fullMatch.group(4)!);
+      final minute = int.tryParse(fullMatch.group(5)!);
+      final second = int.tryParse(fullMatch.group(6)!);
+      if (year == null ||
+          month == null ||
+          day == null ||
+          hour == null ||
+          minute == null ||
+          second == null ||
+          month < 1 ||
+          month > 12 ||
+          day < 1 ||
+          day > 31 ||
+          hour < 0 ||
+          hour > 23 ||
+          minute < 0 ||
+          minute > 59 ||
+          second < 0 ||
+          second > 59) {
+        return null;
+      }
+      final target = DateTime(year, month, day, hour, minute, second);
+      if (target.year != year || target.month != month || target.day != day) {
+        return null;
+      }
+      return target;
+    }
+
+    final timeOnlyMatch =
+        RegExp(r'^(\d{1,2}):(\d{1,2}):(\d{1,2})$').firstMatch(trimmed);
+    if (timeOnlyMatch != null) {
+      final hour = int.tryParse(timeOnlyMatch.group(1)!);
+      final minute = int.tryParse(timeOnlyMatch.group(2)!);
+      final second = int.tryParse(timeOnlyMatch.group(3)!);
+      if (hour == null ||
+          minute == null ||
+          second == null ||
+          hour < 0 ||
+          hour > 23 ||
+          minute < 0 ||
+          minute > 59 ||
+          second < 0 ||
+          second > 59) {
+        return null;
+      }
+      return DateTime(
+          current.year, current.month, current.day, hour, minute, second);
+    }
+
+    return null;
+  }
+
   Future<bool> _executeLogicScriptAppearText(
-      InAppWebViewController controller,
-      Script script,
-      Function(ScriptStatus status, String? message, double? progress)?
-          onStatusChanged) async {
+    InAppWebViewController controller,
+    Script script,
+    Function(ScriptStatus status, String? message, double? progress)?
+        onStatusChanged, {
+    int executionDelay = 1000,
+    Future<void> Function({
+      String? preNavToken,
+      String? preUrl,
+      int? preLoadStartEpoch,
+      int? preLoadStopEpoch,
+      int probeWindowMs,
+    })? waitForPageLoad,
+    ({bool isLoading, int startEpoch, int stopEpoch}) Function()?
+        getTabLoadState,
+    void Function(bool didExecuteAction)? onActionExecuted,
+    List<Script>? scripts,
+    Map<String, String>? variables,
+  }) async {
     final appearText = script.params['出现文字'] as String? ?? '';
     final afterText = script.params['在此之后'] as String? ?? '';
     final beforeText = script.params['在此之前'] as String? ?? '';
-    final trueScriptPath = script.params['出现时执行'] as String?;
-    final falseScriptPath = script.params['未出现时执行'] as String?;
+    final trueBranch = script.params['出现时执行'] ?? script.params['满足执行'];
+    final falseBranch = script.params['未出现时执行'] ?? script.params['不满足执行'];
 
     if (appearText.isEmpty) return false;
 
@@ -2272,59 +2510,76 @@ class ScriptExecutor {
     ''');
 
     final bool exists = result.toString() == 'true';
-
-    if (exists) {
-      if (trueScriptPath != null) {
-        onStatusChanged?.call(
-            ScriptStatus.callSubroutine, trueScriptPath, null);
-      }
-    } else {
-      if (falseScriptPath != null) {
-        onStatusChanged?.call(
-            ScriptStatus.callSubroutine, falseScriptPath, null);
-      }
-    }
-
-    return true; // Logic script itself executed successfully
+    final selectedBranch = exists ? trueBranch : falseBranch;
+    return await _executeLogicBranchAction(
+      controller,
+      selectedBranch,
+      executionDelay: executionDelay,
+      onStatusChanged: onStatusChanged,
+      waitForPageLoad: waitForPageLoad,
+      getTabLoadState: getTabLoadState,
+      onActionExecuted: onActionExecuted,
+      scripts: scripts,
+      variables: variables,
+    );
   }
 
   Future<bool> _executeLogicScriptTimeComparison(
-      InAppWebViewController controller,
-      Script script,
-      Function(ScriptStatus status, String? message, double? progress)?
-          onStatusChanged) async {
-    final targetTimeStr = script.params['目标值'] as String? ?? '';
-    final trueScriptPath = script.params['出现时执行'] as String?; // After Time
-    final falseScriptPath = script.params['未出现时执行'] as String?; // Before Time
+    InAppWebViewController? controller,
+    Script script,
+    Function(ScriptStatus status, String? message, double? progress)?
+        onStatusChanged, {
+    Script? cacheOwner,
+    int executionDelay = 1000,
+    Future<void> Function({
+      String? preNavToken,
+      String? preUrl,
+      int? preLoadStartEpoch,
+      int? preLoadStopEpoch,
+      int probeWindowMs,
+    })? waitForPageLoad,
+    ({bool isLoading, int startEpoch, int stopEpoch}) Function()?
+        getTabLoadState,
+    void Function(bool didExecuteAction)? onActionExecuted,
+    List<Script>? scripts,
+    Map<String, String>? variables,
+  }) async {
+    final targetTimeStr = (script.params['目标值'] ??
+            script.params['设定时间'] ??
+            script.params['目标时间'] ??
+            '')
+        .toString();
+    final afterBranch = script.params['出现时执行'] ?? script.params['时间后执行'];
+    final beforeBranch = script.params['未出现时执行'] ?? script.params['时间前执行'];
 
-    if (targetTimeStr.isEmpty) return false;
+    if (targetTimeStr.trim().isEmpty) return false;
 
     try {
       final now = DateTime.now();
-      final parts = targetTimeStr.split(':');
-      if (parts.length != 3) return false;
-
-      final targetTime = DateTime(
-        now.year,
-        now.month,
-        now.day,
-        int.parse(parts[0]),
-        int.parse(parts[1]),
-        int.parse(parts[2]),
+      final targetTime = _resolveComparisonTargetTime(
+        targetTimeStr,
+        cacheOwner: cacheOwner ?? script,
+        now: now,
       );
-
-      if (now.isAfter(targetTime)) {
-        if (trueScriptPath != null) {
-          onStatusChanged?.call(
-              ScriptStatus.callSubroutine, trueScriptPath, null);
-        }
-      } else {
-        if (falseScriptPath != null) {
-          onStatusChanged?.call(
-              ScriptStatus.callSubroutine, falseScriptPath, null);
-        }
+      if (targetTime == null) {
+        onStatusChanged?.call(
+            ScriptStatus.failure, '时间格式错误: $targetTimeStr', null);
+        return false;
       }
-      return true;
+
+      final selectedBranch =
+          now.isAfter(targetTime) ? afterBranch : beforeBranch;
+      return await _executeLogicBranchAction(
+        controller,
+        selectedBranch,
+        executionDelay: executionDelay,
+        onStatusChanged: onStatusChanged,
+        waitForPageLoad: waitForPageLoad,
+        getTabLoadState: getTabLoadState,
+        onActionExecuted: onActionExecuted,
+        scripts: scripts,
+        variables: variables,
+      );
     } catch (e) {
       debugPrint('Time comparison error: $e');
       return false;
@@ -2332,17 +2587,31 @@ class ScriptExecutor {
   }
 
   Future<bool> _executeLogicScriptValueComparison(
-      InAppWebViewController controller,
-      Script script,
-      Function(ScriptStatus status, String? message, double? progress)?
-          onStatusChanged) async {
+    InAppWebViewController controller,
+    Script script,
+    Function(ScriptStatus status, String? message, double? progress)?
+        onStatusChanged, {
+    int executionDelay = 1000,
+    Future<void> Function({
+      String? preNavToken,
+      String? preUrl,
+      int? preLoadStartEpoch,
+      int? preLoadStopEpoch,
+      int probeWindowMs,
+    })? waitForPageLoad,
+    ({bool isLoading, int startEpoch, int stopEpoch}) Function()?
+        getTabLoadState,
+    void Function(bool didExecuteAction)? onActionExecuted,
+    List<Script>? scripts,
+    Map<String, String>? variables,
+  }) async {
     final targetValueStr = script.params['目标值'] as String? ?? '';
     final compareMethod = script.params['对比方式'] as String? ?? '>';
     final multipleSelection = script.params['多个筛选'] as int? ?? 1;
     final afterText = script.params['在此之后'] as String? ?? '';
     final beforeText = script.params['在此之前'] as String? ?? '';
-    final trueScriptPath = script.params['出现时执行'] as String?; // Satisfied
-    final falseScriptPath = script.params['未出现时执行'] as String?; // Not Satisfied
+    final trueBranch = script.params['出现时执行'] ?? script.params['满足执行'];
+    final falseBranch = script.params['未出现时执行'] ?? script.params['不满足执行'];
 
     if (targetValueStr.isEmpty) return false;
     final targetValue = double.tryParse(targetValueStr);
@@ -2442,19 +2711,18 @@ class ScriptExecutor {
         break;
     }
 
-    if (conditionMet) {
-      if (trueScriptPath != null) {
-        onStatusChanged?.call(
-            ScriptStatus.callSubroutine, trueScriptPath, null);
-      }
-    } else {
-      if (falseScriptPath != null) {
-        onStatusChanged?.call(
-            ScriptStatus.callSubroutine, falseScriptPath, null);
-      }
-    }
-
-    return true;
+    final selectedBranch = conditionMet ? trueBranch : falseBranch;
+    return await _executeLogicBranchAction(
+      controller,
+      selectedBranch,
+      executionDelay: executionDelay,
+      onStatusChanged: onStatusChanged,
+      waitForPageLoad: waitForPageLoad,
+      getTabLoadState: getTabLoadState,
+      onActionExecuted: onActionExecuted,
+      scripts: scripts,
+      variables: variables,
+    );
   }
 
   Future<bool> _executeNewWindowScript(
@@ -3023,4 +3291,16 @@ class ScriptExecutor {
   @visibleForTesting
   Script resolveVariables(Script original, Map<String, String>? vars) =>
       _resolveVariables(original, vars);
+
+  @visibleForTesting
+  DateTime? resolveComparisonTargetTime(
+    String rawTime, {
+    Script? cacheOwner,
+    DateTime? now,
+  }) =>
+      _resolveComparisonTargetTime(
+        rawTime,
+        cacheOwner: cacheOwner,
+        now: now,
+      );
 }

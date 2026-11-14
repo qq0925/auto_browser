@@ -52,7 +52,9 @@ class Script {
   ScriptStatus status = ScriptStatus.idle;
   String? statusMessage;
   double? progress;
-  String? targetScriptPath; // For '脚本替换'
+  String? targetScriptPath; // For '脚本替换'
+  DateTime? runtimeTargetTime; // 运行时缓存相对时间 (+HH:mm:ss) 解析出的绝对时刻
+  String? runtimeTargetTimeSource; // 缓存对应的原始时间字符串，配置变更时自动重算
 
   Script({
     required this.type,

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart'
+    show FilteringTextInputFormatter, rootBundle;
 import 'package:flutter_inappwebview/flutter_inappwebview.dart' show WebUri;
 import 'package:provider/provider.dart';
 import '../providers/script_provider.dart';
@@ -455,29 +456,39 @@ class RightScriptPanel extends StatelessWidget {
           list.add(MapEntry('出现文字', txt.toString()));
           handledKeys.addAll(['出现文字', '检测文字']);
         }
-        final truePath = params['出现时执行'] ?? params['满足执行'];
-        if (truePath != null && truePath.toString().isNotEmpty) {
-          list.add(MapEntry('满足执行', path.basename(truePath.toString())));
-          handledKeys.addAll(['出现时执行', '满足执行']);
+        final trueSummary =
+            _formatBranchActionSummary(params['出现时执行'] ?? params['满足执行']);
+        if (trueSummary != null) {
+          list.add(MapEntry('满足执行', trueSummary));
         }
-        final falsePath = params['未出现时执行'] ?? params['不满足执行'];
-        if (falsePath != null && falsePath.toString().isNotEmpty) {
-          list.add(MapEntry('未出现执行', path.basename(falsePath.toString())));
-          handledKeys.addAll(['未出现时执行', '不满足执行']);
+        handledKeys.addAll(['出现时执行', '满足执行']);
+        final falseSummary =
+            _formatBranchActionSummary(params['未出现时执行'] ?? params['不满足执行']);
+        if (falseSummary != null) {
+          list.add(MapEntry('未出现执行', falseSummary));
         }
+        handledKeys.addAll(['未出现时执行', '不满足执行']);
         break;
 
       case '逻辑脚本-时间对比':
-        final targetVal = params['目标值'] ?? params['目标时间'];
+        final targetVal =
+            params['目标值'] ?? params['设定时间'] ?? params['目标时间'];
         if (targetVal != null && targetVal.toString().isNotEmpty) {
-          list.add(MapEntry('目标时间', targetVal.toString()));
-          handledKeys.addAll(['目标值', '目标时间']);
+          list.add(MapEntry('设定时间', targetVal.toString()));
+          handledKeys.addAll(['目标值', '设定时间', '目标时间']);
         }
-        final afterTime = params['出现时执行'] ?? params['时间后执行'];
-        if (afterTime != null && afterTime.toString().isNotEmpty) {
-          list.add(MapEntry('时间后执行', path.basename(afterTime.toString())));
-          handledKeys.addAll(['出现时执行', '时间后执行']);
+        final afterSummary =
+            _formatBranchActionSummary(params['出现时执行'] ?? params['时间后执行']);
+        if (afterSummary != null) {
+          list.add(MapEntry('时间后执行', afterSummary));
         }
+        handledKeys.addAll(['出现时执行', '时间后执行']);
+        final beforeSummary =
+            _formatBranchActionSummary(params['未出现时执行'] ?? params['时间前执行']);
+        if (beforeSummary != null) {
+          list.add(MapEntry('时间前执行', beforeSummary));
+        }
+        handledKeys.addAll(['未出现时执行', '时间前执行']);
         break;
 
       case '逻辑脚本-数值对比':
@@ -491,11 +502,18 @@ class RightScriptPanel extends StatelessWidget {
           list.add(MapEntry('对比规则', cmp));
           handledKeys.addAll(['对比方式', '目标值']);
         }
-        final satisfied = params['出现时执行'] ?? params['满足执行'];
-        if (satisfied != null && satisfied.toString().isNotEmpty) {
-          list.add(MapEntry('满足执行', path.basename(satisfied.toString())));
-          handledKeys.addAll(['出现时执行', '满足执行']);
+        final satisfiedSummary =
+            _formatBranchActionSummary(params['出现时执行'] ?? params['满足执行']);
+        if (satisfiedSummary != null) {
+          list.add(MapEntry('满足执行', satisfiedSummary));
         }
+        handledKeys.addAll(['出现时执行', '满足执行']);
+        final unsatisfiedSummary =
+            _formatBranchActionSummary(params['未出现时执行'] ?? params['不满足执行']);
+        if (unsatisfiedSummary != null) {
+          list.add(MapEntry('不满足执行', unsatisfiedSummary));
+        }
+        handledKeys.addAll(['未出现时执行', '不满足执行']);
         break;
 
       case '脚本替换':
@@ -716,16 +734,18 @@ class RightScriptPanel extends StatelessWidget {
   }
 
   void _showScriptContextMenu(
-      BuildContext context, ScriptProvider scriptProvider, int index) {
+      BuildContext parentContext, ScriptProvider scriptProvider, int index) {
     final script = scriptProvider.scripts[index];
+    final rawRepeat = int.tryParse((script.params['重复次数'] ?? 1).toString()) ?? 1;
+    final currentRepeat = rawRepeat > 0 ? rawRepeat : 1;
 
     showModalBottomSheet(
-      context: context,
+      context: parentContext,
       backgroundColor: const Color(0xFF2C2C2C),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (context) {
+      builder: (sheetContext) {
         return SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -742,7 +762,7 @@ class RightScriptPanel extends StatelessWidget {
                 ),
                 onTap: () {
                   scriptProvider.toggleScriptEnabled(index, !script.isEnabled);
-                  Navigator.pop(context);
+                  Navigator.pop(sheetContext);
                 },
               ),
               const Divider(color: Colors.white24, height: 1),
@@ -756,7 +776,7 @@ class RightScriptPanel extends StatelessWidget {
                   if (copied != null) {
                     scriptProvider.addScript(copied);
                   }
-                  Navigator.pop(context);
+                  Navigator.pop(sheetContext);
                 },
               ),
               const Divider(color: Colors.white24, height: 1),
@@ -771,7 +791,7 @@ class RightScriptPanel extends StatelessWidget {
                   if (copied != null) {
                     scriptProvider.insertScript(index, copied);
                   }
-                  Navigator.pop(context);
+                  Navigator.pop(sheetContext);
                 },
               ),
               const Divider(color: Colors.white24, height: 1),
@@ -782,7 +802,7 @@ class RightScriptPanel extends StatelessWidget {
                 title: const Text('删除', style: TextStyle(color: Colors.red)),
                 onTap: () {
                   scriptProvider.removeScript(index);
-                  Navigator.pop(context);
+                  Navigator.pop(sheetContext);
                 },
               ),
               const Divider(color: Colors.white24, height: 1),
@@ -794,10 +814,11 @@ class RightScriptPanel extends StatelessWidget {
                 title: const Text('在前插入新脚本',
                     style: TextStyle(color: Colors.white)),
                 onTap: () async {
-                  Navigator.pop(context);
+                  Navigator.pop(sheetContext);
+                  if (!parentContext.mounted) return;
 
                   // Show index info on screen
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  ScaffoldMessenger.of(parentContext).showSnackBar(
                     SnackBar(
                       content: Text('准备在位置 $index 插入 (序号${index + 1}之前)'),
                       duration: const Duration(seconds: 2),
@@ -805,15 +826,15 @@ class RightScriptPanel extends StatelessWidget {
                   );
 
                   final result = await showDialog<Script>(
-                    context: context,
+                    context: parentContext,
                     builder: (context) => const AddScriptDialog(),
                   );
                   if (result != null) {
                     scriptProvider.insertScript(index, result);
 
                     // Show result
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
+                    if (parentContext.mounted) {
+                      ScaffoldMessenger.of(parentContext).showSnackBar(
                         SnackBar(
                           content: Text(
                               '已插入到位置 $index，现在共${scriptProvider.scripts.length}个脚本'),
@@ -824,11 +845,116 @@ class RightScriptPanel extends StatelessWidget {
                   }
                 },
               ),
+              const Divider(color: Colors.white24, height: 1),
+
+              // 循环次数
+              ListTile(
+                leading: const Icon(Icons.repeat, color: Colors.white),
+                title: const Text('循环次数', style: TextStyle(color: Colors.white)),
+                trailing: Text(
+                  '$currentRepeat次',
+                  style: const TextStyle(color: Colors.white54, fontSize: 13),
+                ),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  if (!parentContext.mounted) return;
+                  _showRepeatCountDialog(parentContext, scriptProvider, index);
+                },
+              ),
             ],
           ),
         );
       },
     );
+  }
+
+  /// 弹出单个脚本循环次数设置框
+  Future<void> _showRepeatCountDialog(
+      BuildContext context, ScriptProvider scriptProvider, int index) async {
+    if (index < 0 || index >= scriptProvider.scripts.length) return;
+    final script = scriptProvider.scripts[index];
+    final rawRepeat = int.tryParse((script.params['重复次数'] ?? 1).toString()) ?? 1;
+    final currentRepeat = rawRepeat > 0 ? rawRepeat : 1;
+    final controller = TextEditingController(text: '$currentRepeat');
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: const Color(0xFF2C2C2C),
+        title: const Text('设置循环次数', style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '设置该脚本单次执行时的循环次数（至少为 1）',
+              style: TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                hintText: '默认 1 次',
+                hintStyle: TextStyle(color: Colors.white54),
+                suffixText: '次',
+                suffixStyle: TextStyle(color: Colors.white54),
+                enabledBorder: UnderlineInputBorder(
+                  borderSide: BorderSide(color: Colors.white54),
+                ),
+                focusedBorder: UnderlineInputBorder(
+                  borderSide: BorderSide(color: Colors.blue),
+                ),
+              ),
+              onSubmitted: (val) => Navigator.pop(dialogContext, val),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消', style: TextStyle(color: Colors.white54)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text),
+            child: const Text('确定', style: TextStyle(color: Colors.blue)),
+          ),
+        ],
+      ),
+    );
+
+    controller.dispose();
+    if (result == null || index >= scriptProvider.scripts.length) return;
+
+    final parsed = int.tryParse(result.trim());
+    final newCount = (parsed != null && parsed >= 1) ? parsed : 1;
+    final latestScript = scriptProvider.scripts[index];
+    final updatedParams = Map<String, dynamic>.from(latestScript.params);
+    updatedParams['重复次数'] = newCount;
+
+    final updatedScript = Script(
+      type: latestScript.type,
+      params: updatedParams,
+      isEnabled: latestScript.isEnabled,
+    )
+      ..targetScriptPath = latestScript.targetScriptPath
+      ..status = latestScript.status
+      ..statusMessage = latestScript.statusMessage
+      ..progress = latestScript.progress;
+
+    scriptProvider.updateScript(index, updatedScript);
+
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('已设置第 ${index + 1} 项循环次数为 $newCount 次'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   Widget _buildExecutingActions(ScriptProvider scriptProvider) {
@@ -1035,6 +1161,19 @@ class RightScriptPanel extends StatelessWidget {
     );
   }
 
+  /// 格式化逻辑分支动作摘要：支持内联子脚本 (Map) 与旧版脚本路径 (String)
+  String? _formatBranchActionSummary(dynamic branchVal) {
+    if (branchVal == null) return null;
+    if (branchVal is Map) {
+      final child = Script.fromUserMap(Map<String, dynamic>.from(branchVal));
+      final detail = _getScriptContent(child).trim();
+      return detail.isNotEmpty ? '${child.type} ($detail)' : child.type;
+    }
+    final str = branchVal.toString().trim();
+    if (str.isEmpty) return null;
+    return path.basename(str);
+  }
+
   String _getScriptContent(Script script) {
     final params = script.params;
     switch (script.type) {
@@ -1091,6 +1230,10 @@ class RightScriptPanel extends StatelessWidget {
         return '延时: ${params['延时时间'] ?? 0}ms';
       case '逻辑脚本-出现文字':
         return '检测: ${params['出现文字'] ?? ''}';
+      case '逻辑脚本-时间对比':
+        return '时间: ${params['目标值'] ?? params['设定时间'] ?? params['目标时间'] ?? ''}';
+      case '逻辑脚本-数值对比':
+        return '对比: ${params['对比方式'] ?? '>'} ${params['目标值'] ?? ''}';
       case '刷新网页':
         return '刷新当前页面';
       case '网页后退':

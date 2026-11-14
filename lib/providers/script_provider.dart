@@ -543,6 +543,8 @@ return false;
     for (var script in executingTab.scripts) {
       script.status = ScriptStatus.idle;
       script.statusMessage = null;
+      script.runtimeTargetTime = null;
+      script.runtimeTargetTimeSource = null;
     }
     notifyListeners();
 

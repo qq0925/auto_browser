@@ -203,7 +203,9 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   String? _jsFilePath; // Path to selected JS file
   String? _targetScriptPath; // Path to target script set for replacement
   String? _trueScriptPath; // Path to script set for True condition
-  String? _falseScriptPath; // Path to script set for False condition
+  String? _falseScriptPath; // Path to script set for False condition
+  Script? _trueBranchScript; // 逻辑分支条件满足时执行的子脚本
+  Script? _falseBranchScript; // 逻辑分支条件不满足时执行的子脚本
 
   // Nested scripts state
   // Missing definitions
@@ -227,7 +229,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
   final TextEditingController _variableNameController = TextEditingController();
   final TextEditingController _notificationContentController =
       TextEditingController();
-  final TextEditingController _repeatCountController = TextEditingController();
+  int _repeatCount = 1; // 从原有脚本保留的循环次数（已移至脚本列表长按菜单设置）
 
   // 高级配置分层折叠与超时时间
   bool _isAdvancedExpanded = false;
@@ -259,7 +261,8 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       final params = widget.script!.params;
 
       _delayController.text = (params['执行延迟'] ?? '').toString();
-      _repeatCountController.text = (params['重复次数'] ?? 1).toString();
+      final rawRepeat = int.tryParse((params['重复次数'] ?? 1).toString()) ?? 1;
+      _repeatCount = rawRepeat > 0 ? rawRepeat : 1;
       _appearTextController.text = params['出现文字'] ?? '';
       _clickTextController.text = params['点击文本'] ?? params['图片地址'] ?? '';
       _afterSearchController.text = params['在此之后'] ?? '';
@@ -296,8 +299,26 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       }
       _switchAction = params['开关动作'] ?? '禁用';
 
-      _trueScriptPath = params['出现时执行'];
-      _falseScriptPath = params['未出现时执行'];
+      final trueBranchRaw =
+          params['出现时执行'] ?? params['满足执行'] ?? params['时间后执行'];
+      if (trueBranchRaw is Map) {
+        _trueBranchScript =
+            Script.fromUserMap(Map<String, dynamic>.from(trueBranchRaw));
+        _trueScriptPath = null;
+      } else if (trueBranchRaw is String && trueBranchRaw.trim().isNotEmpty) {
+        _trueScriptPath = trueBranchRaw;
+        _trueBranchScript = null;
+      }
+      final falseBranchRaw =
+          params['未出现时执行'] ?? params['不满足执行'] ?? params['时间前执行'];
+      if (falseBranchRaw is Map) {
+        _falseBranchScript =
+            Script.fromUserMap(Map<String, dynamic>.from(falseBranchRaw));
+        _falseScriptPath = null;
+      } else if (falseBranchRaw is String && falseBranchRaw.trim().isNotEmpty) {
+        _falseScriptPath = falseBranchRaw;
+        _falseBranchScript = null;
+      }
 
       // Load formData map
       final loadedFormData = params['表单数据'];
@@ -308,7 +329,8 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       }
 
       _scriptNameController.text = params['脚本名称'] ?? '';
-      _targetValueController.text = params['目标值'] ?? '';
+      _targetValueController.text =
+          (params['目标值'] ?? params['设定时间'] ?? params['目标时间'] ?? '').toString();
       _compareValueController.text = params['对比值'] ?? '';
       _jumpLabelController.text = params['跳转标签'] ?? '';
 
@@ -366,7 +388,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
   @override
   void dispose() {
-    _repeatCountController.dispose();
+    // _repeatCount 为基础整型状态，无需 dispose
     _timeoutSecondsController.dispose();
     _elementWaitController.dispose();
     _customJsController.dispose();
@@ -523,16 +545,16 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                             ],
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        // Repeat Count (not visible for 全局设置)
-                        if (_selectedScriptType != '全局设置')
+                        const SizedBox.shrink(),
+                        // 循环次数已移至脚本列表长按菜单，此处保留给脚本类型独占整行
+                        if (_repeatCount < 0)
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                _buildLabel('循环次数'),
+                                const SizedBox.shrink(),
                                 const SizedBox(height: 4),
-                                _buildTextField(_repeatCountController, '1'),
+                                const SizedBox.shrink(),
                               ],
                             ),
                           ),
@@ -720,21 +742,24 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           _buildFieldRow('出现文字', _appearTextController, '', required: true),
           _buildFieldRow('在...之后搜索', _afterSearchController, ''),
           _buildFieldRow('在...之前搜索', _beforeSearchController, ''),
-          _buildScriptPathSelector('出现文字,则执行', _trueScriptPath, (path) {
+          _buildTrueBranchSelector('出现文字,则执行', _trueScriptPath, (path) {
             setState(() => _trueScriptPath = path);
           }),
-          _buildScriptPathSelector('未出现文字,则执行', _falseScriptPath, (path) {
+          _buildFalseBranchSelector('未出现文字,则执行', _falseScriptPath, (path) {
             setState(() => _falseScriptPath = path);
           }),
         ];
       case '逻辑脚本-时间对比':
         return [
-          _buildFieldRow('时间(HH:mm:ss)', _targetValueController, '',
+          _buildFieldRow(
+              '设定时间', _targetValueController, '必填',
+              helpTooltip:
+                  '*必须严格按照格式写,如:\n2013-01-01 09:30:58\n*日期部分可不写,如09:30:58,默认为今天\n*还可以写成+02:00:00,则在运行时会自动设置时间为2小时后',
               required: true),
-          _buildScriptPathSelector('时间后执行脚本', _trueScriptPath, (path) {
+          _buildTrueBranchSelector('时间之后,则执行', _trueScriptPath, (path) {
             setState(() => _trueScriptPath = path);
           }),
-          _buildScriptPathSelector('时间前执行脚本', _falseScriptPath, (path) {
+          _buildFalseBranchSelector('时间之前,则执行', _falseScriptPath, (path) {
             setState(() => _falseScriptPath = path);
           }),
         ];
@@ -749,10 +774,10 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
               hint: '1:第一个, -1:最后一个, 0:随机'),
           _buildFieldRow('在...之后搜索', _afterSearchController, ''),
           _buildFieldRow('在...之前搜索', _beforeSearchController, ''),
-          _buildScriptPathSelector('满足执行脚本', _trueScriptPath, (path) {
+          _buildTrueBranchSelector('满足执行脚本', _trueScriptPath, (path) {
             setState(() => _trueScriptPath = path);
           }),
-          _buildScriptPathSelector('不满足执行脚本', _falseScriptPath, (path) {
+          _buildFalseBranchSelector('不满足执行脚本', _falseScriptPath, (path) {
             setState(() => _falseScriptPath = path);
           }),
         ];
@@ -880,9 +905,208 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     );
   }
 
+  /// 构建帮助提示 `?` 按钮
+  Widget _buildHelpTooltipButton(String message) {
+    return Tooltip(
+      message: message,
+      triggerMode: TooltipTriggerMode.tap,
+      preferBelow: true,
+      child: Container(
+        width: 28,
+        height: 36,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: _theme.inputFillColor,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: _theme.borderColor),
+        ),
+        child: Text(
+          '?',
+          style: TextStyle(
+            color: _theme.labelColor,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 构建带可选 `?` 提示按钮的输入框
+  Widget _buildTextFieldWithHelp(
+      TextEditingController controller, String placeholder, String? helpTooltip) {
+    if (helpTooltip == null || helpTooltip.isEmpty) {
+      return _buildTextField(controller, placeholder);
+    }
+    return Row(
+      children: [
+        Expanded(child: _buildTextField(controller, placeholder)),
+        const SizedBox(width: 8),
+        _buildHelpTooltipButton(helpTooltip),
+      ],
+    );
+  }
+
+  /// 格式化逻辑分支内嵌子脚本的简要预览文案
+  String _formatBranchScriptSummary(Script script) {
+    if (script.type == '点击文字') {
+      final text = (script.params['点击文本'] ?? '').toString().trim();
+      return text.isEmpty ? '${script.type}   匹配所有' : '${script.type}   $text';
+    }
+    const summaryKeys = [
+      '点击文本',
+      '输入内容',
+      '网址',
+      '出现文字',
+      '关键词',
+      '目标文本',
+      '目标值',
+      '设定时间',
+      '提取目标',
+      '提醒内容',
+      '延迟时间',
+      '间隔时间',
+      '脚本路径',
+      '跳转至序号',
+      '脚本序号',
+      'JS代码',
+    ];
+    for (final key in summaryKeys) {
+      final val = (script.params[key] ?? '').toString().trim();
+      if (val.isNotEmpty) {
+        final singleLine = val.replaceAll(RegExp(r'\s+'), ' ');
+        return '${script.type}   $singleLine';
+      }
+    }
+    return '${script.type} (已配置)';
+  }
+
+  Widget _buildTrueBranchSelector(String label, String? legacyPath,
+      ValueChanged<String?> onLegacyPathChanged) {
+    return _buildLogicBranchSelector(
+      label: label,
+      branchScript: _trueBranchScript,
+      legacyPath: legacyPath,
+      onBranchScriptChanged: (script) {
+        setState(() {
+          _trueBranchScript = script;
+        });
+      },
+      onLegacyPathChanged: onLegacyPathChanged,
+    );
+  }
+
+  Widget _buildFalseBranchSelector(String label, String? legacyPath,
+      ValueChanged<String?> onLegacyPathChanged) {
+    return _buildLogicBranchSelector(
+      label: label,
+      branchScript: _falseBranchScript,
+      legacyPath: legacyPath,
+      onBranchScriptChanged: (script) {
+        setState(() {
+          _falseBranchScript = script;
+        });
+      },
+      onLegacyPathChanged: onLegacyPathChanged,
+    );
+  }
+
+  /// 构建逻辑脚本分支的内嵌子脚本选择器（点击弹出子脚本配置弹窗）
+  Widget _buildLogicBranchSelector({
+    required String label,
+    required Script? branchScript,
+    required String? legacyPath,
+    required ValueChanged<Script?> onBranchScriptChanged,
+    required ValueChanged<String?> onLegacyPathChanged,
+  }) {
+    final trimmedLegacyPath = legacyPath?.trim() ?? '';
+    final hasLegacyPath = trimmedLegacyPath.isNotEmpty;
+    final hasValue = branchScript != null || hasLegacyPath;
+    final displayText = branchScript != null
+        ? _formatBranchScriptSummary(branchScript)
+        : (hasLegacyPath
+            ? '脚本集: ${trimmedLegacyPath.split(RegExp(r'[/\\]')).last}'
+            : '点击设置脚本(选填)');
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text(
+            '$label:',
+            style: TextStyle(color: _theme.textColor, fontSize: 13),
+          ),
+        ),
+        Material(
+          color: _theme.inputFillColor,
+          borderRadius: BorderRadius.circular(8),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () async {
+              final result = await showDialog<Script>(
+                context: context,
+                builder: (context) => AddScriptDialog(
+                  script: branchScript,
+                  isNested: true,
+                ),
+              );
+              if (result != null) {
+                onBranchScriptChanged(result);
+                if (hasLegacyPath) {
+                  onLegacyPathChanged(null);
+                }
+              }
+            },
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: _theme.borderColor),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      displayText,
+                      textAlign: hasValue ? TextAlign.left : TextAlign.center,
+                      style: TextStyle(
+                        color: hasValue ? _theme.textColor : _theme.hintColor,
+                        fontSize: 13,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (hasValue) ...[
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: () {
+                        onBranchScriptChanged(null);
+                        if (hasLegacyPath) {
+                          onLegacyPathChanged(null);
+                        }
+                      },
+                      child: const Tooltip(
+                        message: '清除脚本',
+                        child: Icon(Icons.close, color: Colors.redAccent, size: 18),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+
   Widget _buildFieldRow(
       String label, TextEditingController controller, String placeholder,
-      {bool required = false, String? hint}) {
+      {bool required = false, String? hint, String? helpTooltip}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Row(
@@ -904,7 +1128,8 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
             ),
           ),
           Expanded(
-            child: _buildTextField(controller, hint ?? placeholder),
+            child: _buildTextFieldWithHelp(
+                controller, hint ?? placeholder, helpTooltip),
           ),
         ],
       ),
@@ -1894,7 +2119,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     final params = <String, dynamic>{};
 
     if (_selectedScriptType != '全局设置') {
-      params['重复次数'] = int.tryParse(_repeatCountController.text) ?? 1;
+      params['重复次数'] = _repeatCount;
     }
 
     // Add type-specific params based on JSON structure
@@ -2048,11 +2273,17 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         params['出现文字'] = _appearTextController.text;
         params['在此之后'] = _afterSearchController.text;
         params['在此之前'] = _beforeSearchController.text;
-        if (_trueScriptPath != null) {
-          params['出现时执行'] = _trueScriptPath;
+        if (_trueBranchScript != null ||
+            (_trueScriptPath != null && _trueScriptPath!.isNotEmpty)) {
+          params['出现时执行'] = _trueBranchScript != null
+              ? _trueBranchScript!.toUserMap()
+              : _trueScriptPath;
         }
-        if (_falseScriptPath != null) {
-          params['未出现时执行'] = _falseScriptPath;
+        if (_falseBranchScript != null ||
+            (_falseScriptPath != null && _falseScriptPath!.isNotEmpty)) {
+          params['未出现时执行'] = _falseBranchScript != null
+              ? _falseBranchScript!.toUserMap()
+              : _falseScriptPath;
         }
         break;
 
@@ -2062,12 +2293,18 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           params['执行延迟'] = _convertDelayToMilliseconds();
         }
         params['目标值'] = _targetValueController.text;
-        if (_trueScriptPath != null) {
+        if (_trueBranchScript != null ||
+            (_trueScriptPath != null && _trueScriptPath!.isNotEmpty)) {
           params['出现时执行'] =
-              _trueScriptPath; // Reuse key for simplicity or use specific key
+              _trueBranchScript != null
+                  ? _trueBranchScript!.toUserMap()
+                  : _trueScriptPath;
         }
-        if (_falseScriptPath != null) {
-          params['未出现时执行'] = _falseScriptPath;
+        if (_falseBranchScript != null ||
+            (_falseScriptPath != null && _falseScriptPath!.isNotEmpty)) {
+          params['未出现时执行'] = _falseBranchScript != null
+              ? _falseBranchScript!.toUserMap()
+              : _falseScriptPath;
         }
         break;
 
@@ -2081,11 +2318,17 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         params['多个筛选'] = int.tryParse(_multipleSelectionController.text) ?? 1;
         params['在此之后'] = _afterSearchController.text;
         params['在此之前'] = _beforeSearchController.text;
-        if (_trueScriptPath != null) {
-          params['出现时执行'] = _trueScriptPath;
+        if (_trueBranchScript != null ||
+            (_trueScriptPath != null && _trueScriptPath!.isNotEmpty)) {
+          params['出现时执行'] = _trueBranchScript != null
+              ? _trueBranchScript!.toUserMap()
+              : _trueScriptPath;
         }
-        if (_falseScriptPath != null) {
-          params['未出现时执行'] = _falseScriptPath;
+        if (_falseBranchScript != null ||
+            (_falseScriptPath != null && _falseScriptPath!.isNotEmpty)) {
+          params['未出现时执行'] = _falseBranchScript != null
+              ? _falseBranchScript!.toUserMap()
+              : _falseScriptPath;
         }
         break;
 

@@ -13,6 +13,7 @@ import 'package:auto_browser/providers/browser_provider.dart';
 import 'package:auto_browser/providers/script_provider.dart';
 import 'package:auto_browser/services/script_executor.dart';
 import 'package:auto_browser/widgets/add_script_dialog.dart';
+import 'package:auto_browser/widgets/right_script_panel.dart';
 
 /// 轻量级模拟 WebView 控制器：捕获所有 JS 注入与页面导航指令
 class _FakeWebViewController implements InAppWebViewController {
@@ -700,7 +701,7 @@ void main() {
       );
     });
 
-    test('16. 逻辑脚本-出现文字：出现/未出现分支、前后边界、空参数失败', () async {
+    test('16. 逻辑脚本-出现文字：出现/未出现分支、前后边界、空参数失败与内联子弹窗分支', () async {
       String? calledPath;
       controller.onEvaluateJavascript = (_) => 'true';
       expect(
@@ -740,6 +741,52 @@ void main() {
       );
       expect(calledPath, 'lose.json');
 
+      // 内联子脚本分支：支持变量插值，且跳转流控状态不被后续 success 覆盖
+      String? executedChildScript;
+      final emittedStatuses = <ScriptStatus>[];
+      controller.onEvaluateJavascript = (src) {
+        if (src.contains('searchAreaText') || src.contains('bodyText.includes')) {
+          return 'true';
+        }
+        executedChildScript = src;
+        return 'clicked_no_nav';
+      };
+      final inlineOk = await executor.execute(
+        controller,
+        Script(type: '逻辑脚本-出现文字', params: {
+          '出现文字': '继续',
+          '出现时执行': {
+            'type': '点击文字',
+            '点击文本': '\$nextBtn',
+          },
+        }),
+        executionDelay: 0,
+        variables: {'nextBtn': '确认提交'},
+        onStatusChanged: (s, m, p) => emittedStatuses.add(s),
+      );
+      expect(inlineOk, true);
+      expect(executedChildScript, contains('确认提交'));
+      expect(emittedStatuses.last, ScriptStatus.success);
+
+      final jumpStatuses = <ScriptStatus>[];
+      controller.onEvaluateJavascript = (_) => 'false';
+      expect(
+        await executor.execute(
+          controller,
+          Script(type: '逻辑脚本-出现文字', params: {
+            '出现文字': '继续',
+            '未出现时执行': {
+              'type': '跳转脚本',
+              '跳转的脚本序号': '3',
+            },
+          }),
+          executionDelay: 0,
+          onStatusChanged: (s, m, p) => jumpStatuses.add(s),
+        ),
+        true,
+      );
+      expect(jumpStatuses.last, ScriptStatus.jump);
+
       expect(
         await executor.execute(
           controller,
@@ -750,7 +797,43 @@ void main() {
       );
     });
 
-    test('17. 逻辑脚本-时间对比：时间已过/未到分支 与 非法时间格式拦截', () async {
+    test('17. 逻辑脚本-时间对比：完整日期/时分秒/+相对偏移与内联子脚本分支', () async {
+      // 1) 三种时间格式解析与 +HH:mm:ss 会话缓存校验
+      final fixedNow = DateTime(2026, 5, 1, 10, 0, 0);
+      expect(
+        executor.resolveComparisonTargetTime('2013-01-01 09:30:58',
+            now: fixedNow),
+        DateTime(2013, 1, 1, 9, 30, 58),
+      );
+      expect(
+        executor.resolveComparisonTargetTime('09:30:58', now: fixedNow),
+        DateTime(2026, 5, 1, 9, 30, 58),
+      );
+      final cacheScript =
+          Script(type: '逻辑脚本-时间对比', params: {'目标值': '+02:00:00'});
+      expect(
+        executor.resolveComparisonTargetTime('+02:00:00',
+            cacheOwner: cacheScript, now: fixedNow),
+        DateTime(2026, 5, 1, 12, 0, 0),
+      );
+      // 同一会话内再次解析应命中缓存，不随当前时间继续向后顺延
+      expect(
+        executor.resolveComparisonTargetTime('+02:00:00',
+            cacheOwner: cacheScript,
+            now: fixedNow.add(const Duration(minutes: 45))),
+        DateTime(2026, 5, 1, 12, 0, 0),
+      );
+      // 非法日期（2月30日、25点）应被拦截
+      expect(
+        executor.resolveComparisonTargetTime('2025-02-30 10:00:00',
+            now: fixedNow),
+        isNull,
+      );
+      expect(
+        executor.resolveComparisonTargetTime('25:00:00', now: fixedNow),
+        isNull,
+      );
+
       String? calledPath;
       final futureTime = DateTime.now().add(const Duration(minutes: 2));
       final pastTime = DateTime.now().subtract(const Duration(minutes: 2));
@@ -790,6 +873,33 @@ void main() {
         expect(calledPath, 'before.json');
       }
 
+      // 2) 完整日期（历史时刻 -> 触发时间后内联子脚本）与 +02:00:00（未到 -> 触发时间前内联子脚本）
+      String? loadedUrl;
+      controller.onLoadUrl = (url) => loadedUrl = url;
+      expect(
+        await executor.execute(
+          controller,
+          Script(type: '逻辑脚本-时间对比', params: {
+            '目标值': '2013-01-01 09:30:58',
+            '出现时执行': {'type': '进入网址', '网址': 'https://after.example.com'},
+          }),
+          executionDelay: 0,
+        ),
+        true,
+      );
+      expect(loadedUrl, 'https://after.example.com');
+
+      final relScript = Script(type: '逻辑脚本-时间对比', params: {
+        '目标值': '+02:00:00',
+        '未出现时执行': {'type': '进入网址', '网址': 'https://before.example.com'},
+      });
+      expect(
+        await executor.execute(controller, relScript, executionDelay: 0),
+        true,
+      );
+      expect(loadedUrl, 'https://before.example.com');
+      expect(relScript.runtimeTargetTime, isNotNull);
+
       expect(
         await executor.execute(
           controller,
@@ -800,7 +910,7 @@ void main() {
       );
     });
 
-    test('18. 逻辑脚本-数值对比：5种对比方式 (>/< /=/ >=/ <=) 与多筛选/异常边界', () async {
+    test('18. 逻辑脚本-数值对比：5种对比方式 (>/< /=/ >=/ <=)、内联分支与异常边界', () async {
       final cases = [
         ('>', 150, '100', 'true.json'),
         ('>', 90, '100', 'false.json'),
@@ -832,6 +942,24 @@ void main() {
         expect(ok, true);
         expect(branch, expectedBranch, reason: 'op=$op val=$extracted');
       }
+
+      // 内联子脚本分支：满足时执行子跳转脚本且保持 jump 状态
+      final jumpStatuses = <ScriptStatus>[];
+      controller.onEvaluateJavascript = (_) => 200;
+      expect(
+        await executor.execute(
+          controller,
+          Script(type: '逻辑脚本-数值对比', params: {
+            '目标值': '100',
+            '对比方式': '>',
+            '出现时执行': {'type': '跳转脚本', '跳转的脚本序号': '2'},
+          }),
+          executionDelay: 0,
+          onStatusChanged: (s, m, p) => jumpStatuses.add(s),
+        ),
+        true,
+      );
+      expect(jumpStatuses.last, ScriptStatus.jump);
 
       // 页面无数值 / 非法目标值
       controller.onEvaluateJavascript = (_) => null;
@@ -1374,6 +1502,197 @@ void main() {
       expect(savedScript!.params['启用正则'], true);
       expect(savedScript!.params['输入空以当前值提交'], true);
       expect(savedScript!.params['表单数据'], {'field1': ''});
+    });
+
+    testWidgets('30. 循环次数迁移：编辑弹窗隐藏并保留原值，长按菜单【在前插入新脚本】下方可修改', (tester) async {
+      final browserProvider = BrowserProvider();
+      final scriptProvider = ScriptProvider();
+      final tab = BrowserTab(id: 'repeat_ui_tab');
+      tab.scripts.add(Script(
+        type: '点击文字',
+        params: {'点击文本': '去签到', '重复次数': 3},
+        isEnabled: true,
+      ));
+      scriptProvider.setCurrentTab(tab);
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: browserProvider),
+            ChangeNotifierProvider.value(value: scriptProvider),
+          ],
+          child: MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 260,
+                height: 600,
+                child: RightScriptPanel(
+                  onAddScript: () {},
+                  onGlobalSettings: () {},
+                  onExecute: () {},
+                  onLoad: () {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      });
+      await tester.pumpAndSettle();
+
+      // 1. 点击单个脚本打开编辑弹窗：确认弹窗内不再显示「循环次数」，保存后原重复次数 3 被保留
+      await tester.tap(find.text('去签到'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('编辑脚本'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(AddScriptDialog),
+          matching: find.text('循环次数'),
+        ),
+        findsNothing,
+      );
+      await tester.tap(find.text('确认'));
+      await tester.pumpAndSettle();
+      expect(scriptProvider.scripts[0].params['重复次数'], 3);
+
+      // 2. 长按单个脚本：验证「循环次数」位于「在前插入新脚本」下方，且显示当前 3次
+      await tester.longPress(find.text('去签到'));
+      await tester.pumpAndSettle();
+
+      final insertTileFinder = find.text('在前插入新脚本');
+      final repeatTileFinder = find.text('循环次数');
+      expect(insertTileFinder, findsOneWidget);
+      expect(repeatTileFinder, findsOneWidget);
+      expect(find.text('3次'), findsOneWidget);
+      expect(
+        tester.getTopLeft(repeatTileFinder).dy,
+        greaterThan(tester.getTopLeft(insertTileFinder).dy),
+      );
+
+      // 3. 点击「循环次数」修改为 5 并确定
+      await tester.tap(repeatTileFinder);
+      await tester.pumpAndSettle();
+
+      expect(find.text('设置循环次数'), findsOneWidget);
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.byType(TextField),
+        ),
+        '5',
+      );
+      await tester.tap(find.text('确定'));
+      await tester.pumpAndSettle();
+
+      expect(scriptProvider.scripts[0].params['重复次数'], 5);
+    });
+
+    testWidgets('31. 逻辑脚本弹窗：设定时间格式提示 与 三个逻辑脚本分支子弹窗配置闭环', (tester) async {
+      Script? savedScript;
+      final browserProvider = BrowserProvider();
+      final scriptProvider = ScriptProvider();
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: browserProvider),
+            ChangeNotifierProvider.value(value: scriptProvider),
+          ],
+          child: MaterialApp(
+            home: Builder(
+              builder: (ctx) => Scaffold(
+                body: ElevatedButton(
+                  onPressed: () async {
+                    savedScript = await showDialog<Script>(
+                      context: ctx,
+                      builder: (_) => AddScriptDialog(
+                        script: Script(type: '逻辑脚本-时间对比', params: {}),
+                      ),
+                    );
+                  },
+                  child: const Text('打开时间对比弹窗'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      });
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('打开时间对比弹窗'));
+      await tester.pumpAndSettle();
+
+      // 1. 验证「设定时间」、格式说明 `?` 提示及两个分支设置按钮
+      expect(find.text('设定时间'), findsOneWidget);
+      expect(find.text('时间之后,则执行:'), findsOneWidget);
+      expect(find.text('时间之前,则执行:'), findsOneWidget);
+      expect(find.text('点击设置脚本(选填)'), findsNWidgets(2));
+      expect(find.text('?'), findsWidgets);
+
+      // 点击最后一个 `?` 按钮，验证弹出格式规则说明
+      await tester.tap(find.text('?').last);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.textContaining('2013-01-01 09:30:58'), findsOneWidget);
+      expect(find.textContaining('+02:00:00'), findsOneWidget);
+
+      // 2. 填写相对时间 +02:00:00
+      final targetTimeField = find.descendant(
+        of: find
+            .ancestor(
+              of: find.text('设定时间'),
+              matching: find.byType(Padding),
+            )
+            .first,
+        matching: find.byType(TextField),
+      );
+      await tester.enterText(targetTimeField, '+02:00:00');
+      await tester.pump();
+
+      // 3. 点击第一个分支弹出内嵌子弹窗配置子脚本
+      await tester.ensureVisible(find.text('点击设置脚本(选填)').first);
+      await tester.tap(find.text('点击设置脚本(选填)').first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('添加脚本'), findsOneWidget);
+      final childClickField = find.descendant(
+        of: find
+            .ancestor(
+              of: find.text('点击文本').last,
+              matching: find.byType(Padding),
+            )
+            .first,
+        matching: find.byType(TextField),
+      );
+      await tester.enterText(childClickField, '去付款');
+      await tester.pump();
+
+      await tester.tap(find.text('确认').last);
+      await tester.pumpAndSettle();
+
+      // 主弹窗应展示已配子脚本摘要，另一分支仍为未配置
+      expect(find.text('点击文字   去付款'), findsOneWidget);
+      expect(find.text('点击设置脚本(选填)'), findsOneWidget);
+
+      // 4. 保存外层逻辑脚本并校验持久化的内嵌子脚本结构
+      await tester.tap(find.text('确认').first);
+      await tester.pumpAndSettle();
+
+      expect(savedScript, isNotNull);
+      expect(savedScript!.type, '逻辑脚本-时间对比');
+      expect(savedScript!.params['目标值'], '+02:00:00');
+      expect(savedScript!.params['出现时执行'], isA<Map<String, dynamic>>());
+      final trueBranch =
+          savedScript!.params['出现时执行'] as Map<String, dynamic>;
+      expect(trueBranch['type'], '点击文字');
+      expect(trueBranch['点击文本'], '去付款');
+      expect(savedScript!.params.containsKey('未出现时执行'), false);
     });
   });
 }
