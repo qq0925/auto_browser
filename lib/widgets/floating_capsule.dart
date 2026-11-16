@@ -118,7 +118,7 @@ class _FloatingCapsuleState extends State<FloatingCapsule>
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            '步骤 ${currentIndex + 1}/$totalScripts · 循环 $loopText',
+                            '${currentTab?.executionMode ?? scriptProvider.executionMode} · 步骤 ${currentIndex + 1}/$totalScripts · 循环 $loopText',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(

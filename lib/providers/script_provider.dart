@@ -66,6 +66,7 @@ class ScriptProvider extends ChangeNotifier {
   int _originalLoopCount = 1;
   int _remainingLoopCount = 1;
   TimeUnit _delayTimeUnit = TimeUnit.milliseconds;
+  String _executionMode = '极速'; // 全局执行模式：极速 / 稳定
 
   int _successCount = 0;
   int _failureCount = 0;
@@ -115,6 +116,8 @@ class ScriptProvider extends ChangeNotifier {
     return '$completedLoopCount/$totalLoopStr';
   }
   TimeUnit get delayTimeUnit => _delayTimeUnit;
+  String get executionMode => _executionMode;
+  bool get isFastMode => _executionMode == '极速';
   int get successCount => _successCount;
   int get failureCount => _failureCount;
   String? get currentScriptFilePath => _currentTab?.scriptFilePath;
@@ -160,6 +163,9 @@ class ScriptProvider extends ChangeNotifier {
       if (unitIndex >= 0 && unitIndex < TimeUnit.values.length) {
         _delayTimeUnit = TimeUnit.values[unitIndex];
       }
+      final savedMode = prefs.getString('script_global_mode');
+      _executionMode = savedMode == '稳定' ? '稳定' : '极速';
+      _currentTab?.executionMode = _executionMode;
       notifyListeners();
     } catch (e) {
       debugPrint('Error loading global settings: $e');
@@ -174,6 +180,7 @@ class ScriptProvider extends ChangeNotifier {
       await prefs.setInt('script_global_delay', _executionDelay);
       await prefs.setInt('script_global_loop', _originalLoopCount);
       await prefs.setInt('script_global_unit', _delayTimeUnit.index);
+      await prefs.setString('script_global_mode', _executionMode);
     } catch (e) {
       debugPrint('Error saving global settings: $e');
     }
@@ -191,8 +198,19 @@ class ScriptProvider extends ChangeNotifier {
 
   void setDelayTimeUnit(TimeUnit unit) {
     _delayTimeUnit = unit;
+
     if (_currentTab != null) {
       _currentTab!.delayTimeUnit = unit.label;
+    }
+    _saveScripts();
+    notifyListeners();
+  }
+
+  void setExecutionMode(String mode) {
+    final normalized = mode == '稳定' ? '稳定' : '极速';
+    _executionMode = normalized;
+    if (_currentTab != null) {
+      _currentTab!.executionMode = normalized;
     }
     _saveScripts();
     notifyListeners();
@@ -552,6 +570,7 @@ return false;
     executingTab.failureCount = 0;
     executingTab.remainingLoopCount = _remainingLoopCount;
     executingTab.originalLoopCount = _originalLoopCount;
+    executingTab.executionMode = _executionMode;
     executingTab.currentLoopIndex = 1;
     executingTab.completedLoopCount = 0;
     executingTab.executionDelay = _executionDelay;
@@ -601,12 +620,17 @@ return false;
               executingController,
               script,
               executionDelay: _executionDelay,
+              fastMode: executingTab.executionMode == '极速',
               variables: _variables,
               getTabLoadState: () => (
                 isLoading: executingTab.isLoading,
                 startEpoch: executingTab.loadStartEpoch,
                 stopEpoch: executingTab.loadStopEpoch,
               ),
+              isEgretGameTab: () => executingTab.isEgretGame,
+              onEgretDetected: () {
+                executingTab.isEgretGame = true;
+              },
               onActionExecuted: (didExecute) {
                 if (didExecute) {
                   executedActionInPass = true;
@@ -873,6 +897,7 @@ return false;
       '执行延迟': _executionDelay ~/ _delayTimeUnit.multiplier,
       '时间单位': _delayTimeUnit.label,
       '循环次数': _originalLoopCount,
+      '模式': _executionMode,
     });
 
     for (var script in _currentTab!.scripts) {
@@ -942,6 +967,9 @@ return false;
             tab.originalLoopCount = item['循环次数'] as int? ?? 1;
             tab.remainingLoopCount = tab.originalLoopCount;
           }
+          if (item.containsKey('模式')) {
+            tab.executionMode = item['模式'] == '稳定' ? '稳定' : '极速';
+          }
         } else {
           try {
             tab.scripts.add(Script.fromUserMap(item));
@@ -985,6 +1013,10 @@ return false;
             _originalLoopCount = item['循环次数'] as int? ?? 1;
             _remainingLoopCount = _originalLoopCount;
           }
+          if (item.containsKey('模式')) {
+            _executionMode = item['模式'] == '稳定' ? '稳定' : '极速';
+            _currentTab!.executionMode = _executionMode;
+          }
         } else {
           try {
             _currentTab!.scripts.add(Script.fromUserMap(item));
@@ -1004,6 +1036,8 @@ return false;
 
   @override
   void dispose() {
+    _executionNotifyTimer?.cancel();
+    _executionNotifyTimer = null;
     _lastRecordedActionController.close();
     super.dispose();
   }

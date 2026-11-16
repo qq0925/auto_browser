@@ -37,6 +37,8 @@ class BrowserTab {
 
   String delayTimeUnit = '毫秒'; // 延迟单位
 
+  String executionMode = '极速'; // 全局执行模式：极速 / 稳定
+
   List<Script> scripts = []; // 添加每个标签页自己的脚本列表
 
   double progress; // 网页加载进度
@@ -78,6 +80,8 @@ class BrowserTab {
   String get proxySignature =>
       '${resolvedProxyAddress ?? ''}|$proxyUsername|$proxyPassword';
 
+  bool isEgretGame = false; // 自动识别当前标签页是否为白鹭(Egret)/Canvas游戏
+
   int loadStartEpoch = 0; // 页面开始加载事件序号
 
   int loadStopEpoch = 0; // 页面加载完成事件序号
@@ -90,6 +94,7 @@ class BrowserTab {
 
   void markLoadStarted() {
     isLoading = true;
+    isEgretGame = false;
 
     loadStartEpoch++;
 
@@ -163,6 +168,8 @@ class BrowserTab {
 
     final delayText = _formatDelay(executionDelay, delayTimeUnit);
 
+    final modePart = '模式:$executionMode,';
+
     final delayPart = '延迟:$delayText,';
 
     final totalLoopStr = originalLoopCount == 0 ? '无限' : '$originalLoopCount';
@@ -178,7 +185,7 @@ class BrowserTab {
 
     final pausePrefix = isPaused ? '[暂停] ' : '';
 
-    return '$pausePrefix$delayPart$loopPart,$listPart';
+    return '$pausePrefix$modePart$delayPart$loopPart,$listPart';
   }
 
   static String _formatDelay(int delay, String unit) {

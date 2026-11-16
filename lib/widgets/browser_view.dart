@@ -172,13 +172,7 @@ class _BrowserViewState extends State<BrowserView> {
       initialScripts.add(scriptProvider.recordingUserScript);
     }
 
-    // 白鹭引擎 (Egret) 与 Canvas 游戏自动化全局探针（常驻挂载 window.clickVirtual 与 window.scanEgretElements）
-    initialScripts.add(UserScript(
-      source: ScriptExecutor.egretCanvasProbeJs,
-      injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
-    ));
-
-    // 预注入点击辅助函数（AT_DOCUMENT_END），省去自动化执行点击文字时的首次 __NEED_INIT__ 双重 IPC
+    // 仅预注入轻量 DOM 点击辅助函数（AT_DOCUMENT_END）；白鹭 Canvas 游戏探针改为按页面特征自动检测并按需注入
     initialScripts.add(UserScript(
       source: ScriptExecutor.clickHelpersInstallJs,
       injectionTime: UserScriptInjectionTime.AT_DOCUMENT_END,
@@ -830,6 +824,23 @@ class _BrowserViewState extends State<BrowserView> {
                         }
                       }
                     }
+                  }
+
+                  if (!mounted) return;
+
+                  // 非自动化脚本高速循环期间，自动探测当前标签页是否为白鹭(Egret)/Canvas游戏并按需注入探针
+                  if (!isScriptExecuting) {
+                    try {
+                      final detected = await controller.evaluateJavascript(
+                          source: ScriptExecutor.egretDetectJs);
+                      final isEgret =
+                          detected == true || detected?.toString() == 'true';
+                      widget.tab.isEgretGame = isEgret;
+                      if (isEgret) {
+                        await controller.evaluateJavascript(
+                            source: ScriptExecutor.egretCanvasProbeJs);
+                      }
+                    } catch (_) {}
                   }
 
                   if (!mounted) return;

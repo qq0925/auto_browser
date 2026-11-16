@@ -31,6 +31,7 @@ class ScriptExecutor {
   // Execute a script on the given controller
   Future<bool> execute(InAppWebViewController? controller, Script script,
       {int executionDelay = 1000,
+      bool fastMode = false,
       Function(ScriptStatus status, String? message, double? progress)?
           onStatusChanged,
       Future<void> Function({
@@ -42,6 +43,8 @@ class ScriptExecutor {
       })? waitForPageLoad,
       ({bool isLoading, int startEpoch, int stopEpoch}) Function()?
           getTabLoadState,
+      bool Function()? isEgretGameTab,
+      VoidCallback? onEgretDetected,
       void Function(bool didExecuteAction)? onActionExecuted,
       List<Script>? scripts,
       Map<String, String>? variables}) async {
@@ -76,15 +79,17 @@ class ScriptExecutor {
           resolvedScript.type == '网页后退' ||
           resolvedScript.type == '网页前进';
 
-      // 2. 步骤前智能等待：若用户显式勾选了【等待网页加载】或当前 WebView 确实处于加载中状态
+      // 2. 步骤前智能等待：极速模式下仅在显式勾选【等待网页加载】时等待；稳定模式下加载中也会等待就绪
       if (waitForPageLoad != null) {
         bool needsWaitBefore = resolvedScript.params['等待网页加载'] == true;
-        if (!needsWaitBefore && getTabLoadState != null) {
-          needsWaitBefore = getTabLoadState().isLoading;
-        } else if (!needsWaitBefore && controller != null) {
-          try {
-            needsWaitBefore = await controller.isLoading();
-          } catch (_) {}
+        if (!fastMode) {
+          if (!needsWaitBefore && getTabLoadState != null) {
+            needsWaitBefore = getTabLoadState().isLoading;
+          } else if (!needsWaitBefore && controller != null) {
+            try {
+              needsWaitBefore = await controller.isLoading();
+            } catch (_) {}
+          }
         }
         if (needsWaitBefore) {
           onStatusChanged?.call(ScriptStatus.waiting, '等待网页加载完成...', null);
@@ -138,8 +143,11 @@ class ScriptExecutor {
               Script.fromUserMap(Map<String, dynamic>.from(beforeScriptMap));
           await execute(controller, beforeScript,
               executionDelay: executionDelay,
+              fastMode: fastMode,
               waitForPageLoad: waitForPageLoad,
               getTabLoadState: getTabLoadState,
+              isEgretGameTab: isEgretGameTab,
+              onEgretDetected: onEgretDetected,
               variables: variables,
               onStatusChanged: (status, msg, prog) {
             if (status == ScriptStatus.running ||
@@ -198,8 +206,11 @@ class ScriptExecutor {
           variables: variables,
           originalScript: script,
           executionDelay: executionDelay,
+          fastMode: fastMode,
           waitForPageLoad: waitForPageLoad,
           getTabLoadState: getTabLoadState,
+          isEgretGameTab: isEgretGameTab,
+          onEgretDetected: onEgretDetected,
           onActionExecuted: onActionExecuted,
         ).timeout(timeoutDuration + const Duration(milliseconds: 200));
         result = stepResult.success;
@@ -245,12 +256,13 @@ class ScriptExecutor {
       }
 
       // 4. 关键：导航与跨页动作事件驱动等待！
-      // 跳过步骤不触发任何页面等待；仅在真正命中导航/跳转动作时等待目标新页面加载与 DOM 解析完成。
+      // 极速模式下仅显式勾选【等待网页加载】时等待；稳定模式下命中跨页跳转也会等待页面与 DOM 就绪。
       final needWaitAfter = !lastStepSkipped &&
-          (isNavAction ||
-              lastStepTriggeredNav ||
-              resolvedScript.params['等待网页加载'] == true ||
-              resolvedScript.type == '输入框提交');
+          (resolvedScript.params['等待网页加载'] == true ||
+              (!fastMode &&
+                  (isNavAction ||
+                      lastStepTriggeredNav ||
+                      resolvedScript.type == '输入框提交')));
 
       if (result && needWaitAfter && waitForPageLoad != null) {
         onStatusChanged?.call(ScriptStatus.waiting, '等待新网页加载完成...', null);
@@ -275,8 +287,11 @@ class ScriptExecutor {
               Script.fromUserMap(Map<String, dynamic>.from(afterScriptMap));
           await execute(controller, afterScript,
               executionDelay: executionDelay,
+              fastMode: fastMode,
               waitForPageLoad: waitForPageLoad,
               getTabLoadState: getTabLoadState,
+              isEgretGameTab: isEgretGameTab,
+              onEgretDetected: onEgretDetected,
               variables: variables,
               onStatusChanged: (status, msg, prog) {
             if (status == ScriptStatus.running ||
@@ -354,6 +369,7 @@ class ScriptExecutor {
     Map<String, String>? variables,
     Script? originalScript,
     int executionDelay = 1000,
+    bool fastMode = false,
     Future<void> Function({
       String? preNavToken,
       String? preUrl,
@@ -363,6 +379,8 @@ class ScriptExecutor {
     })? waitForPageLoad,
     ({bool isLoading, int startEpoch, int stopEpoch}) Function()?
         getTabLoadState,
+    bool Function()? isEgretGameTab,
+    VoidCallback? onEgretDetected,
     void Function(bool didExecuteAction)? onActionExecuted,
   }) async {
     const nonControllerTypes = {
@@ -385,7 +403,8 @@ class ScriptExecutor {
     switch (script.type) {
       case "点击文字":
         return await _executeClickScript(controller!, script,
-            onStatusChanged: onStatusChanged);
+            onStatusChanged: onStatusChanged,
+            onEgretDetected: onEgretDetected);
       case "输入框提交":
         final ok = await _executeFormSubmit(controller!, script);
         return _StepExecutionResult(success: ok, isNavTrigger: ok);
@@ -395,6 +414,7 @@ class ScriptExecutor {
         return _StepExecutionResult(success: ok);
       case "自定义JS":
         final ok = await _executeCustomJs(controller!, script,
+            isEgretGameTab: isEgretGameTab,
             onStatusChanged: onStatusChanged);
         return _StepExecutionResult(success: ok);
       case "进入网址":
@@ -494,8 +514,11 @@ class ScriptExecutor {
           script,
           onStatusChanged,
           executionDelay: executionDelay,
+          fastMode: fastMode,
           waitForPageLoad: waitForPageLoad,
           getTabLoadState: getTabLoadState,
+          isEgretGameTab: isEgretGameTab,
+          onEgretDetected: onEgretDetected,
           onActionExecuted: onActionExecuted,
           scripts: scripts,
           variables: variables,
@@ -509,8 +532,11 @@ class ScriptExecutor {
           onStatusChanged,
           cacheOwner: originalScript ?? script,
           executionDelay: executionDelay,
+          fastMode: fastMode,
           waitForPageLoad: waitForPageLoad,
           getTabLoadState: getTabLoadState,
+          isEgretGameTab: isEgretGameTab,
+          onEgretDetected: onEgretDetected,
           onActionExecuted: onActionExecuted,
           scripts: scripts,
           variables: variables,
@@ -523,8 +549,11 @@ class ScriptExecutor {
           script,
           onStatusChanged,
           executionDelay: executionDelay,
+          fastMode: fastMode,
           waitForPageLoad: waitForPageLoad,
           getTabLoadState: getTabLoadState,
+          isEgretGameTab: isEgretGameTab,
+          onEgretDetected: onEgretDetected,
           onActionExecuted: onActionExecuted,
           scripts: scripts,
           variables: variables,
@@ -540,11 +569,14 @@ class ScriptExecutor {
         return _StepExecutionResult(success: ok);
 
       case "滑动页面":
-        final ok = await _executeScrollPage(controller!, script, onStatusChanged);
+        final ok = await _executeScrollPage(controller!, script, onStatusChanged,
+            isEgretGameTab: isEgretGameTab);
         return _StepExecutionResult(success: ok);
 
       case "等待文字出现":
-        final ok = await _executeWaitForText(controller!, script, onStatusChanged);
+        final ok = await _executeWaitForText(
+            controller!, script, onStatusChanged,
+            isEgretGameTab: isEgretGameTab);
         return _StepExecutionResult(success: ok);
 
       case "提取文字":
@@ -750,23 +782,24 @@ class ScriptExecutor {
     return false;
   }
 
-  /// 视觉高亮脉冲光圈动画 JS 注入脚本（用于点击、表单输入前的科技感视觉反馈）
+  /// 通用 DOM 可见性过滤、位置约束、Canvas 环境检测与全仿真交互事件链 JS 工具函数
   static const String _highlightJs = '''
-    function _auokHighlight(el) {
-      if (!el || typeof el.getBoundingClientRect !== 'function') return;
+    function _auokHasCanvasGameCandidate() {
       try {
-        const rect = el.getBoundingClientRect();
-        if (rect.width === 0 && rect.height === 0) return;
-        const ring = document.createElement('div');
-        ring.className = '_auok_tap_indicator';
-        ring.style.cssText = 'position:fixed;left:' + rect.left + 'px;top:' + rect.top + 'px;width:' + rect.width + 'px;height:' + rect.height + 'px;border-radius:8px;box-shadow:0 0 0 3px #3b82f6, 0 0 16px rgba(59,130,246,0.6);background:rgba(59,130,246,0.25);pointer-events:none;z-index:2147483647;transition:all 0.28s ease-out;';
-        document.documentElement.appendChild(ring);
-        setTimeout(function() {
-          ring.style.transform = 'scale(1.12)';
-          ring.style.opacity = '0';
-          setTimeout(function() { if (ring.parentNode) ring.parentNode.removeChild(ring); }, 300);
-        }, 220);
-      } catch(e) {}
+        if (typeof window !== 'undefined' && (window.egret || window.player)) return true;
+        if (document.querySelector('canvas, .egret-player')) return true;
+        const iframes = document.getElementsByTagName('iframe');
+        for (let i = 0; i < iframes.length; i++) {
+          try {
+            const iwin = iframes[i].contentWindow;
+            const idoc = iframes[i].contentDocument || (iwin && iwin.document);
+            if ((iwin && (iwin.egret || iwin.player)) || (idoc && idoc.querySelector('canvas, .egret-player'))) {
+              return true;
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
+      return false;
     }
 
     // 元素可见性判定：过滤 display:none、visibility:hidden、hidden 属性或零尺寸的隐藏节点
@@ -1233,22 +1266,6 @@ class ScriptExecutor {
       const clientX = rect.left + (foundItem.globalX + itemW / 2) * scaleX;
       const clientY = rect.top + (foundItem.globalY + itemH / 2) * scaleY;
 
-      try {
-        const ring = doc.createElement('div');
-        ring.className = '_auok_tap_indicator';
-        const ringW = Math.max(32, itemW * scaleX);
-        const ringH = Math.max(22, itemH * scaleY);
-        const ringLeft = rect.left + foundItem.globalX * scaleX;
-        const ringTop = rect.top + foundItem.globalY * scaleY;
-        ring.style.cssText = 'position:fixed;left:' + ringLeft + 'px;top:' + ringTop + 'px;width:' + ringW + 'px;height:' + ringH + 'px;border-radius:6px;box-shadow:0 0 0 3px #10b981, 0 0 16px rgba(16,185,129,0.7);background:rgba(16,185,129,0.25);pointer-events:none;z-index:2147483647;transition:all 0.28s ease-out;';
-        doc.documentElement.appendChild(ring);
-        win.setTimeout(function() {
-          ring.style.transform = 'scale(1.15)';
-          ring.style.opacity = '0';
-          win.setTimeout(function() { if (ring.parentNode) ring.parentNode.removeChild(ring); }, 300);
-        }, 220);
-      } catch(_) {}
-
       let success = false;
 
       // 通道 A：引擎级 touchTap 事件直接派发 + 沿着 parent 链向上逐级冒泡分发
@@ -1333,6 +1350,7 @@ class ScriptExecutor {
 
     // 挂载全局辅助函数供自定义JS或控制台直接调用
     if (typeof window !== 'undefined') {
+      window.__auok_egret_ready = true;
       window.scanEgretElements = function() {
         const ctx = _auokGetEgretContext();
         return ctx ? _auokScanEgretNodes(ctx.stage) : [];
@@ -1380,13 +1398,18 @@ class ScriptExecutor {
     }
   ''';
 
-  /// 公开白鹭引擎与 Canvas 游戏智能探测 JS 脚本，供 WebView 初始化常驻挂载
+  /// 轻量白鹭 (Egret)/Canvas 游戏特征探测脚本
+  static const String egretDetectJs =
+      '!!(window.egret||window.player||document.querySelector("canvas,.egret-player")||Array.prototype.some.call(document.getElementsByTagName("iframe"),function(f){try{var w=f.contentWindow,d=f.contentDocument||(w&&w.document);return !!(w&&(w.egret||w.player)||d&&d.querySelector("canvas,.egret-player"));}catch(_){return false;}}))';
+
+  /// 公开白鹭引擎与 Canvas 游戏智能探测 JS 脚本，按标签页/页面特征自动按需注入
   static const String egretCanvasProbeJs = _egretCanvasProbeJs;
 
   Future<_StepExecutionResult> _executeClickScript(
       InAppWebViewController controller, Script script,
       {Function(ScriptStatus status, String? message, double? progress)?
-          onStatusChanged}) async {
+          onStatusChanged,
+      VoidCallback? onEgretDetected}) async {
     final params = script.getClickParams();
     final clickText = params['点击文本'] ?? '';
     final skipWhenNotFound = params['未找到时跳过'] as bool? ?? true;
@@ -1412,6 +1435,7 @@ class ScriptExecutor {
     final initAndCallJs =
         '(function(){$_installClickHelpersJs return window._auokExecuteClick($cfgJson);})()';
 
+    bool egretInjectedInStep = false;
     final timeout = _getElementWaitTimeout(script);
     final success = await _pollUntilSuccess(() async {
       dynamic rawResult =
@@ -1424,12 +1448,26 @@ class ScriptExecutor {
         }
       }
       if (rawResult == null) return false;
-      final rawStr = rawResult.toString().trim();
+      var rawStr = rawResult.toString().trim();
       if (rawStr == 'true') {
         return true;
       }
       try {
-        final parsed = jsonDecode(rawStr);
+        var parsed = jsonDecode(rawStr);
+        if (parsed is Map &&
+            parsed['reason'] == 'need_egret_probe' &&
+            !egretInjectedInStep) {
+          // 惰性检测到 Canvas/Egret 页面时，仅首次自动补注入白鹭探针并立即复试一次
+          egretInjectedInStep = true;
+          onEgretDetected?.call();
+          await controller.evaluateJavascript(source: egretCanvasProbeJs);
+          rawResult =
+              await controller.evaluateJavascript(source: cachedCallJs);
+          if (rawResult == null) return false;
+          rawStr = rawResult.toString().trim();
+          if (rawStr == 'true') return true;
+          parsed = jsonDecode(rawStr);
+        }
         if (parsed is Map) {
           if (parsed['success'] == true) {
             if (parsed['isNavTrigger'] == true) {
@@ -1567,7 +1605,6 @@ class ScriptExecutor {
                 if (submitCurrentWhenEmpty && isEmptyValue) {
                   // 输入为空且勾选“输入空以当前值提交”：保留页面原有/当前选中值不覆盖
                   const currentEl = findCurrentTarget(fieldName, input, scope);
-                  _auokHighlight(currentEl);
                   lastFilledInput = currentEl;
                   filledCount++;
                   continue;
@@ -1585,7 +1622,6 @@ class ScriptExecutor {
                 } catch (_) {
                   input.value = value;
                 }
-                _auokHighlight(input);
                 input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
                 input.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
                 try { if (typeof input.blur === 'function') input.blur(); } catch(_) {}
@@ -1632,7 +1668,6 @@ class ScriptExecutor {
               }
               
               if (submitBtn) {
-                _auokHighlight(submitBtn);
                 _auokSimulateClick(submitBtn);
                 return true;
               } else if (targetForm) {
@@ -1683,7 +1718,8 @@ class ScriptExecutor {
 
   Future<bool> _executeCustomJs(
       InAppWebViewController controller, Script script,
-      {Function(ScriptStatus status, String? message, double? progress)?
+      {bool Function()? isEgretGameTab,
+      Function(ScriptStatus status, String? message, double? progress)?
           onStatusChanged}) async {
     final jsContent = script.params['js内容'] ?? script.params['代码'] ?? '';
     if (jsContent.isEmpty) return true; // 空脚本视为成功
@@ -1691,12 +1727,18 @@ class ScriptExecutor {
     final timeout = _getStepTimeout(script);
     String lastErrorMsg = '执行失败';
     String lastSuccessInfo = '执行成功';
+    final needsEgretProbe = (isEgretGameTab?.call() ?? false) ||
+        jsContent.contains('Virtual') ||
+        jsContent.contains('Egret') ||
+        jsContent.contains('egret') ||
+        jsContent.contains('scrollEgret');
+    final egretInclude = needsEgretProbe ? _egretCanvasProbeJs : '';
 
     final jsWrapper = '''
       (async function() {
         try {
           $_highlightJs
-          $_egretCanvasProbeJs
+          $egretInclude
 
           // 执行用户自定义 JS，支持同步与 await 异步 Promise
           const __auok_exec_result = await (async function() {
@@ -1749,14 +1791,13 @@ class ScriptExecutor {
     }
   }
 
-  static const String _clickHelpersVersion = '4';
+  static const String _clickHelpersVersion = '5';
 
-  /// 页面级点击执行器缓存安装脚本：支持 AT_DOCUMENT_END 预注入及执行前按需幂等补强注入
+  /// 页面级点击执行器缓存安装脚本：仅注入轻量 DOM 辅助函数（白鹭探针按页面特征自动惰性加载）
   static String get clickHelpersInstallJs => '''
     (function() {
       if (window.__auok_helpers_v === $_clickHelpersVersion && typeof window._auokExecuteClick === 'function') return;
       $_highlightJs
-      $_egretCanvasProbeJs
       window._auokExecuteClick = function(cfg) {
         ${_buildClickScriptBody(
           triggerTextExpr: 'cfg.triggerText || ""',
@@ -1784,10 +1825,9 @@ class ScriptExecutor {
     final selectionIndex = params['多个筛选'] ?? 1;
     final navMarkJson = jsonEncode(navMark ?? '');
 
-    // Unified logic: Always use Expert Mode features with Fuzzy Matching and Egret Canvas fallback
+    // Unified logic: Always use Expert Mode features with Fuzzy Matching and on-demand Egret fallback
     return '''
       $_highlightJs
-      $_egretCanvasProbeJs
       ${_buildClickScriptBody(
         triggerTextExpr: triggerTextJson,
         clickTextExpr: clickTextJson,
@@ -1812,10 +1852,13 @@ class ScriptExecutor {
   }) {
     return '''
       function _tryEgretFallback() {
+        if (typeof _auokGetEgretContext !== 'function' || typeof _auokScanEgretNodes !== 'function') {
+          return _auokHasCanvasGameCandidate() ? 'need_egret' : 'not_found';
+        }
         const ctx = _auokGetEgretContext();
-        if (!ctx) return false;
+        if (!ctx) return 'not_found';
         const egretNodes = _auokScanEgretNodes(ctx.stage);
-        if (!egretNodes || egretNodes.length === 0) return false;
+        if (!egretNodes || egretNodes.length === 0) return 'not_found';
 
         function normalize(s) {
           return (s || '').replace(/\\s+/g, '');
@@ -1843,7 +1886,7 @@ class ScriptExecutor {
           });
         }
 
-        if (matchedEgret.length === 0) return false;
+        if (matchedEgret.length === 0) return 'not_found';
 
         // 优先可交互/带监听器或按钮容器的节点
         const clickables = matchedEgret.filter(item => item.isClickable);
@@ -1861,9 +1904,9 @@ class ScriptExecutor {
 
         const found = candidatePool[targetIndex];
         if (found) {
-          return _auokTriggerEgretClick(ctx, found);
+          return _auokTriggerEgretClick(ctx, found) ? 'ok' : 'not_found';
         }
-        return false;
+        return 'not_found';
       }
 
       function _auokIsClickableElement(el) {
@@ -1894,12 +1937,16 @@ class ScriptExecutor {
           text && pageText.includes(text.trim())
         );
         if (!hasText) {
-          const ctx = _auokGetEgretContext();
-          if (ctx) {
-            const egretNodes = _auokScanEgretNodes(ctx.stage);
-            hasText = triggerTexts.some(text =>
-              egretNodes.some(n => n.text && n.text.includes(text.trim()))
-            );
+          if (typeof _auokGetEgretContext === 'function' && typeof _auokScanEgretNodes === 'function') {
+            const ctx = _auokGetEgretContext();
+            if (ctx) {
+              const egretNodes = _auokScanEgretNodes(ctx.stage);
+              hasText = triggerTexts.some(text =>
+                egretNodes.some(n => n.text && n.text.includes(text.trim()))
+              );
+            }
+          } else if (_auokHasCanvasGameCandidate()) {
+            return JSON.stringify({ success: false, reason: 'need_egret_probe', isNavTrigger: false });
           }
         }
         if (!hasText) return JSON.stringify({ success: false, reason: 'trigger_not_met', isNavTrigger: false });
@@ -2030,10 +2077,13 @@ class ScriptExecutor {
         matchedLinks = _auokFilterByPosition(matchedLinks, afterText, beforeText);
       }
       
-      // 若常规 DOM 树中未匹配到，自动无感触发 Canvas / 白鹭引擎虚拟穿透探针
+      // 若常规 DOM 树中未匹配到，仅当已安装或探测到 Canvas/白鹭特征时触发虚拟穿透探针
       if (matchedLinks.length === 0) {
         const egretRes = _tryEgretFallback();
-        return JSON.stringify({ success: !!egretRes, reason: egretRes ? null : 'target_not_found', isNavTrigger: false });
+        if (egretRes === 'need_egret') {
+          return JSON.stringify({ success: false, reason: 'need_egret_probe', isNavTrigger: false });
+        }
+        return JSON.stringify({ success: egretRes === 'ok', reason: egretRes === 'ok' ? null : 'target_not_found', isNavTrigger: false });
       }
 
       // Apply selection index
@@ -2057,7 +2107,6 @@ class ScriptExecutor {
           ? targetElement.closest('button, input[type="submit"], input[type="button"], input[type="reset"], [role="button"]')
           : null;
         const clickTarget = closestBtn || targetElement;
-        _auokHighlight(clickTarget);
 
         // 智能侦测是否触发跨页导航（如原生 <a> 链接、表单 submit 按钮等）
         const anchor = targetElement.closest('a');
@@ -2214,8 +2263,6 @@ class ScriptExecutor {
             }
             
             if (targetImg) {
-              _auokHighlight(targetImg);
-
               // 智能侦测是否触发跨页导航（如 <a> 包装的图片、表单提交按钮图片）
               const anchor = targetImg.closest('a');
               let isNav = false;
@@ -2315,6 +2362,7 @@ class ScriptExecutor {
     InAppWebViewController? controller,
     dynamic branchAction, {
     required int executionDelay,
+    bool fastMode = false,
     Function(ScriptStatus status, String? message, double? progress)?
         onStatusChanged,
     Future<void> Function({
@@ -2326,6 +2374,8 @@ class ScriptExecutor {
     })? waitForPageLoad,
     ({bool isLoading, int startEpoch, int stopEpoch}) Function()?
         getTabLoadState,
+    bool Function()? isEgretGameTab,
+    VoidCallback? onEgretDetected,
     void Function(bool didExecuteAction)? onActionExecuted,
     List<Script>? scripts,
     Map<String, String>? variables,
@@ -2341,8 +2391,11 @@ class ScriptExecutor {
         controller,
         childScript,
         executionDelay: 0,
+        fastMode: fastMode,
         waitForPageLoad: waitForPageLoad,
         getTabLoadState: getTabLoadState,
+        isEgretGameTab: isEgretGameTab,
+        onEgretDetected: onEgretDetected,
         onActionExecuted: onActionExecuted,
         scripts: scripts,
         variables: variables,
@@ -2482,6 +2535,7 @@ class ScriptExecutor {
     Function(ScriptStatus status, String? message, double? progress)?
         onStatusChanged, {
     int executionDelay = 1000,
+    bool fastMode = false,
     Future<void> Function({
       String? preNavToken,
       String? preUrl,
@@ -2491,6 +2545,8 @@ class ScriptExecutor {
     })? waitForPageLoad,
     ({bool isLoading, int startEpoch, int stopEpoch}) Function()?
         getTabLoadState,
+    bool Function()? isEgretGameTab,
+    VoidCallback? onEgretDetected,
     void Function(bool didExecuteAction)? onActionExecuted,
     List<Script>? scripts,
     Map<String, String>? variables,
@@ -2567,9 +2623,12 @@ class ScriptExecutor {
       controller,
       selectedBranch,
       executionDelay: executionDelay,
+      fastMode: fastMode,
       onStatusChanged: onStatusChanged,
       waitForPageLoad: waitForPageLoad,
       getTabLoadState: getTabLoadState,
+      isEgretGameTab: isEgretGameTab,
+      onEgretDetected: onEgretDetected,
       onActionExecuted: onActionExecuted,
       scripts: scripts,
       variables: variables,
@@ -2583,6 +2642,7 @@ class ScriptExecutor {
         onStatusChanged, {
     Script? cacheOwner,
     int executionDelay = 1000,
+    bool fastMode = false,
     Future<void> Function({
       String? preNavToken,
       String? preUrl,
@@ -2592,6 +2652,8 @@ class ScriptExecutor {
     })? waitForPageLoad,
     ({bool isLoading, int startEpoch, int stopEpoch}) Function()?
         getTabLoadState,
+    bool Function()? isEgretGameTab,
+    VoidCallback? onEgretDetected,
     void Function(bool didExecuteAction)? onActionExecuted,
     List<Script>? scripts,
     Map<String, String>? variables,
@@ -2625,9 +2687,12 @@ class ScriptExecutor {
         controller,
         selectedBranch,
         executionDelay: executionDelay,
+        fastMode: fastMode,
         onStatusChanged: onStatusChanged,
         waitForPageLoad: waitForPageLoad,
         getTabLoadState: getTabLoadState,
+        isEgretGameTab: isEgretGameTab,
+        onEgretDetected: onEgretDetected,
         onActionExecuted: onActionExecuted,
         scripts: scripts,
         variables: variables,
@@ -2644,6 +2709,7 @@ class ScriptExecutor {
     Function(ScriptStatus status, String? message, double? progress)?
         onStatusChanged, {
     int executionDelay = 1000,
+    bool fastMode = false,
     Future<void> Function({
       String? preNavToken,
       String? preUrl,
@@ -2653,6 +2719,8 @@ class ScriptExecutor {
     })? waitForPageLoad,
     ({bool isLoading, int startEpoch, int stopEpoch}) Function()?
         getTabLoadState,
+    bool Function()? isEgretGameTab,
+    VoidCallback? onEgretDetected,
     void Function(bool didExecuteAction)? onActionExecuted,
     List<Script>? scripts,
     Map<String, String>? variables,
@@ -2768,9 +2836,12 @@ class ScriptExecutor {
       controller,
       selectedBranch,
       executionDelay: executionDelay,
+      fastMode: fastMode,
       onStatusChanged: onStatusChanged,
       waitForPageLoad: waitForPageLoad,
       getTabLoadState: getTabLoadState,
+      isEgretGameTab: isEgretGameTab,
+      onEgretDetected: onEgretDetected,
       onActionExecuted: onActionExecuted,
       scripts: scripts,
       variables: variables,
@@ -2911,25 +2982,30 @@ class ScriptExecutor {
       InAppWebViewController controller,
       Script script,
       Function(ScriptStatus status, String? message, double? progress)?
-          onStatusChanged) async {
+          onStatusChanged,
+      {bool Function()? isEgretGameTab}) async {
     final params = script.params;
     final direction = params['方向'] as String? ?? '向下';
     final distance = params['距离'] as int? ?? 500;
     final directionJson = jsonEncode(direction);
+    final egretInclude =
+        (isEgretGameTab?.call() ?? false) ? _egretCanvasProbeJs : '';
 
-    // 智能双模滚动：同时兼容常规 DOM 网页与白鹭引擎/Canvas 游戏
+    // 智能双模滚动：普通网页直接 DOM 滚动，已识别为白鹭/Canvas 游戏的标签页才执行 Canvas 触控滑动
     final jsCode = '''
       (async function() {
-        $_egretCanvasProbeJs
+        $egretInclude
         let scrolled = false;
 
         // 1. 若探测到白鹭 Canvas 游戏，执行真实 Canvas 多帧连续触摸手势滑动
-        const ctx = _auokGetEgretContext();
-        if (ctx && ctx.canvas) {
-          try {
-            await _auokSimulateCanvasSwipe(ctx.canvas, $directionJson, $distance, 350);
-            scrolled = true;
-          } catch(_) {}
+        if (typeof _auokGetEgretContext === 'function' && typeof _auokSimulateCanvasSwipe === 'function') {
+          const ctx = _auokGetEgretContext();
+          if (ctx && ctx.canvas) {
+            try {
+              await _auokSimulateCanvasSwipe(ctx.canvas, $directionJson, $distance, 350);
+              scrolled = true;
+            } catch(_) {}
+          }
         }
 
         // 2. 同时执行常规网页窗口 DOM 级滚动
@@ -2974,7 +3050,8 @@ class ScriptExecutor {
       InAppWebViewController controller,
       Script script,
       Function(ScriptStatus status, String? message, double? progress)?
-          onStatusChanged) async {
+          onStatusChanged,
+      {bool Function()? isEgretGameTab}) async {
     final params = script.params;
     final targetText = params['出现文字'] as String? ?? '';
     final timeoutDuration = _getStepTimeout(script, defaultMs: 10000);
@@ -2989,18 +3066,22 @@ class ScriptExecutor {
     final timeoutSeconds = (totalMs / 1000).ceil();
     final stopwatch = Stopwatch()..start();
     int lastReportSec = -1;
+    final egretInclude =
+        (isEgretGameTab?.call() ?? false) ? _egretCanvasProbeJs : '';
 
     final jsCode = '''
       (function() {
-        $_egretCanvasProbeJs
+        $egretInclude
         try {
           const bodyText = document.body.innerText || document.body.textContent || '';
           if (bodyText.includes($targetTextJson)) return true;
-          const ctx = _auokGetEgretContext();
-          if (ctx) {
-            const egretNodes = _auokScanEgretNodes(ctx.stage);
-            if (egretNodes && egretNodes.some(n => n.text && n.text.includes($targetTextJson))) {
-              return true;
+          if (typeof _auokGetEgretContext === 'function' && typeof _auokScanEgretNodes === 'function') {
+            const ctx = _auokGetEgretContext();
+            if (ctx) {
+              const egretNodes = _auokScanEgretNodes(ctx.stage);
+              if (egretNodes && egretNodes.some(n => n.text && n.text.includes($targetTextJson))) {
+                return true;
+              }
             }
           }
           return false;

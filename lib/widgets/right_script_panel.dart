@@ -47,7 +47,7 @@ class RightScriptPanel extends StatelessWidget {
           InkWell(
             onTap: onGlobalSettings,
             child: Container(
-              height: 44,
+              constraints: const BoxConstraints(minHeight: 44),
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 6),
               alignment: Alignment.center,
@@ -106,6 +106,39 @@ class RightScriptPanel extends StatelessWidget {
 
           // 分割线：全局与中间内容分隔
           const Divider(height: 1, color: Colors.white24),
+
+          // --- 运行模式展示条 (点击可打开全局设置切换极速/稳定) ---
+          InkWell(
+            onTap: onGlobalSettings,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 10),
+              color: Colors.white.withValues(alpha: 0.04),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text(
+                    '模式: ',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 10.5,
+                    ),
+                  ),
+                  Text(
+                    scriptProvider.executionMode,
+                    style: TextStyle(
+                      color: scriptProvider.isFastMode
+                          ? Colors.lightGreenAccent
+                          : Colors.lightBlueAccent,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const Divider(height: 1, color: Colors.white12),
 
           // --- 脚本文件名展示条 (当脚本已载入或已保存为文件时展示) ---
           if (scriptProvider.currentScriptFilePath != null &&
