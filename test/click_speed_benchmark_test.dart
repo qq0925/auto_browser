@@ -18,6 +18,8 @@ class _BenchmarkWebViewController implements InAppWebViewController {
   bool helpersInstalled = false;
   bool egretInjected = false;
   bool simulateCanvasPage = false;
+  bool nextIsNavTrigger = true;
+  int domLoadingRemaining = 0;
 
   @override
   Future<dynamic> evaluateJavascript({
@@ -31,6 +33,14 @@ class _BenchmarkWebViewController implements InAppWebViewController {
       if (!helpersInstalled) {
         return '__NEED_INIT__';
       }
+      if (domLoadingRemaining > 0) {
+        domLoadingRemaining--;
+        return jsonEncode({
+          'success': false,
+          'reason': 'dom_loading',
+          'isNavTrigger': false,
+        });
+      }
       if (simulateCanvasPage && !egretInjected) {
         return jsonEncode({
           'success': false,
@@ -40,7 +50,7 @@ class _BenchmarkWebViewController implements InAppWebViewController {
       }
       return jsonEncode({
         'success': true,
-        'isNavTrigger': true,
+        'isNavTrigger': nextIsNavTrigger,
         'navMark': 'nav_bench',
         'preUrl': 'https://bench.local/p1',
       });
@@ -185,15 +195,16 @@ void main() {
           '[Benchmark] 200次点击调度总耗时: ${totalMs}ms (单次框架开销约 ${avgUs}us, IPC数: ${controller.evaluatedSources.length})');
     });
 
-    test('极速/稳定模式行为校验：极速跳过页面加载阻塞，稳定模式等待网页加载', () async {
+    test('极速/稳定模式与 dom_loading 防误跳过校验', () async {
       final executor = ScriptExecutor();
       final controller = _BenchmarkWebViewController()
-        ..helpersInstalled = true;
+        ..helpersInstalled = true
+        ..nextIsNavTrigger = false;
       final tab = BrowserTab(id: 'mode_tab')..isLoading = true;
       int waitCalls = 0;
 
-      // 极速模式：即便 tab.isLoading == true 且点中 <a> 链接，也不阻塞 waitForPageLoad
-      final fastOk = await executor.execute(
+      // 1. 极速模式（非导航点击）：即使图片仍在加载 (tab.isLoading == true)，步前不阻塞
+      final fastNonNavOk = await executor.execute(
         controller,
         Script(type: '点击文字', params: {'点击文本': '下一页'}),
         executionDelay: 0,
@@ -213,10 +224,41 @@ void main() {
           waitCalls++;
         },
       );
-      expect(fastOk, true);
+      expect(fastNonNavOk, true);
       expect(waitCalls, 0);
 
-      // 稳定模式：点击 <a> 前后均等待页面加载就绪
+      // 2. 极速模式遭遇切页过渡期 dom_loading：即使未找到时跳过=true 也自动微等待 body 解析，不误报未找到目标
+      controller
+        ..nextIsNavTrigger = true
+        ..domLoadingRemaining = 2;
+      final statuses = <ScriptStatus>[];
+      final fastDomRecoveryOk = await executor.execute(
+        controller,
+        Script(type: '点击文字', params: {'点击文本': '下一页', '未找到时跳过': true}),
+        executionDelay: 0,
+        fastMode: true,
+        onStatusChanged: (s, m, p) => statuses.add(s),
+        getTabLoadState: () => (
+          isLoading: tab.isLoading,
+          startEpoch: tab.loadStartEpoch,
+          stopEpoch: tab.loadStopEpoch,
+        ),
+        waitForPageLoad: ({
+          preNavToken,
+          preUrl,
+          preLoadStartEpoch,
+          preLoadStopEpoch,
+          probeWindowMs = 80,
+        }) async {
+          waitCalls++;
+        },
+      );
+      expect(fastDomRecoveryOk, true);
+      expect(statuses.contains(ScriptStatus.skipped), false);
+      expect(waitCalls, 1);
+
+      // 3. 稳定模式：点击 <a> 前后均触发页面等待
+      waitCalls = 0;
       final stableOk = await executor.execute(
         controller,
         Script(type: '点击文字', params: {'点击文本': '下一页'}),
@@ -239,7 +281,7 @@ void main() {
         },
       );
       expect(stableOk, true);
-      expect(waitCalls, greaterThanOrEqualTo(1));
+      expect(waitCalls, greaterThanOrEqualTo(2));
     });
 
     testWidgets('全局设置模式默认极速，支持在弹窗切换为稳定并在面板/状态简报中展示', (tester) async {

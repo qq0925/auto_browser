@@ -256,13 +256,12 @@ class ScriptExecutor {
       }
 
       // 4. 关键：导航与跨页动作事件驱动等待！
-      // 极速模式下仅显式勾选【等待网页加载】时等待；稳定模式下命中跨页跳转也会等待页面与 DOM 就绪。
+      // 稳定模式等待整页 onLoadStop + DOM 就绪；极速模式由 waitForPageLoad 内部跳过整页资源等待，仅等到 HTML DOM 解析出现节点即刻放行（防止网络未回包前查空报“未找到目标”）。
       final needWaitAfter = !lastStepSkipped &&
-          (resolvedScript.params['等待网页加载'] == true ||
-              (!fastMode &&
-                  (isNavAction ||
-                      lastStepTriggeredNav ||
-                      resolvedScript.type == '输入框提交')));
+          (isNavAction ||
+              lastStepTriggeredNav ||
+              resolvedScript.params['等待网页加载'] == true ||
+              resolvedScript.type == '输入框提交');
 
       if (result && needWaitAfter && waitForPageLoad != null) {
         onStatusChanged?.call(ScriptStatus.waiting, '等待新网页加载完成...', null);
@@ -1437,12 +1436,13 @@ class ScriptExecutor {
 
     bool egretInjectedInStep = false;
     final timeout = _getElementWaitTimeout(script);
-    final success = await _pollUntilSuccess(() async {
+
+    Future<bool> attemptOnce() async {
       dynamic rawResult =
           await controller.evaluateJavascript(source: cachedCallJs);
       if (rawResult != null) {
         final probeStr = rawResult.toString().trim();
-        if (probeStr == '__NEED_INIT__' || probeStr == '"__NEED_INIT__"' ) {
+        if (probeStr == '__NEED_INIT__' || probeStr == '"__NEED_INIT__"') {
           rawResult =
               await controller.evaluateJavascript(source: initAndCallJs);
         }
@@ -1481,14 +1481,30 @@ class ScriptExecutor {
             }
             return true;
           } else {
-            if (parsed['reason'] != null) {
-              lastFailureReason = parsed['reason'].toString();
-            }
+            lastFailureReason = parsed['reason']?.toString();
           }
         }
       } catch (_) {}
       return false;
-    }, timeout: timeout);
+    }
+
+    bool success = await _pollUntilSuccess(attemptOnce, timeout: timeout);
+
+    // 若因网页刚发起跳转尚未解析出 document.body (dom_loading) 而未命中，短窗微等待至 body 解析就绪，避免误判"未找到目标"
+    if (!success && lastFailureReason == 'dom_loading') {
+      final domWaitWatch = Stopwatch()..start();
+      while (domWaitWatch.elapsedMilliseconds < 2500) {
+        await Future.delayed(const Duration(milliseconds: 12));
+        lastFailureReason = null;
+        if (await attemptOnce()) {
+          success = true;
+          break;
+        }
+        if (lastFailureReason != 'dom_loading') {
+          break;
+        }
+      }
+    }
 
     if (success) {
       return _StepExecutionResult(
@@ -1929,10 +1945,15 @@ class ScriptExecutor {
       // 目标文字判断（支持半角 ; 与全角 ； 分隔；留空时匹配页面所有链接）
       const clickTexts = ($clickTextExpr).split(/[;；]/).map(t => t.trim()).filter(t => t);
 
+      // 页面正在跨页切换且主文档 <body> 尚未解析出来时明确反馈 dom_loading，避免极速模式误报“未找到目标”
+      if (!document.body || document.readyState === 'loading') {
+        return JSON.stringify({ success: false, reason: 'dom_loading', isNavTrigger: false });
+      }
+
       // 出现文字校验（同时检测普通 DOM 文本与 Canvas 白鹭游戏舞台）
       const triggerTexts = ($triggerTextExpr).split(/[;；]/).filter(t => t.trim());
       if (triggerTexts.length > 0) {
-        const pageText = document.body.textContent || '';
+        const pageText = (document.body && document.body.textContent) ? document.body.textContent : '';
         let hasText = triggerTexts.some(text => 
           text && pageText.includes(text.trim())
         );

@@ -152,6 +152,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
       if (tab == null) return;
 
       final controller = tab.controller;
+      final isFastMode = tab.executionMode == '极速' || scriptProvider.isFastMode;
       const int timeoutMs = 30000;
       final stopwatch = Stopwatch()..start();
 
@@ -163,7 +164,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
           (preLoadStopEpoch != null && tab.loadStopEpoch > preLoadStopEpoch);
 
       if (!hasNavStarted && (preNavToken != null || probeWindowMs > 80)) {
-        final int probeMaxMs = probeWindowMs;
+        final int probeMaxMs = isFastMode ? (probeWindowMs > 120 ? 120 : probeWindowMs) : probeWindowMs;
         // 先通过事件信号零轮询等待 onLoadStart 触发，避免一上来连发多次原生 IPC
         if (probeMaxMs > 40) {
           hasNavStarted = await tab.waitForLoadStartEvent(
@@ -220,7 +221,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
       }
 
       // 2. 加载等待阶段：事件驱动 0ms 瞬间唤醒，辅以原生状态兜底确认
-      if (tab.isLoading) {
+      if (!isFastMode && tab.isLoading) {
         final remainMs = timeoutMs - stopwatch.elapsedMilliseconds;
         if (remainMs > 0) {
           await tab.waitForLoadStopEvent(
@@ -230,9 +231,9 @@ class _BrowserHomePageState extends State<BrowserHomePage>
       }
 
       if (controller != null) {
-        final alreadyStoppedByEvent = hasNavStarted && preLoadStopEpoch != null && tab.loadStopEpoch > preLoadStopEpoch && !tab.isLoading;
+        final alreadyStoppedByEvent = isFastMode || (hasNavStarted && preLoadStopEpoch != null && tab.loadStopEpoch > preLoadStopEpoch && !tab.isLoading);
         while (!alreadyStoppedByEvent && stopwatch.elapsedMilliseconds < timeoutMs) {
-          if (tab.isLoading) {
+          if (!isFastMode && tab.isLoading) {
             final remainMs = timeoutMs - stopwatch.elapsedMilliseconds;
             if (remainMs <= 0) break;
             await tab.waitForLoadStopEvent(
@@ -244,7 +245,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
             currentlyLoading = await controller.isLoading();
           } catch (_) {}
           if (!currentlyLoading) break;
-          await Future.delayed(const Duration(milliseconds: 15));
+          await Future.delayed(Duration(milliseconds: isFastMode ? 10 : 15));
         }
       }
 
@@ -252,13 +253,13 @@ class _BrowserHomePageState extends State<BrowserHomePage>
       // 新页面就绪且 DOM 已挂载内容后 0ms 直接放行；若尚为空壳骨架屏则短窗等待渲染完成
       if (controller != null && stopwatch.elapsedMilliseconds < timeoutMs) {
         int domCheckCount = 0;
-        const maxDomChecks = 100; // 最多检查 1.5 秒 (100 * 15ms)
+        final maxDomChecks = isFastMode ? 300 : 100; // 极速/稳定检查次数上限
         int readyButEmptyCount = 0;
         const maxEmptyDomChecks = 25; // readyState=complete 但 body 仍为空时最多等待 ~375ms 等待首屏渲染
 
         while (domCheckCount < maxDomChecks) {
           // 若期间触发了重定向或二次加载，继续事件驱动等待加载结束
-          if (tab.isLoading) {
+          if (!isFastMode && tab.isLoading) {
             final remainMs = timeoutMs - stopwatch.elapsedMilliseconds;
             if (remainMs <= 0) break;
             await tab.waitForLoadStopEvent(
@@ -268,7 +269,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
           try {
             final res = await controller.evaluateJavascript(
               source:
-                  (tab.loadStopEpoch > (preLoadStopEpoch ?? -1) && !tab.isLoading)
+                  (isFastMode || (tab.loadStopEpoch > (preLoadStopEpoch ?? -1) && !tab.isLoading))
                       ? '(function(){var r=(document.readyState==="complete"||document.readyState==="interactive")?"1":"0";var c=(document.body&&(document.body.children.length>0||(document.body.textContent||"").trim().length>0))?"1":"0";return r+":"+c+":"+(window.__auok_nav_mark||"");})()'
                       : '(function(){var r=document.readyState==="complete"?"1":"0";var c=(document.body&&(document.body.children.length>0||(document.body.textContent||"").trim().length>0))?"1":"0";return r+":"+c+":"+(window.__auok_nav_mark||"");})()',
             );
@@ -292,7 +293,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
               }
             }
           } catch (_) {}
-          await Future.delayed(const Duration(milliseconds: 15));
+          await Future.delayed(Duration(milliseconds: isFastMode ? 10 : 15));
           domCheckCount++;
         }
       }
