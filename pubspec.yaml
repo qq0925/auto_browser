@@ -108,6 +108,7 @@ flutter:
 
   assets:
     - assets/welcome.html
+    - assets/welcome_2.html
     - assets/guide.html
     - assets/test_page.html
     - assets/app_icon.png

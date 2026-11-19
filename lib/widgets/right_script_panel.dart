@@ -326,9 +326,11 @@ class RightScriptPanel extends StatelessWidget {
           list.add(MapEntry('窗口名称', params['窗口名称'].toString()));
           handledKeys.add('窗口名称');
         }
-        if (params['窗口UA'] != null && params['窗口UA'].toString().isNotEmpty) {
+        handledKeys.add('窗口UA');
+        if (params['窗口UA'] != null &&
+            params['窗口UA'].toString().isNotEmpty &&
+            params['窗口UA'].toString() != 'Mobile') {
           list.add(MapEntry('窗口UA', params['窗口UA'].toString()));
-          handledKeys.add('窗口UA');
         }
         final url = params['进入网址'] ?? params['网址'];
         if (url != null && url.toString().isNotEmpty) {
@@ -351,6 +353,10 @@ class RightScriptPanel extends StatelessWidget {
         break;
 
       case '点击文字':
+        handledKeys.add('出现文字');
+        if (params['出现文字'] != null && params['出现文字'].toString().trim().isNotEmpty) {
+          list.add(MapEntry('出现文字', params['出现文字'].toString()));
+        }
         final clickText = params['点击文本'] ?? params['文本'];
         if (clickText != null && clickText.toString().trim().isNotEmpty) {
           list.add(MapEntry('点击文本', clickText.toString()));
@@ -359,7 +365,8 @@ class RightScriptPanel extends StatelessWidget {
           list.add(const MapEntry('点击文本', '(留空: 匹配所有链接)'));
           handledKeys.addAll(['点击文本', '文本']);
         }
-        if (params['多个筛选'] != null) {
+        handledKeys.add('多个筛选');
+        if (params['多个筛选'] != null && params['多个筛选'] != 1) {
           final filter = params['多个筛选'];
           String filterStr = '第1个';
           if (filter == 0) {
@@ -382,6 +389,7 @@ class RightScriptPanel extends StatelessWidget {
           list.add(MapEntry('在前搜索', before.toString()));
           handledKeys.addAll(['在...之前搜索', '在此之前']);
         }
+        handledKeys.add('完全匹配');
         if (params['完全匹配'] == true) {
           list.add(const MapEntry('完全匹配', '是'));
           handledKeys.add('完全匹配');
@@ -389,12 +397,25 @@ class RightScriptPanel extends StatelessWidget {
         break;
 
       case '点击图片':
-        final img = params['图片特征'] ?? params['图片关键词/地址'] ?? params['点击文本'];
+        final img = params['图片地址'] ?? params['图片特征'] ?? params['图片关键词/地址'] ?? params['点击文本'];
+        handledKeys.addAll(['图片地址', '图片特征', '图片关键词/地址', '点击文本', '在此之后', '在此之前', '在...之后搜索', '在...之前搜索']);
         if (img != null && img.toString().isNotEmpty) {
           list.add(MapEntry('图片特征', img.toString()));
+        }
+        final imgAfter = params['在...之后搜索'] ?? params['在此之后'];
+        if (imgAfter != null && imgAfter.toString().isNotEmpty) {
+          list.add(MapEntry('在后搜索', imgAfter.toString()));
+        }
+        final imgBefore = params['在...之前搜索'] ?? params['在此之前'];
+        if (imgBefore != null && imgBefore.toString().isNotEmpty) {
+          list.add(MapEntry('在前搜索', imgBefore.toString()));
+        }
+        if (img != null && img.toString().isNotEmpty) {
+          handledKeys.add('图片特征');
           handledKeys.addAll(['图片特征', '图片关键词/地址', '点击文本']);
         }
-        if (params['多个筛选'] != null) {
+        handledKeys.add('多个筛选');
+        if (params['多个筛选'] != null && params['多个筛选'] != 1) {
           final filter = params['多个筛选'];
           String filterStr = '第1个';
           if (filter == 0) {
@@ -410,6 +431,17 @@ class RightScriptPanel extends StatelessWidget {
         break;
 
       case '输入框提交':
+        handledKeys.add('多个筛选');
+        final submitFilter = params['多个筛选'];
+        if (submitFilter != null && submitFilter != 1) {
+          String filterStr = '第$submitFilter个';
+          if (submitFilter == 0) {
+            filterStr = '随机';
+          } else if (submitFilter is num && submitFilter < 0) {
+            filterStr = '倒数第${-submitFilter}个';
+          }
+          list.add(MapEntry('多个筛选', filterStr));
+        }
         final btnText = params['提交按钮文字'] ?? params['提交按钮'];
         if (btnText != null && btnText.toString().isNotEmpty) {
           list.add(MapEntry('提交按钮', btnText.toString()));
@@ -489,6 +521,15 @@ class RightScriptPanel extends StatelessWidget {
           list.add(MapEntry('出现文字', txt.toString()));
           handledKeys.addAll(['出现文字', '检测文字']);
         }
+        handledKeys.addAll(['在...之后搜索', '在此之后', '在...之前搜索', '在此之前']);
+        final appearAfter = params['在...之后搜索'] ?? params['在此之后'];
+        if (appearAfter != null && appearAfter.toString().isNotEmpty) {
+          list.add(MapEntry('在后搜索', appearAfter.toString()));
+        }
+        final appearBefore = params['在...之前搜索'] ?? params['在此之前'];
+        if (appearBefore != null && appearBefore.toString().isNotEmpty) {
+          list.add(MapEntry('在前搜索', appearBefore.toString()));
+        }
         final trueSummary =
             _formatBranchActionSummary(params['出现时执行'] ?? params['满足执行']);
         if (trueSummary != null) {
@@ -534,6 +575,25 @@ class RightScriptPanel extends StatelessWidget {
           list.add(MapEntry('对比规则', cmp));
           handledKeys.addAll(['对比方式', '目标值']);
         }
+        handledKeys.addAll(['多个筛选', '在...之后搜索', '在此之后', '在...之前搜索', '在此之前']);
+        final cmpFilter = params['多个筛选'];
+        if (cmpFilter != null && cmpFilter != 1) {
+          String filterStr = '第$cmpFilter个';
+          if (cmpFilter == 0) {
+            filterStr = '随机';
+          } else if (cmpFilter is num && cmpFilter < 0) {
+            filterStr = '倒数第${-cmpFilter}个';
+          }
+          list.add(MapEntry('多个筛选', filterStr));
+        }
+        final cmpAfter = params['在...之后搜索'] ?? params['在此之后'];
+        if (cmpAfter != null && cmpAfter.toString().isNotEmpty) {
+          list.add(MapEntry('在后搜索', cmpAfter.toString()));
+        }
+        final cmpBefore = params['在...之前搜索'] ?? params['在此之前'];
+        if (cmpBefore != null && cmpBefore.toString().isNotEmpty) {
+          list.add(MapEntry('在前搜索', cmpBefore.toString()));
+        }
         final satisfiedSummary =
             _formatBranchActionSummary(params['出现时执行'] ?? params['满足执行']);
         if (satisfiedSummary != null) {
@@ -569,6 +629,10 @@ class RightScriptPanel extends StatelessWidget {
         break;
 
       case '设置Cookie':
+        handledKeys.add('设置后刷新页面');
+        if (params['设置后刷新页面'] == false) {
+          list.add(const MapEntry('刷新页面', '否'));
+        }
         if (params['账号存档名称'] != null && params['账号存档名称'].toString().isNotEmpty) {
           list.add(MapEntry('账号存档', params['账号存档名称'].toString()));
           handledKeys.add('账号存档名称');
@@ -578,14 +642,37 @@ class RightScriptPanel extends StatelessWidget {
         }
         break;
 
+      case '清除Cookie':
+        handledKeys.addAll(['清除全部站点', '清除后刷新页面']);
+        if (params['清除全部站点'] == true) {
+          list.add(const MapEntry('范围', '全部站点'));
+        }
+        if (params['清除后刷新页面'] == false) {
+          list.add(const MapEntry('刷新页面', '否'));
+        }
+        break;
+
+      case '脚本停止':
+      case '脚本暂停':
+        handledKeys.add('执行完成提醒');
+        if (params['执行完成提醒'] == true) {
+          list.add(const MapEntry('完成提醒', '是'));
+        }
+        break;
+
       case '提取文字':
         if (params['CSS选择器'] != null && params['CSS选择器'].toString().isNotEmpty) {
           list.add(MapEntry('CSS选择器', params['CSS选择器'].toString()));
           handledKeys.add('CSS选择器');
         }
-        if (params['保存至变量'] != null && params['保存至变量'].toString().isNotEmpty) {
-          list.add(MapEntry('保存变量', params['保存至变量'].toString()));
-          handledKeys.add('保存至变量');
+        handledKeys.addAll(['属性', '变量名', '保存至变量']);
+        final attr = params['属性']?.toString().trim();
+        if (attr != null && attr.isNotEmpty && attr != 'text') {
+          list.add(MapEntry('属性', attr));
+        }
+        final varName = params['变量名'] ?? params['保存至变量'];
+        if (varName != null && varName.toString().isNotEmpty) {
+          list.add(MapEntry('保存变量', varName.toString()));
         }
         break;
 
@@ -601,16 +688,50 @@ class RightScriptPanel extends StatelessWidget {
     // 通用支持：若用户 params 中还包含其他未展示的非空键，优雅补充展示
     params.forEach((key, val) {
       if (!handledKeys.contains(key) &&
+          key != '重复次数' &&
+          key != '超时时间' &&
+          key != '超时单位' &&
           key != '执行延迟' &&
           key != 'isEnabled' &&
           key != '未找到时跳过' &&
           key != '目标等待' &&
+          key != '执行每个脚本前执行' &&
+          key != '执行每个脚本后执行' &&
+          key != '执行完成提醒' &&
           val != null &&
+          val != false &&
           val.toString().trim().isNotEmpty &&
           !key.startsWith('_')) {
         list.add(MapEntry(key, val.toString()));
       }
     });
+
+    // 重复次数仅在 > 1 时显示，避免默认 1 次占用版面
+    final rawRepeat = int.tryParse((params['重复次数'] ?? 1).toString()) ?? 1;
+    if (rawRepeat > 1) {
+      list.add(MapEntry('重复次数', '$rawRepeat'));
+    }
+
+    // 超时时间合并单位显示，且仅在非默认 30000ms 时展示
+    if (params['超时时间'] != null) {
+      final t = int.tryParse(params['超时时间'].toString());
+      final unit = (params['超时单位'] ?? 'ms').toString();
+      if (t != null &&
+          t > 0 &&
+          !(t == 30000 && (unit == 'ms' || unit == '毫秒'))) {
+        list.add(MapEntry('超时时间', '$t$unit'));
+      }
+    }
+
+    // 前置/后置嵌套脚本格式化摘要展示，避免直接吐出原始 Map 字符串
+    final beforeSub = _formatBranchActionSummary(params['执行每个脚本前执行']);
+    if (beforeSub != null) {
+      list.add(MapEntry('前置脚本', beforeSub));
+    }
+    final afterSub = _formatBranchActionSummary(params['执行每个脚本后执行']);
+    if (afterSub != null) {
+      list.add(MapEntry('后置脚本', afterSub));
+    }
 
     if (params['未找到时跳过'] == false) {
       list.add(const MapEntry('未找到', '阻断报错'));

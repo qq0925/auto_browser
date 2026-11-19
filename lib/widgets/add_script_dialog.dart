@@ -890,9 +890,18 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     );
   }
 
-  Widget _buildTextField(TextEditingController controller, String placeholder) {
+  Widget _buildTextField(TextEditingController controller, String placeholder) {
+    final bool isSingleLineNumeric = identical(controller, _delayController) ||
+        identical(controller, _multipleSelectionController) ||
+        identical(controller, _intervalHoursController) ||
+        identical(controller, _intervalMinutesController) ||
+        identical(controller, _intervalSecondsController);
     return TextField(
-      controller: controller,
+      controller: controller,
+      minLines: 1,
+      maxLines: isSingleLineNumeric ? 1 : null,
+      keyboardType:
+          isSingleLineNumeric ? TextInputType.number : TextInputType.multiline,
       style: TextStyle(fontSize: 14, color: _theme.textColor),
       decoration: InputDecoration(
         hintText: placeholder,
@@ -1778,7 +1787,10 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                 Expanded(
                   flex: 2,
                   child: TextField(
-                    controller: item.keyController,
+                    controller: item.keyController,
+                    minLines: 1,
+                    maxLines: 3,
+                    keyboardType: TextInputType.multiline,
                     decoration: InputDecoration(
                       hintText: '字段名 (name/id)',
                       hintStyle:
@@ -1808,7 +1820,10 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                 Expanded(
                   flex: 3,
                   child: TextField(
-                    controller: item.valueController,
+                    controller: item.valueController,
+                    minLines: 1,
+                    maxLines: null,
+                    keyboardType: TextInputType.multiline,
                     decoration: InputDecoration(
                       hintText: '字段值',
                       hintStyle:

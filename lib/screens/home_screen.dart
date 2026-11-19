@@ -713,11 +713,13 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                                       onSubmitted: (value) async {
                                         if (value.trim().isNotEmpty) {
                                           String url = value.trim();
-                                          if (url == 'welcome.html') {
+                                          if (url == 'welcome.html' || url == 'welcome_2.html') {
+                                            final welcomeContent = await WelcomeManager.getWelcomeContent(forceRefresh: true, initialPage: url == 'welcome_2.html' ? 1 : 0);
                                             await browserProvider
                                                 .currentTab!.controller
                                                 ?.loadData(
-                                                    data: 'assets/welcome.html',
+                                                    data: welcomeContent,
+                                                    baseUrl: WebUri('file:///welcome.html'),
                                                     mimeType: 'text/html',
                                                     encoding: 'utf-8');
                                           } else if (url == 'guide.html' ||
@@ -839,7 +841,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                                   (tabUrl.isEmpty || tabUrl == 'about:blank' || tabUrl.endsWith('welcome.html'));
 
                               if (isReallyWelcome) {
-                                WelcomeManager.getWelcomeContent().then((content) {
+                                WelcomeManager.getWelcomeContent(forceRefresh: true).then((content) {
                                   currentTab.controller?.loadData(
                                     data: content,
                                     mimeType: 'text/html',

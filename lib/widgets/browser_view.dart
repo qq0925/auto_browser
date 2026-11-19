@@ -30,6 +30,22 @@ class _BrowserViewState extends State<BrowserView> {
   WebViewEnvironment? _proxyEnvironment;
   String _activeProxyAddr = '';
   bool _isPreparingProxyEnv = false;
+  DateTime? _lastWelcomeLoadAt;
+
+  /// 加载双屏起始页并记录时间戳，防止 onUpdateVisitedHistory 短时重入导致二次闪烁重载
+  void _loadWelcomePage(InAppWebViewController controller) {
+    _lastWelcomeLoadAt = DateTime.now();
+    WelcomeManager.getWelcomeContent().then((content) {
+      if (!mounted) return;
+      _lastWelcomeLoadAt = DateTime.now();
+      controller.loadData(
+        data: content,
+        mimeType: 'text/html',
+        encoding: 'utf-8',
+        baseUrl: WebUri('file:///welcome.html'),
+      );
+    });
+  }
 
   @override
   void initState() {
@@ -125,9 +141,7 @@ class _BrowserViewState extends State<BrowserView> {
   }
 
   void _checkAndEnsurePageLoaded() async {
-    if (widget.tab.url.isEmpty ||
-        widget.tab.url == 'about:blank' ||
-        widget.tab.url.endsWith('welcome.html')) {
+    if (WelcomeManager.isWelcomeUrl(widget.tab.url)) {
       return;
     }
     final controller = widget.tab.controller;
@@ -185,7 +199,7 @@ class _BrowserViewState extends State<BrowserView> {
           (function() {
             try {
               var href = window.location.href || '';
-              if (href.indexOf('welcome.html') !== -1 || href.indexOf('test.txsj.ink') !== -1 || href.indexOf('about:blank') !== -1) {
+              if (href.indexOf('welcome.html') !== -1 || href.indexOf('welcome_2.html') !== -1 || href.indexOf('test.txsj.ink') !== -1 || href.indexOf('about:blank') !== -1 || href.indexOf('about:srcdoc') !== -1) {
                 return; // 欢迎页免拦截白名单
               }
               var style = document.createElement('style');
@@ -369,9 +383,7 @@ class _BrowserViewState extends State<BrowserView> {
               key: ValueKey('${widget.tab.id}_$_activeProxyAddr'),
               webViewEnvironment:
                   Platform.isWindows ? _proxyEnvironment : null,
-            initialUrlRequest: (widget.tab.url != 'about:blank' &&
-                    widget.tab.url.isNotEmpty &&
-                    !widget.tab.url.endsWith('welcome.html'))
+            initialUrlRequest: !WelcomeManager.isWelcomeUrl(widget.tab.url)
                 ? URLRequest(url: WebUri(_normalizeUrl(widget.tab.url)))
                 : null,
             contextMenu: ContextMenu(
@@ -693,15 +705,8 @@ class _BrowserViewState extends State<BrowserView> {
               } catch (_) {}
 
               // Check if we need to load welcome page (new tab or empty url)
-              if (widget.tab.url == 'about:blank' || widget.tab.url.isEmpty) {
-                WelcomeManager.getWelcomeContent().then((content) {
-                  controller.loadData(
-                    data: content,
-                    mimeType: 'text/html',
-                    encoding: 'utf-8',
-                    baseUrl: WebUri('file:///welcome.html'),
-                  );
-                });
+              if (WelcomeManager.isWelcomeUrl(widget.tab.url)) {
+                _loadWelcomePage(controller);
               } else {
                 final targetUrl = _normalizeUrl(widget.tab.url);
                 widget.tab.url = targetUrl;
@@ -927,8 +932,7 @@ class _BrowserViewState extends State<BrowserView> {
                   if (!mounted) return;
 
                   // Handle default page title
-                  if (url.toString().endsWith('welcome.html') ||
-                      url.toString() == 'about:blank') {
+                  if (WelcomeManager.isWelcomeUrl(url.toString())) {
                     title = '欢迎使用';
                   } else if ((title == null || title.isEmpty) &&
                       url.toString().startsWith('http')) {
@@ -1009,16 +1013,15 @@ class _BrowserViewState extends State<BrowserView> {
                   final urlStr = url.toString();
                   widget.tab.url = urlStr;
 
-                  if (urlStr.endsWith('welcome.html') ||
-                      urlStr == 'file:///welcome.html') {
-                    WelcomeManager.getWelcomeContent().then((content) {
-                      controller.loadData(
-                        data: content,
-                        mimeType: 'text/html',
-                        encoding: 'utf-8',
-                        baseUrl: WebUri('file:///welcome.html'),
-                      );
-                    });
+                  if (WelcomeManager.isWelcomeUrl(urlStr) &&
+                      urlStr != 'about:blank') {
+                    // 仅当距离上次加载起始页超过 800ms（例如从普通网页后退回起始页）时重载，避免初始 loadData 触发二次重载
+                    final shouldReloadWelcome = _lastWelcomeLoadAt == null ||
+                        DateTime.now().difference(_lastWelcomeLoadAt!) >
+                            const Duration(milliseconds: 800);
+                    if (shouldReloadWelcome) {
+                      _loadWelcomePage(controller);
+                    }
                     browserProvider.updateTabInfo(index, urlStr, '欢迎使用');
                   } else if (widget.tab.isExecutingScript) {
                     // 自动化执行期间直接沿用当前标题，避免额外 evaluateJavascript('document.title') 争抢 IPC
@@ -1098,13 +1101,36 @@ class _BrowserViewState extends State<BrowserView> {
 
                 // 3. 拦截特定纯 HTTP 站点被内核自动升级为 HTTPS 导致的 403 错误
                 final host = uri.host.toLowerCase();
-                if (scheme == 'https' &&
+                final needsHttpDowngrade = scheme == 'https' &&
                     (host == 'duobao.txsj.ink' ||
                         host.endsWith('.txsj.ink') ||
                         host == 'zqwan.cn' ||
-                        host.endsWith('.zqwan.cn'))) {
-                  final httpUrl = uri.replace(scheme: 'http').toString();
-                  controller.loadUrl(urlRequest: URLRequest(url: WebUri(httpUrl)));
+                        host.endsWith('.zqwan.cn'));
+                final resolvedUrl = needsHttpDowngrade
+                    ? uri.replace(scheme: 'http').toString()
+                    : urlStr;
+
+                // 3.5 双屏起始页子 iframe 内触发的主动 JS 跳转（如 onclick="location.href=..."）提升到主窗口加载
+                if (navigationAction.isForMainFrame == false &&
+                    WelcomeManager.isWelcomeUrl(widget.tab.url) &&
+                    (scheme == 'http' || scheme == 'https')) {
+                  try {
+                    final recentGesture = await controller.evaluateJavascript(
+                      source:
+                          "Boolean(window.__auokHasRecentUserGesture && window.__auokHasRecentUserGesture())",
+                    );
+                    if (recentGesture == true || recentGesture == 'true') {
+                      controller.loadUrl(
+                        urlRequest: URLRequest(url: WebUri(resolvedUrl)),
+                      );
+                      return NavigationActionPolicy.CANCEL;
+                    }
+                  } catch (_) {}
+                }
+
+                if (needsHttpDowngrade) {
+                  controller.loadUrl(
+                      urlRequest: URLRequest(url: WebUri(resolvedUrl)));
                   return NavigationActionPolicy.CANCEL;
                 }
               }
