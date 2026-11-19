@@ -665,7 +665,36 @@ class RightScriptPanel extends StatelessWidget {
           list.add(MapEntry('CSS选择器', params['CSS选择器'].toString()));
           handledKeys.add('CSS选择器');
         }
-        handledKeys.addAll(['正则预处理', '属性', '变量名']);
+        handledKeys.addAll([
+          '提取方式',
+          '在此之后',
+          '在此之前',
+          '多个筛选',
+          '正则预处理',
+          '属性',
+          '变量名',
+        ]);
+        if (params['提取方式'] == '前后文截取') {
+          list.add(const MapEntry('提取方式', '前后文截取'));
+          final afterStr = params['在此之后']?.toString() ?? '';
+          if (afterStr.isNotEmpty) {
+            list.add(MapEntry('在后截取', afterStr));
+          }
+          final beforeStr = params['在此之前']?.toString() ?? '';
+          if (beforeStr.isNotEmpty) {
+            list.add(MapEntry('在前截取', beforeStr));
+          }
+          final extFilter = params['多个筛选'];
+          if (extFilter != null && extFilter != 1) {
+            String filterStr = '第$extFilter个';
+            if (extFilter == 0) {
+              filterStr = '随机';
+            } else if (extFilter is num && extFilter < 0) {
+              filterStr = '倒数第${-extFilter}个';
+            }
+            list.add(MapEntry('多个筛选', filterStr));
+          }
+        }
         final extractRegex = params['正则预处理']?.toString().trim();
         if (extractRegex != null && extractRegex.isNotEmpty) {
           list.add(MapEntry('正则预处理', extractRegex));

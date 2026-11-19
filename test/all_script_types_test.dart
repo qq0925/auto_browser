@@ -1183,6 +1183,75 @@ void main() {
         false,
       );
 
+      // 前后文截取模式：双边界、单前文、单后文、多个筛选(-1)与正则二次清洗
+      controller.onEvaluateJavascript = (_) =>
+          '第一行：金币:100 银币\n第二行：金币:250 银币\n帝皇报时:22:20:05(星期二)';
+
+      expect(
+        await executor.execute(
+          controller,
+          Script(type: '提取文字', params: {
+            '提取方式': '前后文截取',
+            '在此之后': '金币:',
+            '在此之前': '银币',
+            '多个筛选': 1,
+            '变量名': 'goldFirst',
+          }),
+          executionDelay: 0,
+          variables: sharedVars,
+        ),
+        true,
+      );
+      expect(sharedVars['goldFirst'], '100');
+
+      expect(
+        await executor.execute(
+          controller,
+          Script(type: '提取文字', params: {
+            '提取方式': '前后文截取',
+            '在此之后': '金币:',
+            '在此之前': '银币',
+            '多个筛选': -1,
+            '变量名': 'goldLast',
+          }),
+          executionDelay: 0,
+          variables: sharedVars,
+        ),
+        true,
+      );
+      expect(sharedVars['goldLast'], '250');
+
+      // 仅填「在此之后」（自动截到行尾）+ 正则二次提取时间
+      expect(
+        await executor.execute(
+          controller,
+          Script(type: '提取文字', params: {
+            '提取方式': '前后文截取',
+            '在此之后': '帝皇报时:',
+            '正则预处理': r'(\d+:\d+:\d+)',
+            '变量名': 'serverTime',
+          }),
+          executionDelay: 0,
+          variables: sharedVars,
+        ),
+        true,
+      );
+      expect(sharedVars['serverTime'], '22:20:05');
+
+      // 前后文均为空时直接报错失败
+      expect(
+        await executor.execute(
+          controller,
+          Script(type: '提取文字', params: {
+            '提取方式': '前后文截取',
+            '在此之后': '',
+            '在此之前': '',
+          }),
+          executionDelay: 0,
+        ),
+        false,
+      );
+
       // 缺少选择器直接失败
       expect(
         await executor.execute(

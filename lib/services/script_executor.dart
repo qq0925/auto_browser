@@ -3113,6 +3113,66 @@ class ScriptExecutor {
     return (value: match.group(0) ?? '', matched: true);
   }
 
+  /// 在整页文本中按「在此之后 / 在此之前」截取目标片段，支持多个匹配筛选（1: 第1个，-1: 最后一个，0: 随机）
+  static String? extractBetweenText(
+    String rawBodyText, {
+    required String afterText,
+    required String beforeText,
+    int multipleSelection = 1,
+  }) {
+    if (afterText.isEmpty && beforeText.isEmpty) {
+      return null;
+    }
+    final normalized =
+        rawBodyText.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+    final matches = <String>[];
+    int searchStart = 0;
+
+    if (afterText.isNotEmpty && beforeText.isNotEmpty) {
+      while (searchStart < normalized.length) {
+        final afterIdx = normalized.indexOf(afterText, searchStart);
+        if (afterIdx == -1) break;
+        final contentStart = afterIdx + afterText.length;
+        final beforeIdx = normalized.indexOf(beforeText, contentStart);
+        if (beforeIdx == -1) break;
+        matches.add(normalized.substring(contentStart, beforeIdx).trim());
+        searchStart = beforeIdx + beforeText.length;
+      }
+    } else if (afterText.isNotEmpty) {
+      while (searchStart < normalized.length) {
+        final afterIdx = normalized.indexOf(afterText, searchStart);
+        if (afterIdx == -1) break;
+        final contentStart = afterIdx + afterText.length;
+        final nlIdx = normalized.indexOf('\n', contentStart);
+        final contentEnd = nlIdx == -1 ? normalized.length : nlIdx;
+        matches.add(normalized.substring(contentStart, contentEnd).trim());
+        searchStart =
+            nlIdx == -1 ? normalized.length : contentEnd + 1;
+      }
+    } else {
+      while (searchStart < normalized.length) {
+        final beforeIdx = normalized.indexOf(beforeText, searchStart);
+        if (beforeIdx == -1) break;
+        final lineStart = beforeIdx == 0
+            ? 0
+            : (normalized.lastIndexOf('\n', beforeIdx - 1) + 1);
+        matches.add(normalized.substring(lineStart, beforeIdx).trim());
+        searchStart = beforeIdx + beforeText.length;
+      }
+    }
+
+    if (matches.isEmpty) return null;
+    if (multipleSelection == 0) {
+      return matches[Random().nextInt(matches.length)];
+    }
+    if (multipleSelection > 0) {
+      final idx = multipleSelection - 1;
+      return idx < matches.length ? matches[idx] : null;
+    }
+    final idx = matches.length + multipleSelection;
+    return idx >= 0 && idx < matches.length ? matches[idx] : null;
+  }
+
   Future<bool> _executeExtractText(
       InAppWebViewController controller,
       Script script,
@@ -3120,15 +3180,8 @@ class ScriptExecutor {
           onStatusChanged,
       {Map<String, String>? variables}) async {
     final params = script.params;
-    final selector = params['CSS选择器'] as String? ?? '';
+    final extractMode = (params['提取方式'] as String? ?? '元素选择器').trim();
     final regexPattern = (params['正则预处理'] as String? ?? '').trim();
-    final attribute =
-        params['属性'] as String? ?? 'text'; // 'text', 'html', or attribute name
-
-    if (selector.isEmpty) {
-      onStatusChanged?.call(ScriptStatus.failure, '未指定CSS选择器', null);
-      return false;
-    }
 
     // 提前校验正则语法，避免耗时轮询后才暴露语法错误
     if (regexPattern.isNotEmpty) {
@@ -3141,47 +3194,101 @@ class ScriptExecutor {
       }
     }
 
-    final selectorJson = jsonEncode(selector);
-    final attributeJson = jsonEncode(attribute);
-
-    final jsCode = '''
-      (function() {
-        try {
-          const el = document.querySelector($selectorJson);
-          if (!el) return null;
-          
-          const attr = $attributeJson;
-          if (attr === "text") {
-            return el.innerText || el.textContent;
-          } else if (attr === "html") {
-            return el.innerHTML;
-          } else if (attr === "value" && "value" in el) {
-            return el.value;
-          } else {
-            return el.getAttribute(attr);
-          }
-        } catch(e) {
-          return null;
-        }
-      })();
-    ''';
-
     final timeout = _getStepTimeout(script);
     String? extractedValue;
+    bool success = false;
 
-    // 智能微轮询：支持在异步组件渲染期间持续探测，提取到内容瞬间立即返回
-    final success = await _pollUntilSuccess(() async {
-      try {
-        final result = await controller.evaluateJavascript(source: jsCode);
-        if (result != null) {
-          extractedValue = result.toString();
-          return true;
-        }
-        return false;
-      } catch (_) {
+    if (extractMode == '前后文截取') {
+      final afterText = (params['在此之后'] as String? ?? '');
+      final beforeText = (params['在此之前'] as String? ?? '');
+      final multipleSelection =
+          int.tryParse((params['多个筛选'] ?? 1).toString()) ?? 1;
+
+      if (afterText.isEmpty && beforeText.isEmpty) {
+        onStatusChanged?.call(
+            ScriptStatus.failure, '请至少填写「在...之后」或「在...之前」', null);
         return false;
       }
-    }, timeout: timeout);
+
+      const bodyTextJs = '''
+        (function() {
+          try {
+            if (!document.body) return null;
+            return document.body.innerText || document.body.textContent || '';
+          } catch(e) {
+            return null;
+          }
+        })();
+      ''';
+
+      success = await _pollUntilSuccess(() async {
+        try {
+          final result = await controller.evaluateJavascript(source: bodyTextJs);
+          if (result == null) return false;
+          final matched = extractBetweenText(
+            result.toString(),
+            afterText: afterText,
+            beforeText: beforeText,
+            multipleSelection: multipleSelection,
+          );
+          if (matched != null) {
+            extractedValue = matched;
+            return true;
+          }
+          return false;
+        } catch (_) {
+          return false;
+        }
+      }, timeout: timeout);
+    } else {
+      final selector = params['CSS选择器'] as String? ?? '';
+      final attribute =
+          params['属性'] as String? ?? 'text'; // 'text', 'html', or attribute name
+
+      if (selector.isEmpty) {
+        onStatusChanged?.call(ScriptStatus.failure, '未指定CSS选择器', null);
+        return false;
+      }
+
+      final selectorJson = jsonEncode(selector);
+      final attributeJson = jsonEncode(attribute);
+
+      final jsCode = '''
+        (function() {
+          try {
+            const el = document.querySelector($selectorJson);
+            if (!el) return null;
+            
+            const attr = $attributeJson;
+            if (attr === "text") {
+              return el.innerText || el.textContent;
+            } else if (attr === "html") {
+              return el.innerHTML;
+            } else if (attr === "value" && "value" in el) {
+              return el.value;
+            } else {
+              return el.getAttribute(attr);
+            }
+          } catch(e) {
+            return null;
+          }
+        })();
+      ''';
+
+      // 智能微轮询：支持在异步组件渲染期间持续探测，提取到内容瞬间立即返回
+      success = await _pollUntilSuccess(() async {
+        try {
+          final result = await controller.evaluateJavascript(source: jsCode);
+          if (result != null) {
+            extractedValue = result.toString();
+            return true;
+          }
+          return false;
+        } catch (_) {
+          return false;
+        }
+      }, timeout: timeout);
+    }
 
     if (success && extractedValue != null) {
       String finalValue = extractedValue!;
@@ -3210,7 +3317,11 @@ class ScriptExecutor {
       }
       return true;
     } else {
-      onStatusChanged?.call(ScriptStatus.failure, '未找到元素或属性为空', null);
+      onStatusChanged?.call(
+        ScriptStatus.failure,
+        extractMode == '前后文截取' ? '未找到匹配的前后文内容' : '未找到元素或属性为空',
+        null,
+      );
       return false;
     }
   }

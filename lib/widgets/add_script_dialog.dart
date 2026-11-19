@@ -191,6 +191,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       TextEditingController();
 
   // 提取文字 fields
+  String _extractMode = '元素选择器';
   final TextEditingController _extractRegexController = TextEditingController();
   bool _isLoadingBodyIds = false;
   /// 提取文字：根据当前所选元素动态生成的「提取属性」下拉选项
@@ -377,11 +378,14 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       _cookieAutoReload = params['设置后刷新页面'] ?? params['清除后刷新页面'] ?? true;
       _cookieClearAll = params['清除全部站点'] ?? false;
 
+      _extractMode = (params['提取方式'] == '前后文截取') ? '前后文截取' : '元素选择器';
       _extractSelectorController.text = params['CSS选择器'] ?? '';
       _extractRegexController.text = params['正则预处理']?.toString() ?? '';
       _extractAttributeController.text = params['属性'] ?? 'text';
       _applyExtractAttrOptions(const [], textPreview: '', keepExistingIfMissing: true);
-      if (_selectedScriptType == '提取文字' && _extractSelectorController.text.trim().isNotEmpty) {
+      if (_selectedScriptType == '提取文字' &&
+          _extractMode == '元素选择器' &&
+          _extractSelectorController.text.trim().isNotEmpty) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
             _refreshExtractAttrsFromPage(_extractSelectorController.text.trim());
@@ -923,15 +927,16 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         return [
           _buildFieldRow(
               '元素选择器', _extractSelectorController, '例如: #order-id 或 .price',
-              customField: _buildExtractIdPickerButton(),
+              replaceRow: _buildExtractPrimarySection(),
               required: true),
           _buildFieldRow(
             '正则预处理',
             _extractRegexController,
             r'选填，留空不处理，如: (\d+)',
           ),
-          _buildFieldRow('提取属性', _extractAttributeController, '',
-              customField: _buildExtractAttributeDropdown()),
+          if (_extractMode == '元素选择器')
+            _buildFieldRow('提取属性', _extractAttributeController, '',
+                customField: _buildExtractAttributeDropdown()),
               // 提取属性已改为随元素动态变化的下拉框
           _buildFieldRow('保存至变量', _extractVarNameController,
               '例如: orderId，后续步骤可用 \${orderId} 动态引用'),
@@ -942,23 +947,57 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     }
   }
 
-  /// 将元素 ID 转为可直接用于 document.querySelector 的 CSS 选择器
-  String _formatIdToCssSelector(String id) {
-    final trimmed = id.trim();
-    final isSimpleId = trimmed.isNotEmpty &&
-        !RegExp(r'^[0-9]').hasMatch(trimmed) &&
-        !RegExp(r'''[\s.#:\[\]()>+~,"'\\/]''').hasMatch(trimmed);
-    if (isSimpleId) {
-      return '#$trimmed';
-    }
-    final escaped = trimmed.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
-    return '[id="$escaped"]';
+  /// 构建「提取文字」顶部主配置区：切换「元素选择器」与「前后文截取」两种模式
+  Widget _buildExtractPrimarySection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildDropdownRow(
+          '提取方式',
+          _extractMode,
+          const ['元素选择器', '前后文截取'],
+          (val) {
+            if (val != null && val != _extractMode) {
+              setState(() => _extractMode = val);
+            }
+          },
+        ),
+        if (_extractMode == '元素选择器')
+          _buildFieldRow(
+            '元素选择器',
+            _extractSelectorController,
+            '',
+            customField: _buildExtractIdPickerButton(),
+            required: true,
+          )
+        else ...[
+          _buildFieldRow(
+            '在...之后',
+            _afterSearchController,
+            '如: 血量:（留空则从行首截取）',
+          ),
+          _buildFieldRow(
+            '在...之前',
+            _beforeSearchController,
+            '如: /（留空则截到行尾）',
+          ),
+          _buildFieldRow(
+            '多个筛选',
+            _multipleSelectionController,
+            '1',
+            hint: '1:第一个, -1:最后一个, 0:随机',
+          ),
+        ],
+      ],
+    );
   }
 
-  /// 构建「选择当前页面 body 元素 ID」满宽按钮（不提供手动输入，仅通过列表点选）
+  /// 构建「选择当前页面元素」满宽按钮（支持 body 整页 / 有ID / 无ID无类元素自动生成唯一选择器）
   Widget _buildExtractIdPickerButton() {
     final selected = _extractSelectorController.text.trim();
     final hasSelected = selected.isNotEmpty;
+    final displaySelected =
+        selected == 'body' ? 'body（整页内容）' : selected;
     return InkWell(
       onTap: _isLoadingBodyIds ? null : _pickBodyElementId,
       borderRadius: BorderRadius.circular(8),
@@ -991,7 +1030,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                hasSelected ? selected : '点击提取当前页面 body 元素 ID',
+                hasSelected ? displaySelected : '点击选择页面元素（body / 有ID / 无ID）',
                 style: TextStyle(
                   color: hasSelected ? _theme.textColor : _theme.hintColor,
                   fontSize: 13,
@@ -1002,7 +1041,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
             ),
             const SizedBox(width: 6),
             Text(
-              hasSelected ? '重选' : '选ID',
+              hasSelected ? '重选' : '选元素',
               style: const TextStyle(
                 color: Colors.blue,
                 fontSize: 12,
@@ -1217,7 +1256,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     );
   }
 
-  /// 从当前活动标签页的 document.body 中提取带 id 的元素（含各元素真实属性）并弹出列表供点击选择
+  /// 从当前活动标签页的 document.body 中提取可用元素（置顶 body 整页 + 有 ID 元素 + 无 ID/无类元素自动生成唯一选择器）并弹出列表供选择
   Future<void> _pickBodyElementId() async {
     final browserProvider = context.read<BrowserProvider>();
     final controller = browserProvider.currentTab?.controller;
@@ -1234,16 +1273,102 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
           try {
             var root = document.body;
             if (!root) return '[]';
-            var seen = Object.create(null);
-            var list = [];
-            function collect(el) {
-              if (!el || !el.getAttribute) return;
-              var id = (el.getAttribute('id') || '').trim();
-              if (!id || seen[id]) return;
-              seen[id] = true;
+
+            var skipTags = {
+              script: 1, style: 1, noscript: 1, template: 1,
+              svg: 1, path: 1, meta: 1, link: 1, br: 1, hr: 1, head: 1, title: 1
+            };
+
+            function formatIdSelector(id) {
+              var trimmed = (id || '').trim();
+              if (!trimmed) return '';
+              if (!/^[0-9]/.test(trimmed) && !/[\s.#:\[\]()>+~,"'\\/]/.test(trimmed)) {
+                return '#' + trimmed;
+              }
+              return '[id="' + trimmed.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"]';
+            }
+
+            function isUniqueSelector(sel, targetEl) {
+              try {
+                var matched = document.querySelectorAll(sel);
+                return matched && matched.length === 1 && matched[0] === targetEl;
+              } catch (_) {
+                return false;
+              }
+            }
+
+            function buildNthPath(el) {
+              if (el === root) return 'body';
+              var parts = [];
+              var cur = el;
+              while (cur && cur.nodeType === 1 && cur !== root) {
+                var tag = (cur.tagName || '').toLowerCase();
+                if (!tag) break;
+                var id = (cur.getAttribute('id') || '').trim();
+                if (id) {
+                  var idSel = formatIdSelector(id);
+                  if (idSel && isUniqueSelector(idSel, cur)) {
+                    parts.unshift(idSel);
+                    return parts.join(' > ');
+                  }
+                }
+                var parent = cur.parentElement;
+                if (!parent) {
+                  parts.unshift(tag);
+                  break;
+                }
+                var sameTagCount = 0;
+                var nthIndex = 1;
+                var children = parent.children;
+                for (var i = 0; i < children.length; i++) {
+                  var sib = children[i];
+                  if ((sib.tagName || '').toLowerCase() === tag) {
+                    sameTagCount++;
+                    if (sib === cur) nthIndex = sameTagCount;
+                  }
+                }
+                var step = sameTagCount > 1 ? (tag + ':nth-of-type(' + nthIndex + ')') : tag;
+                parts.unshift(step);
+                var candidate = 'body > ' + parts.join(' > ');
+                if (parent === root && isUniqueSelector(candidate, el)) {
+                  return candidate;
+                }
+                cur = parent;
+              }
+              return 'body > ' + parts.join(' > ');
+            }
+
+            function buildUniqueSelector(el) {
+              if (el === root) return 'body';
               var tag = (el.tagName || '').toLowerCase();
-              var txt = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
-              if (txt.length > 60) txt = txt.slice(0, 60) + '…';
+              var id = (el.getAttribute('id') || '').trim();
+              if (id) {
+                var idSel = formatIdSelector(id);
+                if (idSel && isUniqueSelector(idSel, el)) return idSel;
+              }
+              var nameAttr = (el.getAttribute('name') || '').trim();
+              if (nameAttr && !/["\\]/.test(nameAttr)) {
+                var nameSel = tag + '[name="' + nameAttr + '"]';
+                if (isUniqueSelector(nameSel, el)) return nameSel;
+              }
+              var clsRaw = (typeof el.className === 'string' ? el.className : '').trim();
+              if (clsRaw) {
+                var clsParts = clsRaw.split(/\s+/).filter(function(c) {
+                  return c && !/^[0-9]/.test(c) && !/[\s.#:\[\]()>+~,"'\\/]/.test(c);
+                });
+                if (clsParts.length > 0) {
+                  var c1 = tag + '.' + clsParts[0];
+                  if (isUniqueSelector(c1, el)) return c1;
+                  if (clsParts.length > 1) {
+                    var c2 = tag + '.' + clsParts[0] + '.' + clsParts[1];
+                    if (isUniqueSelector(c2, el)) return c2;
+                  }
+                }
+              }
+              return buildNthPath(el);
+            }
+
+            function collectAttrs(el, tag) {
               var attrs = [];
               var attrSeen = Object.create(null);
               function pushAttr(name, val) {
@@ -1263,14 +1388,82 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                   pushAttr((a.name || '').toLowerCase(), a.value);
                 }
               }
-              list.push({ id: id, tag: tag, text: txt, attrs: attrs });
+              return attrs;
             }
-            collect(root);
-            var nodes = root.querySelectorAll('[id]');
-            for (var i = 0; i < nodes.length; i++) {
-              collect(nodes[i]);
+
+            function hasDirectText(el) {
+              var nodes = el.childNodes;
+              if (!nodes) return false;
+              for (var i = 0; i < nodes.length; i++) {
+                if (nodes[i].nodeType === 3 && (nodes[i].nodeValue || '').replace(/\s+/g, '').length > 0) {
+                  return true;
+                }
+              }
+              return false;
             }
-            return JSON.stringify(list);
+
+            var seenSelector = Object.create(null);
+            var idList = [];
+            var otherList = [];
+
+            // 1. 置顶整页 body（配合正则预处理可提取页面任意无标签裸文字）
+            var bodyTxt = (root.innerText || root.textContent || '').replace(/\s+/g, ' ').trim();
+            if (bodyTxt.length > 65) bodyTxt = bodyTxt.slice(0, 65) + '…';
+            var bodyItem = {
+              selector: 'body',
+              display: 'body（整个页面内容）',
+              kind: 'body',
+              tag: 'body',
+              text: bodyTxt || '（整页内容，可配合正则预处理提取任意文字）',
+              attrs: collectAttrs(root, 'body')
+            };
+            seenSelector['body'] = true;
+
+            // 2. 扫描 body 下所有元素（兼顾有 ID 元素与无 ID/无类元素）
+            var allNodes = root.querySelectorAll('*');
+            for (var i = 0; i < allNodes.length; i++) {
+              var el = allNodes[i];
+              var tag = (el.tagName || '').toLowerCase();
+              if (!tag || skipTags[tag]) continue;
+
+              var id = (el.getAttribute('id') || '').trim();
+              var txt = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+              var isInteractive = (tag === 'a' || tag === 'img' || tag === 'input' || tag === 'textarea' || tag === 'select' || tag === 'button');
+
+              if (!id) {
+                // 无 ID 元素：仅收录有直接文本节点、叶子有文本节点或交互/媒体节点，过滤纯空壳嵌套容器
+                var directTxt = hasDirectText(el);
+                var isLeafText = (el.children.length === 0 && txt.length > 0);
+                if (!directTxt && !isLeafText && !isInteractive) continue;
+                if (otherList.length >= 160) continue;
+              }
+
+              var selector = buildUniqueSelector(el);
+              if (!selector || seenSelector[selector]) continue;
+              seenSelector[selector] = true;
+
+              if (txt.length > 65) txt = txt.slice(0, 65) + '…';
+              var attrs = collectAttrs(el, tag);
+              if (!id && !txt && attrs.length === 0) continue;
+
+              var entry = {
+                selector: selector,
+                display: id ? ('#' + id) : selector,
+                kind: id ? 'id' : 'other',
+                tag: tag,
+                text: txt,
+                attrs: attrs
+              };
+
+              if (id) {
+                idList.push(entry);
+              } else {
+                otherList.push(entry);
+              }
+            }
+
+            var finalResult = [bodyItem].concat(idList).concat(otherList);
+            return JSON.stringify(finalResult);
           } catch (e) {
             return '[]';
           }
@@ -1285,8 +1478,8 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
       if (decoded is List) {
         for (final entry in decoded) {
           if (entry is Map) {
-            final id = (entry['id'] ?? '').toString().trim();
-            if (id.isNotEmpty) {
+            final selector = (entry['selector'] ?? '').toString().trim();
+            if (selector.isNotEmpty) {
               final attrs = <Map<String, String>>[];
               if (entry['attrs'] is List) {
                 for (final a in entry['attrs'] as List) {
@@ -1299,7 +1492,9 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                 }
               }
               items.add({
-                'id': id,
+                'selector': selector,
+                'display': (entry['display'] ?? selector).toString(),
+                'kind': (entry['kind'] ?? 'other').toString(),
                 'tag': (entry['tag'] ?? '').toString(),
                 'text': (entry['text'] ?? '').toString(),
                 'attrs': attrs,
@@ -1318,24 +1513,67 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
     if (!mounted) return;
     if (items.isEmpty) {
-      await _showSimpleNoticeDialog('未找到元素 ID', '当前页面的 body 中没有带有 id 属性的元素。');
+      await _showSimpleNoticeDialog('未找到页面元素', '当前页面尚未加载完成或 body 为空。');
       return;
     }
 
     String searchKeyword = '';
+    String categoryFilter = 'all'; // 'all' | 'id' | 'other'
+    final idCount = items.where((e) => e['kind'] == 'id').length;
+    final otherCount = items.where((e) => e['kind'] == 'other').length;
+
     final selectedItem = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (dialogCtx) {
         return StatefulBuilder(
           builder: (ctx, setDialogState) {
             final kw = searchKeyword.trim().toLowerCase();
-            final filtered = kw.isEmpty
-                ? items
-                : items.where((item) {
-                    return (item['id'] as String).toLowerCase().contains(kw) ||
-                        (item['tag'] as String).toLowerCase().contains(kw) ||
-                        (item['text'] as String).toLowerCase().contains(kw);
-                  }).toList();
+            final filtered = items.where((item) {
+              final kind = item['kind'] as String;
+              if (categoryFilter == 'id' && kind != 'id' && kind != 'body') {
+                return false;
+              }
+              if (categoryFilter == 'other' &&
+                  kind != 'other' &&
+                  kind != 'body') {
+                return false;
+              }
+              if (kw.isEmpty) return true;
+              return (item['display'] as String).toLowerCase().contains(kw) ||
+                  (item['selector'] as String).toLowerCase().contains(kw) ||
+                  (item['tag'] as String).toLowerCase().contains(kw) ||
+                  (item['text'] as String).toLowerCase().contains(kw);
+            }).toList();
+
+            Widget buildFilterChip(String key, String label) {
+              final selected = categoryFilter == key;
+              return InkWell(
+                borderRadius: BorderRadius.circular(999),
+                onTap: () => setDialogState(() => categoryFilter = key),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? Colors.blue
+                        : _theme.inputFillColor,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: selected ? Colors.blue : _theme.borderColor,
+                    ),
+                  ),
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      color: selected ? Colors.white : _theme.labelColor,
+                      fontSize: 11.5,
+                      fontWeight:
+                          selected ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  ),
+                ),
+              );
+            }
 
             return Dialog(
               backgroundColor: _theme.backgroundColor,
@@ -1345,8 +1583,8 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
               ),
               child: ConstrainedBox(
                 constraints: BoxConstraints(
-                  maxWidth: 460,
-                  maxHeight: MediaQuery.of(ctx).size.height * 0.7,
+                  maxWidth: 480,
+                  maxHeight: MediaQuery.of(ctx).size.height * 0.74,
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -1368,7 +1606,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              '选择 body 元素 ID（共 ${items.length} 个）',
+                              '选择页面元素（共 ${items.length} 个）',
                               style: TextStyle(
                                 color: _theme.textColor,
                                 fontSize: 14,
@@ -1388,50 +1626,65 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                         ],
                       ),
                     ),
-                    // 搜索过滤框
+                    // 搜索过滤框 + 分类筛选
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-                      child: TextField(
-                        style:
-                            TextStyle(color: _theme.textColor, fontSize: 13),
-                        onChanged: (v) =>
-                            setDialogState(() => searchKeyword = v),
-                        decoration: InputDecoration(
-                          isDense: true,
-                          prefixIcon: Icon(Icons.search,
-                              size: 18, color: _theme.hintColor),
-                          hintText: '搜索 ID、标签名或文本预览...',
-                          hintStyle: TextStyle(
-                              color: _theme.hintColor, fontSize: 12.5),
-                          filled: true,
-                          fillColor: _theme.inputFillColor,
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 8),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                            borderSide:
-                                BorderSide(color: _theme.borderColor),
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          TextField(
+                            style: TextStyle(
+                                color: _theme.textColor, fontSize: 13),
+                            onChanged: (v) =>
+                                setDialogState(() => searchKeyword = v),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              prefixIcon: Icon(Icons.search,
+                                  size: 18, color: _theme.hintColor),
+                              hintText: '直接搜页面上的文字、ID 或标签名...',
+                              hintStyle: TextStyle(
+                                  color: _theme.hintColor, fontSize: 12.5),
+                              filled: true,
+                              fillColor: _theme.inputFillColor,
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 8),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide:
+                                    BorderSide(color: _theme.borderColor),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide:
+                                    BorderSide(color: _theme.borderColor),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide:
+                                    const BorderSide(color: Colors.blue),
+                              ),
+                            ),
                           ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                            borderSide:
-                                BorderSide(color: _theme.borderColor),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              buildFilterChip('all', '全部 (${items.length})'),
+                              const SizedBox(width: 6),
+                              buildFilterChip('id', '有ID ($idCount)'),
+                              const SizedBox(width: 6),
+                              buildFilterChip('other', '无ID/自动路径 ($otherCount)'),
+                            ],
                           ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                            borderSide:
-                                const BorderSide(color: Colors.blue),
-                          ),
-                        ),
+                        ],
                       ),
                     ),
-                    // 元素 ID 列表
+                    // 元素列表
                     Flexible(
                       child: filtered.isEmpty
                           ? Padding(
                               padding: const EdgeInsets.all(24),
                               child: Text(
-                                '没有匹配的元素 ID',
+                                '没有匹配的元素',
                                 style: TextStyle(
                                   color: _theme.labelColor,
                                   fontSize: 13,
@@ -1441,7 +1694,7 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                           : ListView.separated(
                               shrinkWrap: true,
                               padding:
-                                  const EdgeInsets.fromLTRB(10, 0, 10, 12),
+                                  const EdgeInsets.fromLTRB(10, 2, 10, 12),
                               itemCount: filtered.length,
                               separatorBuilder: (_, __) => Divider(
                                 height: 1,
@@ -1450,9 +1703,18 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                               ),
                               itemBuilder: (_, idx) {
                                 final item = filtered[idx];
-                                final id = item['id'] as String;
+                                final display = item['display'] as String;
+                                final kind = item['kind'] as String;
                                 final tag = item['tag'] as String;
                                 final preview = item['text'] as String;
+                                final Color accentColor = kind == 'body'
+                                    ? Colors.green
+                                    : (kind == 'id'
+                                        ? Colors.blue
+                                        : Colors.orange.shade700);
+                                final String kindLabel = kind == 'body'
+                                    ? '整页万能'
+                                    : (kind == 'id' ? 'ID' : '自动路径');
                                 return InkWell(
                                   borderRadius: BorderRadius.circular(8),
                                   onTap: () =>
@@ -1466,12 +1728,37 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                                       children: [
                                         Row(
                                           children: [
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      horizontal: 5,
+                                                      vertical: 1.5),
+                                              decoration: BoxDecoration(
+                                                color: accentColor.withValues(
+                                                    alpha: 0.14),
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                                border: Border.all(
+                                                  color: accentColor.withValues(
+                                                      alpha: 0.45),
+                                                ),
+                                              ),
+                                              child: Text(
+                                                kindLabel,
+                                                style: TextStyle(
+                                                  color: accentColor,
+                                                  fontSize: 10.5,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 6),
                                             Expanded(
                                               child: Text(
-                                                '#$id',
-                                                style: const TextStyle(
-                                                  color: Colors.blue,
-                                                  fontSize: 13.5,
+                                                display,
+                                                style: TextStyle(
+                                                  color: accentColor,
+                                                  fontSize: 13,
                                                   fontWeight: FontWeight.w600,
                                                 ),
                                                 overflow:
@@ -1511,7 +1798,8 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
                                             maxLines: 2,
                                             overflow: TextOverflow.ellipsis,
                                             style: TextStyle(
-                                              color: _theme.labelColor,
+                                              color: _theme.textColor
+                                                  .withValues(alpha: 0.85),
                                               fontSize: 12,
                                             ),
                                           ),
@@ -1533,9 +1821,8 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
     );
 
     if (selectedItem != null && mounted) {
-      final selectedId = (selectedItem['id'] ?? '').toString();
-      if (selectedId.isEmpty) return;
-      final selector = _formatIdToCssSelector(selectedId);
+      final selector = (selectedItem['selector'] ?? '').toString().trim();
+      if (selector.isEmpty) return;
       final selectedText = (selectedItem['text'] ?? '').toString();
       final selectedAttrs =
           (selectedItem['attrs'] as List<Map<String, String>>?) ?? const [];
@@ -1834,7 +2121,8 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
 
   Widget _buildFieldRow(
       String label, TextEditingController controller, String placeholder,
-      {bool required = false, String? hint, String? helpTooltip, Widget? trailing, Widget? customField}) {
+      {bool required = false, String? hint, String? helpTooltip, Widget? trailing, Widget? customField, Widget? replaceRow}) {
+    if (replaceRow != null) return replaceRow;
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Row(
@@ -3146,14 +3434,34 @@ class _AddScriptDialogState extends State<AddScriptDialog> {
         break;
 
       case '提取文字':
-        if (_extractSelectorController.text.isEmpty) return;
-        params['CSS选择器'] = _extractSelectorController.text.trim();
+        params['提取方式'] = _extractMode;
+        if (_extractMode == '前后文截取') {
+          final afterVal = _afterSearchController.text;
+          final beforeVal = _beforeSearchController.text;
+          if (afterVal.isEmpty && beforeVal.isEmpty) {
+            _showSimpleNoticeDialog('提示', '请至少填写「在...之后」或「在...之前」');
+            return;
+          }
+          if (afterVal.isNotEmpty) params['在此之后'] = afterVal;
+          if (beforeVal.isNotEmpty) params['在此之前'] = beforeVal;
+          params['多个筛选'] =
+              int.tryParse(_multipleSelectionController.text) ?? 1;
+        } else {
+          if (_extractSelectorController.text.trim().isEmpty) {
+            _showSimpleNoticeDialog('提示', '请先选择页面元素');
+            return;
+          }
+          params['CSS选择器'] = _extractSelectorController.text.trim();
+        }
+
         if (_extractRegexController.text.trim().isNotEmpty) {
           params['正则预处理'] = _extractRegexController.text.trim();
         }
-        params['属性'] = _extractAttributeController.text.isEmpty
+        if (_extractMode == '元素选择器') {
+          params['属性'] = _extractAttributeController.text.isEmpty
             ? 'text'
-            : _extractAttributeController.text.trim();
+            : _extractAttributeController.text.trim();
+        }
         if (_extractVarNameController.text.isNotEmpty) {
           params['变量名'] = _extractVarNameController.text.trim();
         }
