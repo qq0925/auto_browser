@@ -214,20 +214,6 @@ class WelcomeManager {
     ]);
   }
 
-  /// 获取第一屏本地文件路径（保留向后兼容）
-  static Future<String> getWelcomeUrl() async {
-    try {
-      final documentsDir = await getApplicationDocumentsDirectory();
-      final localFile = File(path.join(documentsDir.path, _localFilename));
-
-      if (await localFile.exists()) {
-        return Uri.file(localFile.path).toString();
-      }
-    } catch (_) {}
-
-    return _assetPath;
-  }
-
   /// 将字符串编码为可安全内联到 <script> 标签中的 JSON 字符串（防止 </script> 提前闭合脚本）
   static String _encodeJsString(String raw) {
     return jsonEncode(raw)

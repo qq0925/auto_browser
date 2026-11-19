@@ -28,6 +28,11 @@ class _StepExecutionResult {
 }
 
 class ScriptExecutor {
+  /// 单步轮询默认超时时间（默认 5 秒，支持单测覆写加速失败路径验证）
+  final Duration defaultStepTimeout;
+
+  ScriptExecutor({this.defaultStepTimeout = const Duration(seconds: 5)});
+
   // Execute a script on the given controller
   Future<bool> execute(InAppWebViewController? controller, Script script,
       {int executionDelay = 1000,
@@ -160,31 +165,9 @@ class ScriptExecutor {
         }
       }
 
-      // 脚本安全执行超时保护（默认 30 秒，防止单步 JS 卡死）
-      Duration timeoutDuration = const Duration(seconds: 30);
-      String timeoutDesc = '30 秒';
-      if (resolvedScript.params.containsKey('超时时间')) {
-        final t = resolvedScript.params['超时时间'];
-        final unit = resolvedScript.params['超时单位']?.toString().toLowerCase();
-        if (t is int && t > 0) {
-          if (unit == 'ms' || unit == '毫秒') {
-            timeoutDuration = Duration(milliseconds: t);
-            timeoutDesc = '$t 毫秒';
-          } else if (unit == 's' || unit == '秒') {
-            timeoutDuration = Duration(seconds: t);
-            timeoutDesc = '$t 秒';
-          } else {
-            // 兼容无单位配置：<= 120 视为秒，> 120 视为毫秒
-            if (t <= 120) {
-              timeoutDuration = Duration(seconds: t);
-              timeoutDesc = '$t 秒';
-            } else {
-              timeoutDuration = Duration(milliseconds: t);
-              timeoutDesc = '$t 毫秒';
-            }
-          }
-        }
-      }
+      // 脚本安全执行超时保护（固定 30 秒，防止单步 JS 卡死）
+      const Duration timeoutDuration = Duration(seconds: 30);
+      const String timeoutDesc = '30 秒';
       void emitStepStatus(
           ScriptStatus status, String? message, double? progress) {
         if (status == ScriptStatus.jump ||
@@ -316,7 +299,6 @@ class ScriptExecutor {
         "脚本停止",
         "脚本暂停",
         "控制脚本开关",
-        "全局设置",
       };
 
       // 5. 全局延迟节流：仅对真正命中执行的交互步骤生效；未找到目标直接跳过及流程控制指令 0ms 放行
@@ -331,8 +313,7 @@ class ScriptExecutor {
               ScriptStatus.waiting, '等待延迟 ${executionDelay}ms...', 1.0);
         } else if (!needWaitAfter &&
             (resolvedScript.type == '点击文字' ||
-                resolvedScript.type == '点击图片' ||
-                resolvedScript.type == '数值对比-点击文字')) {
+                resolvedScript.type == '点击图片')) {
           // 0ms 极速模式下仅让出事件循环微任务，不阻塞 16ms
           await Future.delayed(Duration.zero);
         }
@@ -716,38 +697,18 @@ class ScriptExecutor {
     return true;
   }
 
-  /// 解析动作级超时时间（优先读取脚本参数中的【超时时间】与【超时单位】，未配置时默认 5000 毫秒）
+  /// 返回动作级内置默认超时时间（默认 5000 毫秒）
   Duration _getStepTimeout(Script script, {int defaultMs = 5000}) {
-    if (script.params.containsKey('超时时间')) {
-      final t = script.params['超时时间'];
-      final unit = script.params['超时单位']?.toString().toLowerCase();
-      if (t is int) {
-        if (t == 0) return Duration.zero;
-        if (t > 0) {
-          if (unit == 'ms' || unit == '毫秒') {
-            return Duration(milliseconds: t);
-          } else if (unit == 's' || unit == '秒') {
-            return Duration(seconds: t);
-          }
-          // 用户配置若 <= 120 视为秒；若 > 120 视为毫秒 (向后兼容历史旧配置)
-          return Duration(milliseconds: t <= 120 ? t * 1000 : t);
-        }
-      }
+    if (defaultStepTimeout != const Duration(seconds: 5)) {
+      return defaultStepTimeout;
     }
     return Duration(milliseconds: defaultMs);
   }
 
   /// 解析点击目标未找到时的轮询等待时间：
-  /// - 若显式配置了【目标等待】（毫秒），直接使用该等待时长；
-  /// - 否则若开启了【未找到时跳过】（默认开启），使用 0ms 即时探测直接跳过（不拖慢循环，对齐 zdllq 极速响应）；
-  /// - 若关闭了【未找到时跳过】，才按【超时时间】轮询等待直至目标出现或超时失败。
+  /// - 开启【未找到时跳过】（默认开启）时使用 0ms 即时探测直接跳过；
+  /// - 关闭【未找到时跳过】时使用内置 5 秒轮询等待直至目标出现或超时失败。
   Duration _getElementWaitTimeout(Script script) {
-    if (script.params.containsKey('目标等待')) {
-      final w = script.params['目标等待'];
-      if (w is int && w >= 0) {
-        return Duration(milliseconds: w);
-      }
-    }
     final skipWhenNotFound = script.params['未找到时跳过'] as bool? ?? true;
     if (skipWhenNotFound) {
       return Duration.zero;
@@ -2378,7 +2339,7 @@ class ScriptExecutor {
     }
   }
 
-  /// 统一执行逻辑脚本分支动作：支持子弹窗内联子脚本 (Map) 与旧版脚本集路径 (String)
+  /// 统一执行逻辑脚本分支内联子脚本 (Map)
   Future<bool> _executeLogicBranchAction(
     InAppWebViewController? controller,
     dynamic branchAction, {
@@ -2438,11 +2399,6 @@ class ScriptExecutor {
           }
         },
       );
-    }
-    if (branchAction is String && branchAction.trim().isNotEmpty) {
-      onStatusChanged?.call(
-          ScriptStatus.callSubroutine, branchAction.trim(), null);
-      return true;
     }
     return true;
   }
@@ -2575,8 +2531,8 @@ class ScriptExecutor {
     final appearText = script.params['出现文字'] as String? ?? '';
     final afterText = script.params['在此之后'] as String? ?? '';
     final beforeText = script.params['在此之前'] as String? ?? '';
-    final trueBranch = script.params['出现时执行'] ?? script.params['满足执行'];
-    final falseBranch = script.params['未出现时执行'] ?? script.params['不满足执行'];
+    final trueBranch = script.params['出现时执行'];
+    final falseBranch = script.params['未出现时执行'];
 
     if (appearText.isEmpty) return false;
 
@@ -2679,13 +2635,9 @@ class ScriptExecutor {
     List<Script>? scripts,
     Map<String, String>? variables,
   }) async {
-    final targetTimeStr = (script.params['目标值'] ??
-            script.params['设定时间'] ??
-            script.params['目标时间'] ??
-            '')
-        .toString();
-    final afterBranch = script.params['出现时执行'] ?? script.params['时间后执行'];
-    final beforeBranch = script.params['未出现时执行'] ?? script.params['时间前执行'];
+    final targetTimeStr = (script.params['目标值'] ?? '').toString();
+    final afterBranch = script.params['出现时执行'];
+    final beforeBranch = script.params['未出现时执行'];
 
     if (targetTimeStr.trim().isEmpty) return false;
 
@@ -2751,8 +2703,8 @@ class ScriptExecutor {
     final multipleSelection = script.params['多个筛选'] as int? ?? 1;
     final afterText = script.params['在此之后'] as String? ?? '';
     final beforeText = script.params['在此之前'] as String? ?? '';
-    final trueBranch = script.params['出现时执行'] ?? script.params['满足执行'];
-    final falseBranch = script.params['未出现时执行'] ?? script.params['不满足执行'];
+    final trueBranch = script.params['出现时执行'];
+    final falseBranch = script.params['未出现时执行'];
 
     if (targetValueStr.isEmpty) return false;
     final targetValue = double.tryParse(targetValueStr);
@@ -3137,6 +3089,30 @@ class ScriptExecutor {
     return false;
   }
 
+  /// 对提取到的文本应用正则预处理（pattern 为空则原样返回）
+  /// 返回 `(value, matched)`；当 pattern 语法非法时抛出 [FormatException]
+  static ({String value, bool matched}) applyExtractRegex(
+      String rawText, String pattern) {
+    final trimmedPattern = pattern.trim();
+    if (trimmedPattern.isEmpty) {
+      return (value: rawText, matched: true);
+    }
+    final regExp = RegExp(trimmedPattern, multiLine: true);
+    final match = regExp.firstMatch(rawText);
+    if (match == null) {
+      return (value: '', matched: false);
+    }
+    if (match.groupCount > 0) {
+      for (int i = 1; i <= match.groupCount; i++) {
+        final g = match.group(i);
+        if (g != null) {
+          return (value: g, matched: true);
+        }
+      }
+    }
+    return (value: match.group(0) ?? '', matched: true);
+  }
+
   Future<bool> _executeExtractText(
       InAppWebViewController controller,
       Script script,
@@ -3145,12 +3121,24 @@ class ScriptExecutor {
       {Map<String, String>? variables}) async {
     final params = script.params;
     final selector = params['CSS选择器'] as String? ?? '';
+    final regexPattern = (params['正则预处理'] as String? ?? '').trim();
     final attribute =
         params['属性'] as String? ?? 'text'; // 'text', 'html', or attribute name
 
     if (selector.isEmpty) {
       onStatusChanged?.call(ScriptStatus.failure, '未指定CSS选择器', null);
       return false;
+    }
+
+    // 提前校验正则语法，避免耗时轮询后才暴露语法错误
+    if (regexPattern.isNotEmpty) {
+      try {
+        RegExp(regexPattern, multiLine: true);
+      } on FormatException catch (e) {
+        onStatusChanged?.call(
+            ScriptStatus.failure, '正则预处理语法错误: ${e.message}', null);
+        return false;
+      }
     }
 
     final selectorJson = jsonEncode(selector);
@@ -3167,6 +3155,8 @@ class ScriptExecutor {
             return el.innerText || el.textContent;
           } else if (attr === "html") {
             return el.innerHTML;
+          } else if (attr === "value" && "value" in el) {
+            return el.value;
           } else {
             return el.getAttribute(attr);
           }
@@ -3194,16 +3184,29 @@ class ScriptExecutor {
     }, timeout: timeout);
 
     if (success && extractedValue != null) {
-      final varName = params['变量名'] as String? ??
-          params['保存至变量'] as String? ??
-          '';
+      String finalValue = extractedValue!;
+      bool regexMatched = true;
+      if (regexPattern.isNotEmpty) {
+        try {
+          final processed = applyExtractRegex(finalValue, regexPattern);
+          finalValue = processed.value;
+          regexMatched = processed.matched;
+        } on FormatException catch (e) {
+          onStatusChanged?.call(
+              ScriptStatus.failure, '正则预处理语法错误: ${e.message}', null);
+          return false;
+        }
+      }
+
+      final varName = params['变量名'] as String? ?? '';
+      final suffix = (!regexMatched && regexPattern.isNotEmpty) ? ' (正则未匹配)' : '';
       if (varName.isNotEmpty && variables != null) {
-        variables[varName] = extractedValue!;
+        variables[varName] = finalValue;
         onStatusChanged?.call(
-            ScriptStatus.notification, '提取成功: \$$varName = $extractedValue', null);
+            ScriptStatus.notification, '提取成功: \$$varName = $finalValue$suffix', null);
       } else {
         onStatusChanged?.call(
-            ScriptStatus.notification, '提取结果: $extractedValue', null);
+            ScriptStatus.notification, '提取结果: $finalValue$suffix', null);
       }
       return true;
     } else {

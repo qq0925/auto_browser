@@ -531,13 +531,13 @@ class RightScriptPanel extends StatelessWidget {
           list.add(MapEntry('在前搜索', appearBefore.toString()));
         }
         final trueSummary =
-            _formatBranchActionSummary(params['出现时执行'] ?? params['满足执行']);
+            _formatBranchActionSummary(params['出现时执行']);
         if (trueSummary != null) {
           list.add(MapEntry('满足执行', trueSummary));
         }
         handledKeys.addAll(['出现时执行', '满足执行']);
         final falseSummary =
-            _formatBranchActionSummary(params['未出现时执行'] ?? params['不满足执行']);
+            _formatBranchActionSummary(params['未出现时执行']);
         if (falseSummary != null) {
           list.add(MapEntry('未出现执行', falseSummary));
         }
@@ -552,13 +552,13 @@ class RightScriptPanel extends StatelessWidget {
           handledKeys.addAll(['目标值', '设定时间', '目标时间']);
         }
         final afterSummary =
-            _formatBranchActionSummary(params['出现时执行'] ?? params['时间后执行']);
+            _formatBranchActionSummary(params['出现时执行']);
         if (afterSummary != null) {
           list.add(MapEntry('时间后执行', afterSummary));
         }
         handledKeys.addAll(['出现时执行', '时间后执行']);
         final beforeSummary =
-            _formatBranchActionSummary(params['未出现时执行'] ?? params['时间前执行']);
+            _formatBranchActionSummary(params['未出现时执行']);
         if (beforeSummary != null) {
           list.add(MapEntry('时间前执行', beforeSummary));
         }
@@ -595,13 +595,13 @@ class RightScriptPanel extends StatelessWidget {
           list.add(MapEntry('在前搜索', cmpBefore.toString()));
         }
         final satisfiedSummary =
-            _formatBranchActionSummary(params['出现时执行'] ?? params['满足执行']);
+            _formatBranchActionSummary(params['出现时执行']);
         if (satisfiedSummary != null) {
           list.add(MapEntry('满足执行', satisfiedSummary));
         }
         handledKeys.addAll(['出现时执行', '满足执行']);
         final unsatisfiedSummary =
-            _formatBranchActionSummary(params['未出现时执行'] ?? params['不满足执行']);
+            _formatBranchActionSummary(params['未出现时执行']);
         if (unsatisfiedSummary != null) {
           list.add(MapEntry('不满足执行', unsatisfiedSummary));
         }
@@ -665,12 +665,16 @@ class RightScriptPanel extends StatelessWidget {
           list.add(MapEntry('CSS选择器', params['CSS选择器'].toString()));
           handledKeys.add('CSS选择器');
         }
-        handledKeys.addAll(['属性', '变量名', '保存至变量']);
+        handledKeys.addAll(['正则预处理', '属性', '变量名']);
+        final extractRegex = params['正则预处理']?.toString().trim();
+        if (extractRegex != null && extractRegex.isNotEmpty) {
+          list.add(MapEntry('正则预处理', extractRegex));
+        }
         final attr = params['属性']?.toString().trim();
         if (attr != null && attr.isNotEmpty && attr != 'text') {
           list.add(MapEntry('属性', attr));
         }
-        final varName = params['变量名'] ?? params['保存至变量'];
+        final varName = params['变量名'];
         if (varName != null && varName.toString().isNotEmpty) {
           list.add(MapEntry('保存变量', varName.toString()));
         }
@@ -712,17 +716,6 @@ class RightScriptPanel extends StatelessWidget {
       list.add(MapEntry('重复次数', '$rawRepeat'));
     }
 
-    // 超时时间合并单位显示，且仅在非默认 30000ms 时展示
-    if (params['超时时间'] != null) {
-      final t = int.tryParse(params['超时时间'].toString());
-      final unit = (params['超时单位'] ?? 'ms').toString();
-      if (t != null &&
-          t > 0 &&
-          !(t == 30000 && (unit == 'ms' || unit == '毫秒'))) {
-        list.add(MapEntry('超时时间', '$t$unit'));
-      }
-    }
-
     // 前置/后置嵌套脚本格式化摘要展示，避免直接吐出原始 Map 字符串
     final beforeSub = _formatBranchActionSummary(params['执行每个脚本前执行']);
     if (beforeSub != null) {
@@ -735,10 +728,6 @@ class RightScriptPanel extends StatelessWidget {
 
     if (params['未找到时跳过'] == false) {
       list.add(const MapEntry('未找到', '阻断报错'));
-    }
-
-    if (params['目标等待'] != null && params['目标等待'] is num && params['目标等待'] > 0) {
-      list.add(MapEntry('目标等待', '${params['目标等待']}ms'));
     }
 
     // 通用字段：执行延迟 (若设置且大于0)
@@ -1269,17 +1258,12 @@ class RightScriptPanel extends StatelessWidget {
     );
   }
 
-  /// 格式化逻辑分支动作摘要：支持内联子脚本 (Map) 与旧版脚本路径 (String)
+  /// 格式化逻辑分支或前置/后置内联子脚本摘要
   String? _formatBranchActionSummary(dynamic branchVal) {
-    if (branchVal == null) return null;
-    if (branchVal is Map) {
-      final child = Script.fromUserMap(Map<String, dynamic>.from(branchVal));
-      final detail = _getScriptContent(child).trim();
-      return detail.isNotEmpty ? '${child.type} ($detail)' : child.type;
-    }
-    final str = branchVal.toString().trim();
-    if (str.isEmpty) return null;
-    return path.basename(str);
+    if (branchVal is! Map) return null;
+    final child = Script.fromUserMap(Map<String, dynamic>.from(branchVal));
+    final detail = _getScriptContent(child).trim();
+    return detail.isNotEmpty ? '${child.type} ($detail)' : child.type;
   }
 
   String _getScriptContent(Script script) {

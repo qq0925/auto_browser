@@ -222,7 +222,6 @@ void main() {
           '出现文字': '前置按钮',
           '点击文本': '出征',
           '未找到时跳过': true,
-          '目标等待': 0,
         }),
         executionDelay: 0,
         onStatusChanged: (s, m, p) => skipEvents.add((s, m)),
@@ -235,15 +234,15 @@ void main() {
       );
 
       // D. 未找到目标：未找到时跳过=false -> 返回 false 且发射 failure 状态
+      final fastFailExecutor =
+          ScriptExecutor(defaultStepTimeout: const Duration(milliseconds: 20));
       final failEvents = <(ScriptStatus, String?)>[];
       controller.onEvaluateJavascript = (src) => jsonEncode({'success': false});
-      final failOk = await executor.execute(
+      final failOk = await fastFailExecutor.execute(
         controller,
         Script(type: '点击文字', params: {
           '点击文本': '不存在按钮',
           '未找到时跳过': false,
-          '超时时间': 20,
-          '超时单位': 'ms',
         }),
         executionDelay: 0,
         onStatusChanged: (s, m, p) => failEvents.add((s, m)),
@@ -421,17 +420,18 @@ void main() {
         true,
       );
 
+      final fastJsExecutor =
+          ScriptExecutor(defaultStepTimeout: Duration.zero);
       final jsFailEvents = <(ScriptStatus, String?)>[];
       controller.onEvaluateJavascript = (_) => jsonEncode({
             'ok': false,
             'message': '脚本执行结果为 false',
           });
       expect(
-        await executor.execute(
+        await fastJsExecutor.execute(
           controller,
           Script(type: '自定义JS', params: {
             'js内容': 'return false;',
-            '超时时间': 0,
           }),
           executionDelay: 0,
           onStatusChanged: (s, m, p) => jsFailEvents.add((s, m)),
@@ -702,8 +702,8 @@ void main() {
       );
     });
 
-    test('16. 逻辑脚本-出现文字：出现/未出现分支、前后边界、空参数失败与内联子弹窗分支', () async {
-      String? calledPath;
+    test('16. 逻辑脚本-出现文字：出现/未出现内联子脚本分支、前后边界与空参数失败', () async {
+      controller.loadedUrls.clear();
       controller.onEvaluateJavascript = (_) => 'true';
       expect(
         await executor.execute(
@@ -712,17 +712,14 @@ void main() {
             '出现文字': '胜利',
             '在此之后': '战斗结果',
             '在此之前': '返回首页',
-            '出现时执行': 'win.json',
-            '未出现时执行': 'lose.json',
+            '出现时执行': {'脚本类型': '进入网址', '网址': 'https://win.example.com'},
+            '未出现时执行': {'脚本类型': '进入网址', '网址': 'https://lose.example.com'},
           }),
           executionDelay: 0,
-          onStatusChanged: (s, m, p) {
-            if (s == ScriptStatus.callSubroutine) calledPath = m;
-          },
         ),
         true,
       );
-      expect(calledPath, 'win.json');
+      expect(controller.loadedUrls.last, 'https://win.example.com');
 
       controller.onEvaluateJavascript = (_) => 'false';
       expect(
@@ -730,17 +727,14 @@ void main() {
           controller,
           Script(type: '逻辑脚本-出现文字', params: {
             '出现文字': '胜利',
-            '出现时执行': 'win.json',
-            '未出现时执行': 'lose.json',
+            '出现时执行': {'脚本类型': '进入网址', '网址': 'https://win.example.com'},
+            '未出现时执行': {'脚本类型': '进入网址', '网址': 'https://lose.example.com'},
           }),
           executionDelay: 0,
-          onStatusChanged: (s, m, p) {
-            if (s == ScriptStatus.callSubroutine) calledPath = m;
-          },
         ),
         true,
       );
-      expect(calledPath, 'lose.json');
+      expect(controller.loadedUrls.last, 'https://lose.example.com');
 
       // 内联子脚本分支：支持变量插值，且跳转流控状态不被后续 success 覆盖
       String? executedChildScript;
@@ -836,27 +830,24 @@ void main() {
         isNull,
       );
 
-      String? calledPath;
       final futureTime = DateTime.now().add(const Duration(minutes: 2));
       final pastTime = DateTime.now().subtract(const Duration(minutes: 2));
       String fmt(DateTime dt) =>
           '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}:${dt.second.toString().padLeft(2, '0')}';
 
       // 若恰好跨午夜，用安全分支避免临界抖动
+      controller.loadedUrls.clear();
       if (pastTime.day == DateTime.now().day) {
         await executor.execute(
           controller,
           Script(type: '逻辑脚本-时间对比', params: {
             '目标值': fmt(pastTime),
-            '出现时执行': 'after.json',
-            '未出现时执行': 'before.json',
+            '出现时执行': {'脚本类型': '进入网址', '网址': 'https://past-after.example.com'},
+            '未出现时执行': {'脚本类型': '进入网址', '网址': 'https://past-before.example.com'},
           }),
           executionDelay: 0,
-          onStatusChanged: (s, m, p) {
-            if (s == ScriptStatus.callSubroutine) calledPath = m;
-          },
         );
-        expect(calledPath, 'after.json');
+        expect(controller.loadedUrls.last, 'https://past-after.example.com');
       }
 
       if (futureTime.day == DateTime.now().day) {
@@ -864,15 +855,12 @@ void main() {
           controller,
           Script(type: '逻辑脚本-时间对比', params: {
             '目标值': fmt(futureTime),
-            '出现时执行': 'after.json',
-            '未出现时执行': 'before.json',
+            '出现时执行': {'脚本类型': '进入网址', '网址': 'https://future-after.example.com'},
+            '未出现时执行': {'脚本类型': '进入网址', '网址': 'https://future-before.example.com'},
           }),
           executionDelay: 0,
-          onStatusChanged: (s, m, p) {
-            if (s == ScriptStatus.callSubroutine) calledPath = m;
-          },
         );
-        expect(calledPath, 'before.json');
+        expect(controller.loadedUrls.last, 'https://future-before.example.com');
       }
 
       // 2) 完整日期（历史时刻 -> 触发时间后内联子脚本）与 +02:00:00（未到 -> 触发时间前内联子脚本）
@@ -913,16 +901,16 @@ void main() {
 
     test('18. 逻辑脚本-数值对比：5种对比方式 (>/< /=/ >=/ <=)、内联分支与异常边界', () async {
       final cases = [
-        ('>', 150, '100', 'true.json'),
-        ('>', 90, '100', 'false.json'),
-        ('<', 50, '100', 'true.json'),
-        ('=', 100.0, '100', 'true.json'),
-        ('>=', 100, '100', 'true.json'),
-        ('<=', 101, '100', 'false.json'),
+        ('>', 150, '100', 'https://true.example.com'),
+        ('>', 90, '100', 'https://false.example.com'),
+        ('<', 50, '100', 'https://true.example.com'),
+        ('=', 100.0, '100', 'https://true.example.com'),
+        ('>=', 100, '100', 'https://true.example.com'),
+        ('<=', 101, '100', 'https://false.example.com'),
       ];
 
-      for (final (op, extracted, target, expectedBranch) in cases) {
-        String? branch;
+      for (final (op, extracted, target, expectedUrl) in cases) {
+        controller.loadedUrls.clear();
         controller.onEvaluateJavascript = (_) => extracted;
         final ok = await executor.execute(
           controller,
@@ -932,16 +920,14 @@ void main() {
             '多个筛选': -1,
             '在此之后': '当前血量',
             '在此之前': '经验值',
-            '出现时执行': 'true.json',
-            '未出现时执行': 'false.json',
+            '出现时执行': {'脚本类型': '进入网址', '网址': 'https://true.example.com'},
+            '未出现时执行': {'脚本类型': '进入网址', '网址': 'https://false.example.com'},
           }),
           executionDelay: 0,
-          onStatusChanged: (s, m, p) {
-            if (s == ScriptStatus.callSubroutine) branch = m;
-          },
         );
         expect(ok, true);
-        expect(branch, expectedBranch, reason: 'op=$op val=$extracted');
+        expect(controller.loadedUrls.last, expectedUrl,
+            reason: 'op=$op val=$extracted');
       }
 
       // 内联子脚本分支：满足时执行子跳转脚本且保持 jump 状态
@@ -1101,7 +1087,7 @@ void main() {
           Script(type: '提取文字', params: {
             'CSS选择器': '.hero-link',
             '属性': 'href',
-            '保存至变量': 'heroUrl',
+            '变量名': 'heroUrl',
           }),
           executionDelay: 0,
           variables: sharedVars,
@@ -1116,6 +1102,86 @@ void main() {
         sharedVars,
       );
       expect(resolved.params['网址'], 'https://game.com/zhsh.do?cmd=100');
+
+      // 正则预处理：留空不处理、捕获组提取、无捕获组提取、未匹配置空、非法正则失败
+      expect(
+        await executor.execute(
+          controller,
+          Script(type: '提取文字', params: {
+            'CSS选择器': '.hero-name',
+            '正则预处理': '',
+            '属性': 'text',
+            '变量名': 'heroRaw',
+          }),
+          executionDelay: 0,
+          variables: sharedVars,
+        ),
+        true,
+      );
+      expect(sharedVars['heroRaw'], 'Lv.99 吕布');
+
+      expect(
+        await executor.execute(
+          controller,
+          Script(type: '提取文字', params: {
+            'CSS选择器': '.hero-name',
+            '正则预处理': r'Lv\.(\d+)',
+            '属性': 'text',
+            '变量名': 'heroLevel',
+          }),
+          executionDelay: 0,
+          variables: sharedVars,
+        ),
+        true,
+      );
+      expect(sharedVars['heroLevel'], '99');
+
+      expect(
+        await executor.execute(
+          controller,
+          Script(type: '提取文字', params: {
+            'CSS选择器': '.hero-name',
+            '正则预处理': r'\d+',
+            '属性': 'text',
+            '变量名': 'heroNum',
+          }),
+          executionDelay: 0,
+          variables: sharedVars,
+        ),
+        true,
+      );
+      expect(sharedVars['heroNum'], '99');
+
+      expect(
+        await executor.execute(
+          controller,
+          Script(type: '提取文字', params: {
+            'CSS选择器': '.hero-name',
+            '正则预处理': r'不存在(\d+)',
+            '属性': 'text',
+            '变量名': 'heroMiss',
+          }),
+          executionDelay: 0,
+          variables: sharedVars,
+        ),
+        true,
+      );
+      expect(sharedVars['heroMiss'], '');
+
+      expect(
+        await executor.execute(
+          controller,
+          Script(type: '提取文字', params: {
+            'CSS选择器': '.hero-name',
+            '正则预处理': '[未闭合正则',
+            '属性': 'text',
+            '变量名': 'heroBad',
+          }),
+          executionDelay: 0,
+          variables: sharedVars,
+        ),
+        false,
+      );
 
       // 缺少选择器直接失败
       expect(
@@ -1144,15 +1210,15 @@ void main() {
       }
 
       // 等待文字出现 - 立即命中
+      final fastWaitExecutor =
+          ScriptExecutor(defaultStepTimeout: const Duration(milliseconds: 60));
       ScriptStatus? st;
       controller.onEvaluateJavascript = (_) => 'true';
       expect(
-        await executor.execute(
+        await fastWaitExecutor.execute(
           controller,
           Script(type: '等待文字出现', params: {
             '出现文字': '加载完成',
-            '超时时间': 200,
-            '超时单位': 'ms',
           }),
           executionDelay: 0,
           onStatusChanged: (s, m, p) => st = s,
@@ -1164,12 +1230,10 @@ void main() {
       // 等待文字出现 - 超时失败
       controller.onEvaluateJavascript = (_) => 'false';
       expect(
-        await executor.execute(
+        await fastWaitExecutor.execute(
           controller,
           Script(type: '等待文字出现', params: {
             '出现文字': '永远不会出现',
-            '超时时间': 60,
-            '超时单位': 'ms',
           }),
           executionDelay: 0,
           onStatusChanged: (s, m, p) => st = s,
@@ -1179,37 +1243,27 @@ void main() {
       expect(st, ScriptStatus.failure);
     });
 
-    test('26. 超时策略与跳过策略全组合解析测试 (ms / s / 历史数字兼容 / 目标等待 / 未找到时跳过)', () {
-      // 目标等待优先
+    test('26. 跳过策略解析测试 (默认未找到时跳过 0ms / 关闭跳过按默认 5s 轮询)', () {
       expect(
         executor.getElementWaitTimeout(Script(
           type: '点击文字',
-          params: {'目标等待': 350, '未找到时跳过': true, '超时时间': 30, '超时单位': 's'},
-        )),
-        const Duration(milliseconds: 350),
-      );
-      // 未找到时跳过=true 且无目标等待 -> 0ms
-      expect(
-        executor.getElementWaitTimeout(Script(
-          type: '点击文字',
-          params: {'未找到时跳过': true, '超时时间': 15, '超时单位': 's'},
+          params: {'点击文本': '确定'},
         )),
         Duration.zero,
       );
-      // 未找到时跳过=false 且无单位时兼容 <=120 秒 / >120 毫秒
       expect(
         executor.getElementWaitTimeout(Script(
           type: '点击文字',
-          params: {'未找到时跳过': false, '超时时间': 12},
+          params: {'未找到时跳过': true},
         )),
-        const Duration(seconds: 12),
+        Duration.zero,
       );
       expect(
         executor.getElementWaitTimeout(Script(
           type: '点击文字',
-          params: {'未找到时跳过': false, '超时时间': 800},
+          params: {'未找到时跳过': false},
         )),
-        const Duration(milliseconds: 800),
+        const Duration(seconds: 5),
       );
     });
 
@@ -1618,7 +1672,7 @@ void main() {
       await tester.pump(const Duration(seconds: 2));
     });
 
-    testWidgets('32. AddScriptDialog：已移除数值对比-点击文字，超时时间锁定为ms文本并自动换算',
+    testWidgets('32. AddScriptDialog：已移除数值对比-点击文字，高级配置已移除超时时间与目标等待，支持嵌套层级角标',
         (tester) async {
       final browserProvider = BrowserProvider();
       final scriptProvider = ScriptProvider();
@@ -1642,8 +1696,7 @@ void main() {
                           type: '点击文字',
                           params: {
                             '点击文本': '去结算',
-                            '超时时间': 12,
-                            '超时单位': 's',
+                            '未找到时跳过': false,
                           },
                         ),
                       ),
@@ -1664,25 +1717,10 @@ void main() {
       await tester.tap(find.text('打开弹窗'));
       await tester.pumpAndSettle();
 
-      // 验证历史 12s 已自动换算为 12000ms，且“超时时间”行无 s/ms 单位下拉框，显示固定 ms 文本
-      expect(find.text('12000'), findsOneWidget);
-      final timeoutRow = find
-          .ancestor(
-            of: find.text('超时时间'),
-            matching: find.byType(Row),
-          )
-          .first;
-      expect(
-        find.descendant(
-          of: timeoutRow,
-          matching: find.byType(DropdownButtonFormField<String>),
-        ),
-        findsNothing,
-      );
-      expect(
-        find.descendant(of: timeoutRow, matching: find.text('ms')),
-        findsOneWidget,
-      );
+      // 高级配置已自动展开（未找到时跳过=false），验证已彻底移除「超时时间」与「目标等待(ms)」
+      expect(find.text('未找到时跳过'), findsOneWidget);
+      expect(find.text('超时时间'), findsNothing);
+      expect(find.text('目标等待(ms)'), findsNothing);
 
       // 打开脚本类型选择列表，验证已移除 '数值对比-点击文字'
       await tester.tap(find.text('点击文字').first);
@@ -1691,12 +1729,14 @@ void main() {
       await tester.tap(find.text('点击文字').last);
       await tester.pumpAndSettle();
 
-      // 保存后校验 超时时间=12000 且 超时单位='ms'
+      // 保存后校验不再写入 超时时间 / 超时单位 / 目标等待
       await tester.tap(find.text('确认'));
       await tester.pumpAndSettle();
       expect(savedScript, isNotNull);
-      expect(savedScript!.params['超时时间'], 12000);
-      expect(savedScript!.params['超时单位'], 'ms');
+      expect(savedScript!.params.containsKey('超时时间'), isFalse);
+      expect(savedScript!.params.containsKey('超时单位'), isFalse);
+      expect(savedScript!.params.containsKey('目标等待'), isFalse);
+      expect(savedScript!.params['未找到时跳过'], isFalse);
     });
 
     testWidgets('33. WindowSettingsDialog：窗口名称/代理服务器/UA默认继承与自定义及恢复默认',

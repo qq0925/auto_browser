@@ -162,39 +162,24 @@ void main() {
       expect(js.contains('beforeunload'), true);
     });
 
-    test('极速跳过策略：默认未找到目标时 0ms 即时跳过，不受 30s 保护超时阻塞', () {
+    test('极速跳过策略：默认未找到目标时 0ms 即时跳过，关闭跳过时按默认 5s 轮询', () {
       final uiDefaultScript = Script(
         type: '点击文字',
         params: {
           '点击文本': '不存在的按钮',
-          '超时时间': 30,
-          '超时单位': 's',
         },
       );
       expect(executor.getElementWaitTimeout(uiDefaultScript), Duration.zero);
-
-      final customWaitScript = Script(
-        type: '点击文字',
-        params: {
-          '点击文本': '动态弹窗',
-          '超时时间': 30,
-          '目标等待': 500,
-        },
-      );
-      expect(executor.getElementWaitTimeout(customWaitScript),
-          const Duration(milliseconds: 500));
 
       final strictScript = Script(
         type: '点击文字',
         params: {
           '点击文本': '必须出现的按钮',
           '未找到时跳过': false,
-          '超时时间': 8,
-          '超时单位': 's',
         },
       );
       expect(executor.getElementWaitTimeout(strictScript),
-          const Duration(seconds: 8));
+          const Duration(seconds: 5));
     });
 
     test('BrowserTab 事件驱动页面加载通知：onLoadStop 触发时零延迟唤醒', () async {
