@@ -66,6 +66,7 @@ void main() {
       expect(html, contains('<base target=\\"_top\\">'));
       expect(html, contains('__auokPagerDrag'));
       expect(html, contains('__auokPagerEnd'));
+      expect(html, contains('__auokGetCurrentPage'));
       expect(html, contains('__auokHasRecentUserGesture'));
       expect(html, contains('auok-night-mode'));
       expect(html, contains('auok-font-size-adjust'));

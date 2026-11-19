@@ -20,6 +20,8 @@ class WelcomeManager {
   /// 短时内存缓存，避免冷启动 / onWebViewCreated / onUpdateVisitedHistory 同一秒重复发起多次 HTTP 请求
   static String? _cachedDualHtml;
   static DateTime? _cachedAt;
+  static String? _lastPage1Html;
+  static String? _lastPage2Html;
   static const Duration _memoryCacheTtl = Duration(seconds: 3);
 
   /// 统一判断某个 URL 是否属于起始页（含空白页、welcome.html 与 welcome_2.html）
@@ -36,6 +38,8 @@ class WelcomeManager {
   static void clearMemoryCache() {
     _cachedDualHtml = null;
     _cachedAt = null;
+    _lastPage1Html = null;
+    _lastPage2Html = null;
   }
 
   /// 拉取单屏最新远程内容，成功写入本地缓存并返回，失败返回 null
@@ -92,11 +96,11 @@ class WelcomeManager {
     return _readSingleLocalOrAsset(localFilename, assetPath);
   }
 
-  /// 尝试从服务器并发拉取第一屏与第二屏最新内容
-  /// 若至少有一屏拉取成功，则另一屏以本地缓存/兜底补齐并组装双屏 HTML 返回；两屏均失败则返回 null
-  static Future<String?> fetchLatestRemoteContent({
+  /// 尝试从服务器并发拉取第一屏与第二屏最新原始 HTML，并返回是否相对上次内容发生了实质变化
+  /// 用于切回前台时判断是否需要静默重载，避免内容未变化时无故刷新并打回第一屏
+  static Future<({String page1, String page2, bool changed})?>
+      fetchLatestRemotePages({
     Duration timeout = const Duration(seconds: 3),
-    int initialPage = 0,
   }) async {
     final results = await Future.wait<String?>([
       _fetchSingleRemote(remoteUrl, _localFilename, timeout: timeout),
@@ -114,16 +118,30 @@ class WelcomeManager {
     final page2 = remote2 ??
         await _readSingleLocalOrAsset(_localFilename2, _assetPath2);
 
-    final dualHtml = buildDualScreenHtml(
-      page1,
-      page2,
+    final changed = _lastPage1Html != page1 || _lastPage2Html != page2;
+    _lastPage1Html = page1;
+    _lastPage2Html = page2;
+    _cachedDualHtml = buildDualScreenHtml(page1, page2, initialPage: 0);
+    _cachedAt = DateTime.now();
+
+    return (page1: page1, page2: page2, changed: changed);
+  }
+
+  /// 尝试从服务器并发拉取第一屏与第二屏最新内容
+  /// 若至少有一屏拉取成功，则另一屏以本地缓存/兜底补齐并组装双屏 HTML 返回；两屏均失败则返回 null
+  static Future<String?> fetchLatestRemoteContent({
+    Duration timeout = const Duration(seconds: 3),
+    int initialPage = 0,
+  }) async {
+    final fetched = await fetchLatestRemotePages(timeout: timeout);
+    if (fetched == null) {
+      return null;
+    }
+    return buildDualScreenHtml(
+      fetched.page1,
+      fetched.page2,
       initialPage: initialPage,
     );
-    if (initialPage == 0) {
-      _cachedDualHtml = dualHtml;
-      _cachedAt = DateTime.now();
-    }
-    return dualHtml;
   }
 
   /// 获取双屏起始页完整 HTML 内容
@@ -157,6 +175,8 @@ class WelcomeManager {
       ),
     ]);
 
+    _lastPage1Html = pages[0];
+    _lastPage2Html = pages[1];
     final dualHtml = buildDualScreenHtml(
       pages[0],
       pages[1],
@@ -601,6 +621,10 @@ class WelcomeManager {
 
     window.__auokGoToWelcomePage = function(index) {
       goToPage(index, true);
+    };
+
+    window.__auokGetCurrentPage = function() {
+      return currentPage;
     };
 
     window.__auokPagerDrag = function(slideIndex, dx) {

@@ -70,12 +70,27 @@ class _BrowserHomePageState extends State<BrowserHomePage>
     }
   }
 
+  /// 读取双屏起始页当前停留的屏索引（0: 第一屏，1: 第二屏）
+  Future<int> _getCurrentWelcomePageIndex(
+      InAppWebViewController? controller) async {
+    if (controller == null) return 0;
+    try {
+      final res = await controller.evaluateJavascript(
+        source:
+            "window.__auokGetCurrentPage ? window.__auokGetCurrentPage() : 0",
+      );
+      if (res == 1 || res == '1') return 1;
+      if (res is num && res.toInt() == 1) return 1;
+    } catch (_) {}
+    return 0;
+  }
+
   Future<void> _silentlyRefreshWelcomeIfAvailable() async {
     final browserProvider = context.read<BrowserProvider>();
-    final content = await WelcomeManager.fetchLatestRemoteContent(
+    final fetched = await WelcomeManager.fetchLatestRemotePages(
       timeout: const Duration(seconds: 3),
     );
-    if (content != null && content.isNotEmpty && mounted) {
+    if (fetched != null && fetched.changed && mounted) {
       for (var tab in browserProvider.tabs) {
         // 只有确实处于欢迎页且未在导航跳转中的标签才静默更新，杜绝在点击链接加载期间被误重载
         final isWelcome = tab.url == 'about:blank' ||
@@ -83,6 +98,12 @@ class _BrowserHomePageState extends State<BrowserHomePage>
             tab.url.endsWith('welcome.html') ||
             tab.url == 'file:///welcome.html';
         if (isWelcome && !tab.isLoading) {
+          final pageIdx = await _getCurrentWelcomePageIndex(tab.controller);
+          final content = WelcomeManager.buildDualScreenHtml(
+            fetched.page1,
+            fetched.page2,
+            initialPage: pageIdx,
+          );
           tab.controller?.loadData(
             data: content,
             mimeType: 'text/html',
@@ -841,7 +862,8 @@ class _BrowserHomePageState extends State<BrowserHomePage>
                                   (tabUrl.isEmpty || tabUrl == 'about:blank' || tabUrl.endsWith('welcome.html'));
 
                               if (isReallyWelcome) {
-                                WelcomeManager.getWelcomeContent(forceRefresh: true).then((content) {
+                                final pageIdx = await _getCurrentWelcomePageIndex(currentTab.controller);
+                                WelcomeManager.getWelcomeContent(forceRefresh: true, initialPage: pageIdx).then((content) {
                                   currentTab.controller?.loadData(
                                     data: content,
                                     mimeType: 'text/html',
