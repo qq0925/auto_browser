@@ -4,6 +4,8 @@ workflows:
     max_build_duration: 60
     instance_type: mac_mini_m2
     environment:
+      groups:
+        - android_signing
       flutter: stable
       xcode: latest
       cocoapods: default
@@ -16,18 +18,31 @@ workflows:
         script: |
           flutter packages pub get
 
-      - name: Verify Android Keystore
+      - name: Prepare Android Keystore
         script: |
           KEYSTORE_PATH="android/app/upload-keystore.jks"
-          if [ ! -f "$KEYSTORE_PATH" ]; then
-            echo "Error: $KEYSTORE_PATH not found! Please ensure the keystore file is present."
+          if [ -n "${CM_KEYSTORE_BASE64:-}" ]; then
+            echo "Restoring Android keystore from CM_KEYSTORE_BASE64..."
+            python3 -c 'import os, base64; open("android/app/upload-keystore.jks", "wb").write(base64.b64decode(os.environ["CM_KEYSTORE_BASE64"].strip()))'
+          elif [ ! -f "$KEYSTORE_PATH" ]; then
+            echo "Error: CM_KEYSTORE_BASE64 is not set and $KEYSTORE_PATH not found!"
             exit 1
           fi
+
+          if [ ! -s "$KEYSTORE_PATH" ]; then
+            echo "Error: $KEYSTORE_PATH is empty!"
+            exit 1
+          fi
+
           if [ ! -f "android/key.properties" ]; then
-            echo "Error: android/key.properties not found!"
-            exit 1
+            cat << EOF > android/key.properties
+          storePassword=${CM_KEYSTORE_PASSWORD:-auok123456}
+          keyPassword=${CM_KEY_PASSWORD:-auok123456}
+          keyAlias=${CM_KEY_ALIAS:-upload}
+          storeFile=upload-keystore.jks
+          EOF
           fi
-          echo "Using fixed Android keystore: $KEYSTORE_PATH"
+          echo "Android release keystore ready."
 
       - name: Build Android APK
         script: |
