@@ -16,6 +16,37 @@ workflows:
         script: |
           flutter packages pub get
 
+      - name: Prepare Android Keystore
+        script: |
+          KEYSTORE_PATH="android/app/upload-keystore.jks"
+          if [ ! -f "android/key.properties" ]; then
+            cat << 'EOF' > android/key.properties
+          storePassword=auok123456
+          keyPassword=auok123456
+          keyAlias=upload
+          storeFile=upload-keystore.jks
+          EOF
+          fi
+
+          if [ -n "$CM_KEYSTORE_BASE64" ]; then
+            echo "Restoring Android keystore from CM_KEYSTORE_BASE64..."
+            echo "$CM_KEYSTORE_BASE64" | (base64 --decode 2>/dev/null || base64 -D) > "$KEYSTORE_PATH"
+          elif [ -f "$KEYSTORE_PATH" ]; then
+            echo "Using existing Android keystore: $KEYSTORE_PATH"
+          else
+            echo "Generating new Android keystore via macOS keytool..."
+            keytool -genkey -v \
+              -keystore "$KEYSTORE_PATH" \
+              -storetype JKS \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -alias upload \
+              -storepass auok123456 \
+              -keypass auok123456 \
+              -dname "CN=Auok, OU=Dev, O=DianMeng, L=CN, S=CN, C=CN"
+          fi
+
       - name: Build Android APK
         script: |
           flutter build apk --release
@@ -103,6 +134,7 @@ workflows:
     artifacts:
       - auto_browser.apk
       - auto_browser.ipa
+      - android/app/upload-keystore.jks
 
     publishing:
       email:
