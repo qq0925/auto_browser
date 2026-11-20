@@ -592,7 +592,7 @@ class _BrowserViewState extends State<BrowserView> {
               allowsInlineMediaPlayback: true,
               iframeAllow: "camera; microphone",
               iframeAllowFullscreen: true,
-              transparentBackground: true,
+              transparentBackground: false,
               // ====== 1. 全局核心渲染与主流兼容性支持 ======
               javaScriptEnabled: true,
               domStorageEnabled: true,

@@ -46,6 +46,7 @@ class _BrowserHomePageState extends State<BrowserHomePage>
     with WidgetsBindingObserver {
   final TextEditingController _urlController = TextEditingController();
   bool _isAppStarting = true;
+  bool _showSplashOverlay = true;
 
   @override
   void initState() {
@@ -1083,19 +1084,21 @@ class _BrowserHomePageState extends State<BrowserHomePage>
             ),
             bottom: PreferredSize(
               preferredSize: const Size.fromHeight(3.0),
-              child: (browserProvider.currentTab != null &&
-                      browserProvider.currentTab!.progress < 1.0)
-                  ? LinearProgressIndicator(
-                      value: browserProvider.currentTab!.progress,
+              child: ValueListenableBuilder<double>(
+                valueListenable: browserProvider.currentProgressNotifier,
+                builder: (context, progress, _) {
+                  if (browserProvider.currentTab != null && progress < 1.0) {
+                    return LinearProgressIndicator(
+                      value: progress,
                       backgroundColor: Colors.grey[800],
                       valueColor:
                           const AlwaysStoppedAnimation<Color>(Colors.blue),
                       minHeight: 3.0,
-                    )
-                  : Container(
-                      height: 3.0,
-                      color: Colors.transparent,
-                    ),
+                    );
+                  }
+                  return const SizedBox(height: 3.0);
+                },
+              ),
             ),
             actions: [],
           ),
@@ -1263,16 +1266,24 @@ class _BrowserHomePageState extends State<BrowserHomePage>
     ),
   ),
 
-    // 开屏启动 Loading 层（等待网络与初始化就绪并平滑淡出）
-    AnimatedOpacity(
-      opacity: _isAppStarting ? 1.0 : 0.0,
-      duration: const Duration(milliseconds: 450),
-      curve: Curves.easeInOutCubic,
-      child: IgnorePointer(
-        ignoring: !_isAppStarting,
-        child: SplashScreenView(isStarting: _isAppStarting),
+    // 开屏启动 Loading 层（等待网络与初始化就绪并平滑淡出后彻底卸载，避免后台空转动画）
+    if (_showSplashOverlay)
+      AnimatedOpacity(
+        opacity: _isAppStarting ? 1.0 : 0.0,
+        duration: const Duration(milliseconds: 450),
+        curve: Curves.easeInOutCubic,
+        onEnd: () {
+          if (!_isAppStarting && _showSplashOverlay && mounted) {
+            setState(() {
+              _showSplashOverlay = false;
+            });
+          }
+        },
+        child: IgnorePointer(
+          ignoring: !_isAppStarting,
+          child: SplashScreenView(isStarting: _isAppStarting),
+        ),
       ),
-    ),
   ],
 );
   },

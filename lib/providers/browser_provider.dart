@@ -36,6 +36,9 @@ class BrowserProvider extends ChangeNotifier {
 
   Timer? _saveBookmarksAndHistoryTimer;
   Timer? _saveTabsStateTimer;
+  /// 独立进度通知器：仅驱动顶部 3px 进度条局部重绘，避免网页加载期间触发全页 Consumer 重建
+  final ValueNotifier<double> currentProgressNotifier =
+      ValueNotifier<double>(1.0);
 
   void _scheduleSaveBookmarksAndHistory() {
     _saveBookmarksAndHistoryTimer?.cancel();
@@ -57,6 +60,7 @@ class BrowserProvider extends ChangeNotifier {
   void dispose() {
     _saveBookmarksAndHistoryTimer?.cancel();
     _saveTabsStateTimer?.cancel();
+    currentProgressNotifier.dispose();
     super.dispose();
   }
 
@@ -392,6 +396,7 @@ class BrowserProvider extends ChangeNotifier {
     _tabs.add(tab);
     if (switchToNewTab) {
       _currentIndex = _tabs.length - 1;
+      currentProgressNotifier.value = tab.progress;
     }
     notifyListeners();
     _saveTabsState();
@@ -426,6 +431,7 @@ class BrowserProvider extends ChangeNotifier {
       _currentIndex--;
     }
 
+    currentProgressNotifier.value = currentTab?.progress ?? 1.0;
     notifyListeners();
     _saveTabsState();
   }
@@ -532,15 +538,20 @@ class BrowserProvider extends ChangeNotifier {
   void updateTabProgress(double progress) {
     if (_currentIndex >= 0 && _currentIndex < _tabs.length) {
       final tab = _tabs[_currentIndex];
-      if ((tab.progress - progress).abs() < 0.001) return;
+      if ((tab.progress - progress).abs() < 0.01 &&
+          progress != 0.0 &&
+          progress != 1.0) {
+        return;
+      }
       tab.progress = progress;
-      notifyListeners();
+      currentProgressNotifier.value = progress;
     }
   }
 
   void setCurrentIndex(int index) {
     if (index >= 0 && index < _tabs.length) {
       _currentIndex = index;
+      currentProgressNotifier.value = _tabs[index].progress;
       applyProxyForTab(_tabs[index]);
       notifyListeners();
       _saveTabsState();
